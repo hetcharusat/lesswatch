@@ -31,21 +31,22 @@ import {
   Minimize,
   MoveVertical,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Globe,
+  Search,
+  Download,
+  Heart
 } from 'lucide-react';
 
 /**
- * PoufPlayer - Professional Video.js 10 / Cinema Pink Edition
+ * PoufPlayer - Compact Video.js 10 Cinema Pink Edition
  * 
- * Clean, uncluttered UI:
- * - Scrim contrast gradient over moving video
- * - Tabular steady numbers for time display
- * - Main bar has ONLY essential controls: Play/Pause, -10s, +10s, Volume, Time, Quick CC, Settings Gear, Fullscreen
- * - All secondary actions, badges, and complex controls reside in the unified Video.js 10 Settings Menu:
- *     1. Subtitles (Tracks, Upload custom .srt/.vtt, Pixel Size controller, Pixel Position controller, Delay offset, Styling)
- *     2. Audio Tracks (Multi-audio track selector with codecs, background AAC pre-extraction)
- *     3. Aspect Ratio (Contain 16:9, Cinema Zoom 21:9 Cover, Stretch Fill)
- *     4. Playback Speed & Room Sync (0.5x to 2.0x, Force Sync Both Viewers)
+ * - Compact, sleek player deck (36px controls, tightened padding)
+ * - Subtitles menu is OUTSIDE of Settings: Dedicated Subtitles button opens full subtitle track list,
+ *   custom file upload, OpenSubtitles 1-click search & download, pixel size & bottom position steppers,
+ *   sync delay, and Special Pink Aesthetic Subtitle Mode!
+ * - Settings menu is compact and dedicated to: Audio Tracks (multi-audio & background cache),
+ *   Aspect Ratio (16:9, 21:9 Cinema Zoom, Stretch), and Playback Speed + Room Sync.
  * - Microsecond Dual-Track Audio Sync Engine for 0ms zero-lag streaming
  */
 export function PoufPlayer({
@@ -96,11 +97,12 @@ export function PoufPlayer({
   const [hoverTime, setHoverTime] = useState(null);
   const [hoverPosition, setHoverPosition] = useState(0);
 
-  // Unified Settings Menu & Tabs
+  // Separate Menus for Subtitles and Settings
+  const [showSubMenu, setShowSubMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState('subtitles'); // 'subtitles' | 'audio' | 'aspect' | 'speed'
+  const [activeSettingsTab, setActiveSettingsTab] = useState('audio'); // 'audio' | 'aspect' | 'speed'
 
-  // Subtitle Customization with Pixel Controllers (stored in localStorage)
+  // Subtitle Customization (with Special Pink Subtitle Mode & Pixel Controllers)
   const [subtitleSize, setSubtitleSize] = useState(() => {
     return parseInt(localStorage.getItem('wt_sub_size_px'), 10) || propSubtitleSize || 22;
   });
@@ -115,9 +117,22 @@ export function PoufPlayer({
     return parseFloat(localStorage.getItem('wt_sub_delay') || '0.0');
   });
   const [subtitleStyle, setSubtitleStyle] = useState(() => {
-    return localStorage.getItem('wt_sub_style') || 'transparent'; // 'transparent' | 'soft' | 'box'
+    return localStorage.getItem('wt_sub_style') || 'pink'; // 'pink' | 'transparent' | 'soft' | 'box'
   });
   const [uploadedSubtitles, setUploadedSubtitles] = useState([]);
+
+  // OpenSubtitles Online Search State
+  const [showOnlineSubSearch, setShowOnlineSubSearch] = useState(false);
+  const [onlineSearchQuery, setOnlineSearchQuery] = useState(() => {
+    return (title || '')
+      .replace(/\.(mkv|mp4|avi|webm)$/i, '')
+      .replace(/[\._]/g, ' ')
+      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts)\b/gi, '')
+      .trim();
+  });
+  const [onlineSearchResults, setOnlineSearchResults] = useState([]);
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [isDownloadingOnline, setIsDownloadingOnline] = useState(false);
 
   // Aspect Ratio & Playback Speed
   const [aspectRatio, setAspectRatio] = useState(() => {
@@ -206,9 +221,7 @@ export function PoufPlayer({
     return `${pMins}:${pSecs}`;
   }
 
-  // --------------------------------------------------------------------------
   // Mount Direct Stream to Video
-  // --------------------------------------------------------------------------
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !directStreamUrl) return;
@@ -371,8 +384,7 @@ export function PoufPlayer({
   }, [activeSubtitleIndex, allSubtitles.length]);
 
   function parseSubtitlesText(rawText) {
-    // Normalize SRT comma timestamps to VTT period timestamps
-    const text = rawText
+    const text = (rawText || '')
       .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n');
@@ -454,9 +466,57 @@ export function PoufPlayer({
     e.target.value = '';
   };
 
-  // --------------------------------------------------------------------------
+  // OpenSubtitles Online Search & Download
+  const handleSearchOnlineSubtitles = async () => {
+    if (!onlineSearchQuery.trim()) return;
+    setIsSearchingOnline(true);
+    try {
+      const res = await fetch(`/api/subtitles/search?query=${encodeURIComponent(onlineSearchQuery.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOnlineSearchResults(data.data || []);
+      }
+    } catch (e) {
+      console.warn('Online subtitle search error:', e);
+    } finally {
+      setIsSearchingOnline(false);
+    }
+  };
+
+  const handleDownloadOnlineSubtitle = async (sub) => {
+    setIsDownloadingOnline(true);
+    try {
+      const res = await fetch('/api/subtitles/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: sub.fileId, fileName: sub.fileName })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          const parsedCues = parseSubtitlesText(data.vttContent);
+          const newTrack = {
+            id: `os-${Date.now()}`,
+            title: `🌐 ${sub.fileName || 'OpenSubtitles'}`,
+            url: data.url,
+            cues: parsedCues,
+            isCustom: true
+          };
+          setUploadedSubtitles(prev => [...prev, newTrack]);
+          const newIndex = subtitleTracks.length + uploadedSubtitles.length;
+          cuesRef.current = parsedCues;
+          onSubtitleChange?.(newIndex);
+          setShowOnlineSubSearch(false);
+        }
+      }
+    } catch (e) {
+      console.warn('Online subtitle download error:', e);
+    } finally {
+      setIsDownloadingOnline(false);
+    }
+  };
+
   // Video DOM Event Handlers
-  // --------------------------------------------------------------------------
   const handleTimeUpdate = useCallback(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
@@ -627,7 +687,7 @@ export function PoufPlayer({
   function handleMouseMove() {
     setShowControls(true);
     if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
-    if (localPlaying && !showSettingsMenu) {
+    if (localPlaying && !showSettingsMenu && !showSubMenu) {
       hideControlsTimerRef.current = setTimeout(() => setShowControls(false), 3500);
     }
   }
@@ -681,10 +741,9 @@ export function PoufPlayer({
     localStorage.setItem('wt_playback_speed', newSpeed);
   };
 
-  // Hotkey Navigation
+  // Keyboard Shortcuts
   useEffect(() => {
     function handleKeyDown(e) {
-      // Ignore if user is typing in chat or input
       if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
         return;
       }
@@ -719,16 +778,16 @@ export function PoufPlayer({
       ref={containerRef}
       className={`pouf-player-container ${isFullscreen ? 'pouf-fullscreen' : ''} ${className}`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => localPlaying && !showSettingsMenu && setShowControls(false)}
+      onMouseLeave={() => localPlaying && !showSettingsMenu && !showSubMenu && setShowControls(false)}
       style={{
         position: 'relative',
         width: '100%',
         height: '100%',
-        minHeight: '380px',
+        minHeight: '340px',
         background: '#07030a',
-        borderRadius: isFullscreen ? '0px' : '24px',
+        borderRadius: isFullscreen ? '0px' : '20px',
         overflow: 'hidden',
-        boxShadow: isFullscreen ? 'none' : '0 20px 45px rgba(244,114,182,0.25)',
+        boxShadow: isFullscreen ? 'none' : '0 16px 36px rgba(244,114,182,0.2)',
         userSelect: 'none',
         display: 'flex',
         flexDirection: 'column',
@@ -762,55 +821,55 @@ export function PoufPlayer({
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Top Title & Specs Overlay */}
+      {/* 3. Compact Top Title & Specs Overlay */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          padding: '1.25rem 1.5rem',
+          padding: '0.85rem 1.25rem',
           background: 'linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'flex-start',
+          alignItems: 'center',
           zIndex: 40,
           opacity: showControls ? 1 : 0,
-          transform: showControls ? 'translateY(0)' : 'translateY(-15px)',
-          transition: 'all 0.3s cubic-bezier(0.16,1,0.3,1)',
+          transform: showControls ? 'translateY(0)' : 'translateY(-12px)',
+          transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: showControls ? 'auto' : 'none'
         }}
       >
-        <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
+          <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {title || 'Video Stream'}
           </h2>
-          <div style={{ fontSize: '0.78rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-            <span>1080p • Direct Stream</span>
+          <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '2px', fontWeight: 600, display: 'flex', gap: '8px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            <span>Direct Stream</span>
             {audioTracks.length > 1 && (
               <span style={{ color: '#f472b6' }}>• Multi-Audio ({audioTracks.length})</span>
             )}
             {allSubtitles.length > 0 && (
-              <span style={{ color: '#a7f3d0' }}>• Subtitles ({allSubtitles.length})</span>
+              <span style={{ color: '#a7f3d0' }}>• Subs ({allSubtitles.length})</span>
             )}
           </div>
         </div>
 
-        {/* Top-Right Badges: Viewer count & Fullscreen */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Top-Right Badges */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <div
             style={{
-              padding: '5px 12px',
+              padding: '4px 10px',
               borderRadius: '9999px',
               background: 'rgba(255, 255, 255, 0.15)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.25)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
               color: '#fff',
-              fontSize: '0.78rem',
+              fontSize: '0.74rem',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '5px'
             }}
           >
             <span>👥</span>
@@ -820,11 +879,11 @@ export function PoufPlayer({
           <button
             onClick={toggleFullscreen}
             style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
               background: 'rgba(255, 255, 255, 0.15)',
-              border: '1px solid rgba(255, 255, 255, 0.25)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
               color: '#fff',
               display: 'flex',
               alignItems: 'center',
@@ -833,12 +892,12 @@ export function PoufPlayer({
             }}
             title="Fullscreen (F)"
           >
-            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
         </div>
       </div>
 
-      {/* 4. Subtitle Display Layer with Exact Pixel Positioning & Styling */}
+      {/* 4. Subtitle Display Layer with Special Pink Subtitle Mode */}
       {currentCueText && (
         <div
           style={{
@@ -856,18 +915,23 @@ export function PoufPlayer({
           <span
             style={{
               display: 'inline-block',
-              color: '#ffffff',
+              color: subtitleStyle === 'pink' ? '#ff85c0' : '#ffffff',
               fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               fontSize: `${subtitleSize}px`,
-              fontWeight: 700,
+              fontWeight: 800,
               lineHeight: 1.35,
               padding: subtitleStyle === 'transparent' ? '4px 8px' : '6px 14px',
-              borderRadius: subtitleStyle === 'transparent' ? '0' : '8px',
-              background: subtitleStyle === 'transparent' ? 'transparent' : (subtitleStyle === 'box' ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.45)'),
-              backdropFilter: subtitleStyle === 'soft' ? 'blur(4px)' : 'none',
-              textShadow: subtitleStyle === 'transparent'
-                ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
-                : '0 1px 3px rgba(0,0,0,0.8)',
+              borderRadius: subtitleStyle === 'transparent' ? '0' : '10px',
+              background: subtitleStyle === 'pink'
+                ? 'rgba(35, 12, 28, 0.65)'
+                : (subtitleStyle === 'transparent' ? 'transparent' : (subtitleStyle === 'box' ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.45)')),
+              backdropFilter: (subtitleStyle === 'pink' || subtitleStyle === 'soft') ? 'blur(6px)' : 'none',
+              border: subtitleStyle === 'pink' ? '1px solid rgba(244, 114, 182, 0.4)' : 'none',
+              textShadow: subtitleStyle === 'pink'
+                ? '0 0 12px rgba(244, 114, 182, 0.9), 0 0 4px #ec4899, -1.5px -1.5px 0 #3b0724, 1.5px -1.5px 0 #3b0724, -1.5px 1.5px 0 #3b0724, 1.5px 1.5px 0 #3b0724'
+                : (subtitleStyle === 'transparent'
+                  ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
+                  : '0 1px 3px rgba(0,0,0,0.8)'),
               whiteSpace: 'pre-wrap',
               letterSpacing: '0.015em'
             }}
@@ -882,37 +946,37 @@ export function PoufPlayer({
         <div style={{ position: 'absolute', pointerEvents: 'none', zIndex: 35, animation: 'poufPopIn 0.5s forwards' }}>
           <div
             style={{
-              width: '84px',
-              height: '84px',
+              width: '74px',
+              height: '74px',
               borderRadius: '50%',
               background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(254,215,226,0.92))',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 15px 35px rgba(236,72,153,0.4)',
-              border: '3px solid #f472b6'
+              boxShadow: '0 12px 30px rgba(236,72,153,0.4)',
+              border: '2.5px solid #f472b6'
             }}
           >
-            {centerAnimation === 'play' ? <ClayPlay size={44} /> : <ClayPause size={44} />}
+            {centerAnimation === 'play' ? <ClayPlay size={38} /> : <ClayPause size={38} />}
           </div>
         </div>
       )}
 
-      {/* 6. Video.js 10 Cinema Pink Scrim Background & Floating Control Bar */}
+      {/* 6. Compact Control Deck & Scrim */}
       <div
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          padding: '24px 20px 14px 20px',
-          background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 65%, transparent 100%)',
+          padding: '16px 16px 10px 16px',
+          background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 65%, transparent 100%)',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          gap: '8px',
           opacity: showControls ? 1 : 0,
-          transform: showControls ? 'translateY(0)' : 'translateY(15px)',
+          transform: showControls ? 'translateY(0)' : 'translateY(12px)',
           transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: showControls ? 'auto' : 'none'
         }}
@@ -926,7 +990,7 @@ export function PoufPlayer({
           style={{
             position: 'relative',
             width: '100%',
-            height: '16px',
+            height: '14px',
             display: 'flex',
             alignItems: 'center',
             cursor: 'pointer'
@@ -938,15 +1002,15 @@ export function PoufPlayer({
               style={{
                 position: 'absolute',
                 left: `${hoverPosition}%`,
-                bottom: '22px',
+                bottom: '20px',
                 transform: 'translateX(-50%)',
                 background: 'rgba(23, 15, 32, 0.95)',
                 backdropFilter: 'blur(10px)',
                 border: '1px solid rgba(244, 114, 182, 0.5)',
                 color: '#fce7f3',
-                padding: '3px 8px',
-                borderRadius: '6px',
-                fontSize: '0.72rem',
+                padding: '2px 7px',
+                borderRadius: '5px',
+                fontSize: '0.70rem',
                 fontWeight: 700,
                 fontVariantNumeric: 'tabular-nums',
                 pointerEvents: 'none',
@@ -962,7 +1026,7 @@ export function PoufPlayer({
           <div
             style={{
               width: '100%',
-              height: '5px',
+              height: '4px',
               borderRadius: '9999px',
               background: 'rgba(255, 255, 255, 0.22)',
               position: 'relative',
@@ -989,7 +1053,7 @@ export function PoufPlayer({
                 bottom: 0,
                 width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
                 background: 'linear-gradient(90deg, #ec4899, #f472b6)',
-                boxShadow: '0 0 10px #ec4899'
+                boxShadow: '0 0 8px #ec4899'
               }}
             />
           </div>
@@ -1000,28 +1064,27 @@ export function PoufPlayer({
               position: 'absolute',
               left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
               transform: 'translateX(-50%)',
-              width: '14px',
-              height: '14px',
+              width: '12px',
+              height: '12px',
               borderRadius: '50%',
               background: '#ec4899',
               border: '2px solid #ffffff',
-              boxShadow: '0 0 10px rgba(236,72,153,0.9)',
-              pointerEvents: 'none',
-              transition: isDraggingScrubberRef.current ? 'none' : 'transform 0.1s ease'
+              boxShadow: '0 0 8px rgba(236,72,153,0.9)',
+              pointerEvents: 'none'
             }}
           />
         </div>
 
-        {/* Bottom Control Actions (Clean & Professional) */}
+        {/* Bottom Control Actions (Compact & Sleek) */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          {/* Left Controls: Big Circular Play/Pause, Rewind 10s, Forward 10s, Volume, Time */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Large Hot Pink Play/Pause Button */}
+          {/* Left Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Hot Pink Play/Pause Button */}
             <button
               onClick={togglePlayPause}
               style={{
-                width: '42px',
-                height: '42px',
+                width: '36px',
+                height: '36px',
                 borderRadius: '50%',
                 background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
                 color: '#ffffff',
@@ -1029,27 +1092,27 @@ export function PoufPlayer({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 14px rgba(236, 72, 153, 0.55)',
+                boxShadow: '0 3px 12px rgba(236, 72, 153, 0.55)',
                 cursor: 'pointer',
                 transition: 'transform 0.15s ease'
               }}
               className="pouf-btn-tactile"
               title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
             >
-              {localPlaying ? <ClayPause size={20} /> : <ClayPlay size={20} />}
+              {localPlaying ? <ClayPause size={17} /> : <ClayPlay size={17} />}
             </button>
 
             {/* -10s Rewind Button */}
             <button
               onClick={() => handleSeekRelative(-10)}
               style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '10px',
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
                 color: '#ffffff',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
@@ -1059,20 +1122,20 @@ export function PoufPlayer({
               className="pouf-btn-tactile"
               title="Rewind 10s (Left Arrow)"
             >
-              <RotateCcw size={15} />
+              <RotateCcw size={13} />
             </button>
 
             {/* +10s Forward Button */}
             <button
               onClick={() => handleSeekRelative(10)}
               style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '10px',
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                width: '30px',
+                height: '30px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
                 color: '#ffffff',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
@@ -1082,17 +1145,17 @@ export function PoufPlayer({
               className="pouf-btn-tactile"
               title="Fast Forward 10s (Right Arrow)"
             >
-              <RotateCw size={15} />
+              <RotateCw size={13} />
             </button>
 
             {/* Volume Control */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '2px' }}>
               <button
                 onClick={() => setIsMuted(m => !m)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#fff', display: 'flex', alignItems: 'center' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px', color: '#fff', display: 'flex', alignItems: 'center' }}
                 title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
               >
-                {isMuted || volume === 0 ? <VolumeX size={19} color="#f472b6" /> : <Volume2 size={19} />}
+                {isMuted || volume === 0 ? <VolumeX size={17} color="#f472b6" /> : <Volume2 size={17} />}
               </button>
 
               <input
@@ -1108,75 +1171,85 @@ export function PoufPlayer({
                   localStorage.setItem('wt_player_vol', val);
                 }}
                 style={{
-                  width: '64px',
+                  width: '54px',
                   accentColor: '#ec4899',
                   cursor: 'pointer',
-                  height: '4px'
+                  height: '3px'
                 }}
               />
             </div>
 
-            {/* Time Stamp (Tabular Steady Numbers) */}
+            {/* Steady Tabular Time Stamp */}
             <div
               style={{
                 color: '#ffffff',
                 fontWeight: 700,
-                fontSize: '0.86rem',
+                fontSize: '0.80rem',
                 fontVariantNumeric: 'tabular-nums',
-                letterSpacing: '0.5px',
-                marginLeft: '6px'
+                letterSpacing: '0.3px',
+                marginLeft: '4px'
               }}
             >
               {formatTime(playProgress)} / {formatTime(duration)}
             </div>
           </div>
 
-          {/* Right Controls: Quick CC, Settings Gear, Fullscreen */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Quick CC Subtitles Toggle Button */}
+          {/* Right Controls: Dedicated Subs Menu Button, Settings Gear, Fullscreen */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {/* DEDICATED SUBTITLES MENU BUTTON (OUTSIDE SETTINGS) */}
             <button
-              onClick={handleToggleCC}
+              onClick={() => {
+                setShowSubMenu(prev => !prev);
+                setShowSettingsMenu(false);
+              }}
               style={{
-                padding: '6px 10px',
+                padding: '5px 10px',
                 borderRadius: '8px',
-                background: activeSubtitleIndex >= 0 ? 'rgba(236, 72, 153, 0.3)' : 'rgba(255, 255, 255, 0.08)',
-                border: activeSubtitleIndex >= 0 ? '1px solid rgba(244, 114, 182, 0.6)' : '1px solid rgba(255, 255, 255, 0.15)',
-                color: activeSubtitleIndex >= 0 ? '#f472b6' : '#d1d5db',
+                background: showSubMenu || activeSubtitleIndex >= 0 ? 'rgba(236, 72, 153, 0.28)' : 'rgba(255, 255, 255, 0.08)',
+                border: showSubMenu || activeSubtitleIndex >= 0 ? '1px solid rgba(244, 114, 182, 0.55)' : '1px solid rgba(255, 255, 255, 0.15)',
+                color: showSubMenu || activeSubtitleIndex >= 0 ? '#f472b6' : '#d1d5db',
                 fontWeight: 800,
-                fontSize: '0.78rem',
+                fontSize: '0.74rem',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '5px',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease'
+                transition: 'all 0.15s ease',
+                boxShadow: showSubMenu ? '0 0 10px rgba(236,72,153,0.4)' : 'none'
               }}
-              title="Toggle Subtitles (C)"
+              title="Subtitles & Styling"
             >
-              <ClaySubtitles size={17} />
-              <span>CC</span>
+              <ClaySubtitles size={15} />
+              <span>Subs</span>
+              {activeSubtitleIndex >= 0 && (
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34d399' }} />
+              )}
             </button>
 
-            {/* Unified Settings Gear Button */}
+            {/* SETTINGS GEAR BUTTON */}
             <button
-              onClick={() => setShowSettingsMenu(prev => !prev)}
+              onClick={() => {
+                setShowSettingsMenu(prev => !prev);
+                setShowSubMenu(false);
+              }}
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: showSettingsMenu ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.1)',
-                border: showSettingsMenu ? '1px solid #f472b6' : '1px solid rgba(255, 255, 255, 0.2)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: showSettingsMenu ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.08)',
+                border: showSettingsMenu ? '1px solid #f472b6' : '1px solid rgba(255, 255, 255, 0.18)',
                 color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
-                boxShadow: showSettingsMenu ? '0 0 14px rgba(236,72,153,0.5)' : 'none'
+                boxShadow: showSettingsMenu ? '0 0 12px rgba(236,72,153,0.45)' : 'none'
               }}
-              title="Settings (Subtitles, Audio, Aspect, Speed)"
+              title="Settings (Audio, Ratio, Speed)"
             >
               <Settings
-                size={18}
+                size={16}
                 style={{
                   transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)',
                   transition: 'transform 0.3s ease'
@@ -1188,11 +1261,11 @@ export function PoufPlayer({
             <button
               onClick={toggleFullscreen}
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'rgba(255, 255, 255, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.18)',
                 color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
@@ -1201,56 +1274,423 @@ export function PoufPlayer({
               }}
               title="Fullscreen (F)"
             >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
             </button>
           </div>
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* UNIFIED VIDEO.JS 10 / CINEMA PINK SETTINGS MENU POPOVER            */}
+        {/* 7. DEDICATED SUBTITLES & STYLING POPOVER (OUTSIDE SETTINGS)        */}
+        {/* ------------------------------------------------------------------ */}
+        {showSubMenu && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              bottom: '52px',
+              right: '50px',
+              background: 'rgba(18, 10, 24, 0.96)',
+              backdropFilter: 'blur(20px)',
+              border: '1.5px solid rgba(244, 114, 182, 0.4)',
+              borderRadius: '16px',
+              padding: '12px',
+              width: '330px',
+              maxHeight: '450px',
+              boxShadow: '0 14px 38px rgba(0, 0, 0, 0.85), 0 0 18px rgba(244, 114, 182, 0.15)',
+              zIndex: 70,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              overflowY: 'auto'
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ClaySubtitles size={16} />
+                <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#fce7f3' }}>
+                  Subtitles & Customization
+                </span>
+              </div>
+              <button
+                onClick={() => setShowSubMenu(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Subtitle Track Selector */}
+            <div>
+              <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
+                Active Track
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '100px', overflowY: 'auto' }}>
+                <button
+                  onClick={() => onSubtitleChange?.(-1)}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: '6px',
+                    background: activeSubtitleIndex === -1 ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                    color: activeSubtitleIndex === -1 ? '#f472b6' : '#e5e7eb',
+                    border: activeSubtitleIndex === -1 ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                    fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
+                    fontSize: '0.76rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>Off (No Subtitles)</span>
+                  {activeSubtitleIndex === -1 && <Check size={13} />}
+                </button>
+
+                {allSubtitles.map((t, idx) => {
+                  const isActive = activeSubtitleIndex === idx;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => onSubtitleChange?.(idx)}
+                      style={{
+                        padding: '5px 8px',
+                        borderRadius: '6px',
+                        background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                        color: isActive ? '#f472b6' : '#e5e7eb',
+                        border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                        fontWeight: isActive ? 800 : 600,
+                        fontSize: '0.76rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.title || `Track ${idx + 1}`}
+                      </span>
+                      {isActive && <Check size={13} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Quick Actions: Upload File & OpenSubtitles Search */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".srt,.vtt"
+                onChange={handleUploadSubtitleFile}
+                style={{ display: 'none' }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#e5e7eb',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Upload size={12} color="#f472b6" />
+                <span>Upload File</span>
+              </button>
+
+              <button
+                onClick={() => setShowOnlineSubSearch(prev => !prev)}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  background: showOnlineSubSearch ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(244, 114, 182, 0.15)',
+                  border: '1px solid rgba(244, 114, 182, 0.45)',
+                  color: showOnlineSubSearch ? '#fff' : '#f472b6',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Globe size={12} />
+                <span>OpenSubtitles</span>
+              </button>
+            </div>
+
+            {/* OpenSubtitles Direct Search Drawer */}
+            {showOnlineSubSearch && (
+              <div style={{ background: 'rgba(0, 0, 0, 0.35)', padding: '8px', borderRadius: '8px', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <input
+                    type="text"
+                    value={onlineSearchQuery}
+                    onChange={(e) => setOnlineSearchQuery(e.target.value)}
+                    placeholder="Search movie/show subtitles..."
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      color: '#fff',
+                      fontSize: '0.72rem'
+                    }}
+                  />
+                  <button
+                    onClick={handleSearchOnlineSubtitles}
+                    disabled={isSearchingOnline}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      background: '#ec4899',
+                      border: 'none',
+                      color: '#fff',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {isSearchingOnline ? '...' : <Search size={12} />}
+                  </button>
+                </div>
+
+                {onlineSearchResults.length > 0 && (
+                  <div style={{ maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {onlineSearchResults.slice(0, 6).map((sub, sIdx) => (
+                      <button
+                        key={sIdx}
+                        onClick={() => handleDownloadOnlineSubtitle(sub)}
+                        disabled={isDownloadingOnline}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '4px 6px',
+                          borderRadius: '5px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: 'none',
+                          color: '#e5e7eb',
+                          fontSize: '0.68rem',
+                          textAlign: 'left',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+                          {sub.fileName}
+                        </span>
+                        <Download size={11} color="#34d399" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Special Pink Aesthetic Subtitle Mode & Appearance */}
+            <div>
+              <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
+                Appearance & Aesthetic
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                {[
+                  { id: 'pink', label: '💖 Pink', desc: 'Cute Pink Glow' },
+                  { id: 'transparent', label: 'Outline', desc: 'Drop Shadow' },
+                  { id: 'soft', label: 'Soft Glass', desc: 'Translucent' },
+                  { id: 'box', label: 'Solid Box', desc: 'Dark Box' }
+                ].map(st => (
+                  <button
+                    key={st.id}
+                    onClick={() => handleStyleChange(st.id)}
+                    style={{
+                      padding: '5px 2px',
+                      borderRadius: '6px',
+                      background: subtitleStyle === st.id ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.05)',
+                      color: subtitleStyle === st.id ? '#ffffff' : '#9ca3af',
+                      border: subtitleStyle === st.id ? '1px solid #f472b6' : '1px solid transparent',
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Pixel Controller: Font Size */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
+                  Font Size
+                </span>
+                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
+                  {subtitleSize}px
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={() => handleSizeChange(subtitleSize - 1)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  -
+                </button>
+                <input
+                  type="range"
+                  min="14"
+                  max="48"
+                  value={subtitleSize}
+                  onChange={(e) => handleSizeChange(parseInt(e.target.value, 10))}
+                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                />
+                <button
+                  onClick={() => handleSizeChange(subtitleSize + 1)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Pixel Controller: Bottom Position */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
+                  Bottom Position
+                </span>
+                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
+                  {subtitleBottom}px
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={() => handleBottomChange(subtitleBottom - 5)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  -
+                </button>
+                <input
+                  type="range"
+                  min="10"
+                  max="280"
+                  step="5"
+                  value={subtitleBottom}
+                  onChange={(e) => handleBottomChange(parseInt(e.target.value, 10))}
+                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                />
+                <button
+                  onClick={() => handleBottomChange(subtitleBottom + 5)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Subtitle Sync Delay */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
+                  Sync Delay
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontVariantNumeric: 'tabular-nums' }}>
+                    {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
+                  </span>
+                  {subtitleDelay !== 0 && (
+                    <button
+                      onClick={() => handleDelayChange(0.0)}
+                      style={{ padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af', fontSize: '0.62rem', cursor: 'pointer' }}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={() => handleDelayChange(subtitleDelay - 0.1)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  -
+                </button>
+                <input
+                  type="range"
+                  min="-5.0"
+                  max="5.0"
+                  step="0.1"
+                  value={subtitleDelay}
+                  onChange={(e) => handleDelayChange(parseFloat(e.target.value))}
+                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                />
+                <button
+                  onClick={() => handleDelayChange(subtitleDelay + 0.1)}
+                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------ */}
+        {/* 8. COMPACT SETTINGS MENU (Audio, Aspect Ratio, Speed, Sync)        */}
         {/* ------------------------------------------------------------------ */}
         {showSettingsMenu && (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
               position: 'absolute',
-              bottom: '62px',
+              bottom: '52px',
               right: '16px',
-              background: 'rgba(18, 12, 26, 0.96)',
-              backdropFilter: 'blur(24px)',
-              border: '1.5px solid rgba(244, 114, 182, 0.38)',
-              borderRadius: '20px',
-              padding: '14px',
-              width: '360px',
-              maxHeight: '490px',
-              boxShadow: '0 16px 42px rgba(0, 0, 0, 0.85), 0 0 20px rgba(244, 114, 182, 0.18)',
+              background: 'rgba(18, 10, 24, 0.96)',
+              backdropFilter: 'blur(20px)',
+              border: '1.5px solid rgba(244, 114, 182, 0.4)',
+              borderRadius: '16px',
+              padding: '12px',
+              width: '290px',
+              maxHeight: '420px',
+              boxShadow: '0 14px 38px rgba(0, 0, 0, 0.85), 0 0 18px rgba(244, 114, 182, 0.15)',
               zIndex: 70,
               display: 'flex',
               flexDirection: 'column',
-              gap: '12px',
+              gap: '10px',
               overflowY: 'auto'
             }}
           >
-            {/* Popover Header & Close */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Settings size={15} color="#f472b6" />
-                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3' }}>
-                  Player Settings
+                <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#fce7f3' }}>
+                  Settings
                 </span>
               </div>
               <button
                 onClick={() => setShowSettingsMenu(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}
               >
-                <X size={16} />
+                <X size={15} />
               </button>
             </div>
 
-            {/* Navigation Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '3px', borderRadius: '12px' }}>
+            {/* Compact Tabs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '2px', borderRadius: '8px' }}>
               {[
-                { id: 'subtitles', label: '💬 Subs' },
                 { id: 'audio', label: '🎵 Audio' },
                 { id: 'aspect', label: '📐 Ratio' },
                 { id: 'speed', label: '⚡ Speed' }
@@ -1261,12 +1701,12 @@ export function PoufPlayer({
                     key={tab.id}
                     onClick={() => setActiveSettingsTab(tab.id)}
                     style={{
-                      padding: '6px 2px',
-                      borderRadius: '9px',
+                      padding: '5px 2px',
+                      borderRadius: '6px',
                       background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'transparent',
                       color: isActive ? '#ffffff' : '#9ca3af',
                       border: 'none',
-                      fontSize: '0.74rem',
+                      fontSize: '0.70rem',
                       fontWeight: 800,
                       cursor: 'pointer',
                       transition: 'all 0.15s ease'
@@ -1278,254 +1718,16 @@ export function PoufPlayer({
               })}
             </div>
 
-            {/* TAB 1: SUBTITLES & PIXEL CONTROLLERS */}
-            {activeSettingsTab === 'subtitles' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* 1. Track Picker */}
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Select Subtitle Track
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
-                    <button
-                      onClick={() => onSubtitleChange?.(-1)}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: '8px',
-                        background: activeSubtitleIndex === -1 ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                        color: activeSubtitleIndex === -1 ? '#f472b6' : '#e5e7eb',
-                        border: activeSubtitleIndex === -1 ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
-                        fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
-                        fontSize: '0.78rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <span>Off (No Subtitles)</span>
-                      {activeSubtitleIndex === -1 && <Check size={14} />}
-                    </button>
-
-                    {allSubtitles.map((t, idx) => {
-                      const isActive = activeSubtitleIndex === idx;
-                      return (
-                        <button
-                          key={idx}
-                          onClick={() => onSubtitleChange?.(idx)}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: '8px',
-                            background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                            color: isActive ? '#f472b6' : '#e5e7eb',
-                            border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
-                            fontWeight: isActive ? 800 : 600,
-                            fontSize: '0.78rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {t.title || `Track ${idx + 1}`}
-                          </span>
-                          {isActive && <Check size={14} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 2. Custom Subtitle File Upload */}
-                <div>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept=".srt,.vtt"
-                    onChange={handleUploadSubtitleFile}
-                    style={{ display: 'none' }}
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    style={{
-                      width: '100%',
-                      padding: '7px 10px',
-                      borderRadius: '8px',
-                      background: 'rgba(244, 114, 182, 0.15)',
-                      border: '1px dashed rgba(244, 114, 182, 0.5)',
-                      color: '#f472b6',
-                      fontSize: '0.76rem',
-                      fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <Upload size={14} />
-                    <span>Upload Custom Subtitle (.srt / .vtt)</span>
-                  </button>
-                </div>
-
-                {/* 3. Pixel Controller: Font Size */}
-                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
-                      Font Size
-                    </span>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
-                      {subtitleSize}px
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => handleSizeChange(subtitleSize - 1)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      -
-                    </button>
-                    <input
-                      type="range"
-                      min="14"
-                      max="48"
-                      value={subtitleSize}
-                      onChange={(e) => handleSizeChange(parseInt(e.target.value, 10))}
-                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                    />
-                    <button
-                      onClick={() => handleSizeChange(subtitleSize + 1)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* 4. Pixel Controller: Position from Bottom */}
-                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
-                      Bottom Position
-                    </span>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
-                      {subtitleBottom}px
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => handleBottomChange(subtitleBottom - 5)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      -
-                    </button>
-                    <input
-                      type="range"
-                      min="10"
-                      max="280"
-                      step="5"
-                      value={subtitleBottom}
-                      onChange={(e) => handleBottomChange(parseInt(e.target.value, 10))}
-                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                    />
-                    <button
-                      onClick={() => handleBottomChange(subtitleBottom + 5)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* 5. Subtitle Sync Offset / Delay */}
-                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
-                      Sync Delay
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontVariantNumeric: 'tabular-nums' }}>
-                        {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
-                      </span>
-                      {subtitleDelay !== 0 && (
-                        <button
-                          onClick={() => handleDelayChange(0.0)}
-                          style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af', fontSize: '0.66rem', cursor: 'pointer' }}
-                        >
-                          Reset
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => handleDelayChange(subtitleDelay - 0.1)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      -
-                    </button>
-                    <input
-                      type="range"
-                      min="-5.0"
-                      max="5.0"
-                      step="0.1"
-                      value={subtitleDelay}
-                      onChange={(e) => handleDelayChange(parseFloat(e.target.value))}
-                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                    />
-                    <button
-                      onClick={() => handleDelayChange(subtitleDelay + 0.1)}
-                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* 6. Subtitle Background Style */}
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Subtitle Appearance
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                    {[
-                      { id: 'transparent', label: 'Outline' },
-                      { id: 'soft', label: 'Soft Glass' },
-                      { id: 'box', label: 'Solid Box' }
-                    ].map(st => (
-                      <button
-                        key={st.id}
-                        onClick={() => handleStyleChange(st.id)}
-                        style={{
-                          padding: '6px 4px',
-                          borderRadius: '8px',
-                          background: subtitleStyle === st.id ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                          color: subtitleStyle === st.id ? '#f472b6' : '#9ca3af',
-                          border: subtitleStyle === st.id ? '1px solid rgba(244, 114, 182, 0.5)' : '1px solid transparent',
-                          fontSize: '0.74rem',
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: AUDIO TRACKS & PRE-EXTRACTION */}
+            {/* TAB: AUDIO TRACKS */}
             {activeSettingsTab === 'audio' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
-                  Available Audio Tracks
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
+                  Audio Stream
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
                   {audioTracks.length === 0 ? (
-                    <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(244, 114, 182, 0.15)', color: '#f472b6', fontSize: '0.8rem', fontWeight: 700 }}>
+                    <div style={{ padding: '6px 10px', borderRadius: '6px', background: 'rgba(244, 114, 182, 0.15)', color: '#f472b6', fontSize: '0.76rem', fontWeight: 700 }}>
                       Default Audio (Stereo AAC)
                     </div>
                   ) : (
@@ -1533,54 +1735,52 @@ export function PoufPlayer({
                       const trackIdx = t.index ?? idx;
                       const isActive = activeAudioIndex === trackIdx;
                       const trackStatus = audioStatusData?.tracks?.find((st) => st.index === trackIdx);
-                      const isReady = trackIdx === 0 || trackStatus?.isReady;
+                      const isReady = (t.codec || '').toLowerCase() === 'aac' || trackIdx === 0 || trackStatus?.isReady;
                       const isProcessing = trackStatus?.isProcessing;
 
                       return (
                         <button
                           key={trackIdx}
-                          onClick={() => {
-                            onAudioTrackChange?.(trackIdx);
-                          }}
+                          onClick={() => onAudioTrackChange?.(trackIdx)}
                           style={{
-                            padding: '8px 12px',
-                            borderRadius: '10px',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
                             background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
                             color: isActive ? '#f472b6' : '#e5e7eb',
                             border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
                             fontWeight: isActive ? 800 : 600,
-                            fontSize: '0.82rem',
+                            fontSize: '0.76rem',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             cursor: 'pointer'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                             <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                               {t.title || `Track ${idx + 1}`}
                             </span>
                             {t.codec && (
-                              <span style={{ fontSize: '0.64rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', color: '#a1a1aa', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', color: '#a1a1aa', fontWeight: 700 }}>
                                 {t.codec.toUpperCase()}
                               </span>
                             )}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                             {isReady ? (
-                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
                                 ✓ Ready
                               </span>
                             ) : isProcessing ? (
-                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
                                 ⏳ Extracting
                               </span>
                             ) : (
-                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
+                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
                                 Pending
                               </span>
                             )}
-                            {isActive && <Check size={14} />}
+                            {isActive && <Check size={13} />}
                           </div>
                         </button>
                       );
@@ -1588,72 +1788,52 @@ export function PoufPlayer({
                   )}
                 </div>
 
-                {/* Pre-extract All Tracks Action */}
                 {audioTracks.length > 1 && (
-                  <div style={{ marginTop: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem' }}>
-                      <span style={{ color: '#9ca3af', fontWeight: 600 }}>Audio Cache Status:</span>
-                      <span style={{ color: audioStatusData?.allReady ? '#34d399' : '#f472b6', fontWeight: 700 }}>
-                        {audioStatusData?.percent !== undefined ? `${audioStatusData.percent}% Ready` : '100% Ready'}
-                      </span>
-                    </div>
-
-                    <div style={{ width: '100%', height: '5px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: `${audioStatusData?.percent !== undefined ? audioStatusData.percent : 100}%`,
-                          height: '100%',
-                          background: 'linear-gradient(90deg, #f472b6, #34d399)',
-                          transition: 'width 0.4s ease'
-                        }}
-                      />
-                    </div>
-
-                    {!audioStatusData?.allReady ? (
+                  <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    {audioStatusData?.allReady ? (
+                      <div style={{ fontSize: '0.68rem', color: '#34d399', textAlign: 'center', fontWeight: 700 }}>
+                        ✨ All audio tracks cached for 0ms instant zero-lag switching!
+                      </div>
+                    ) : (
                       <button
                         onClick={handleProcessAllAudio}
                         disabled={isProcessingAudio}
                         style={{
-                          padding: '8px 12px',
-                          borderRadius: '8px',
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
                           background: 'linear-gradient(135deg, #f472b6, #ec4899)',
                           color: '#ffffff',
                           fontWeight: 700,
-                          fontSize: '0.76rem',
+                          fontSize: '0.72rem',
                           border: 'none',
                           cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
-                          opacity: isProcessingAudio ? 0.65 : 1,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '6px',
-                          boxShadow: '0 4px 12px rgba(244, 114, 182, 0.3)'
+                          gap: '5px'
                         }}
                       >
-                        <Sparkles size={14} />
-                        {isProcessingAudio ? 'Extracting in Background...' : '⚡ Pre-extract All Tracks to AAC'}
+                        <Sparkles size={12} />
+                        <span>{isProcessingAudio ? 'Extracting in Background...' : '⚡ Pre-extract All Tracks to AAC'}</span>
                       </button>
-                    ) : (
-                      <div style={{ fontSize: '0.72rem', color: '#34d399', textAlign: 'center', fontWeight: 600 }}>
-                        ✨ All tracks cached for 0ms instant zero-lag switching!
-                      </div>
                     )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* TAB 3: ASPECT RATIO */}
+            {/* TAB: ASPECT RATIO */}
             {activeSettingsTab === 'aspect' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Screen Fit & Aspect Ratio
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '2px' }}>
+                  Aspect Ratio Fit
                 </div>
 
                 {[
-                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard aspect ratio with letterboxing' },
-                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Fills screen completely, eliminates black bars' },
-                  { id: 'fill', label: 'Stretch (100% Canvas)', desc: 'Stretches video to fill stage without cropping' }
+                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard letterbox ratio' },
+                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Eliminates top/bottom black bars' },
+                  { id: 'fill', label: 'Stretch (100% Canvas)', desc: 'Fills canvas without cropping' }
                 ].map(opt => {
                   const isActive = aspectRatio === opt.id;
                   return (
@@ -1661,8 +1841,8 @@ export function PoufPlayer({
                       key={opt.id}
                       onClick={() => handleAspectChange(opt.id)}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: '10px',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
                         background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
                         border: isActive ? '1px solid rgba(244, 114, 182, 0.5)' : '1px solid transparent',
                         color: isActive ? '#f472b6' : '#e5e7eb',
@@ -1674,25 +1854,24 @@ export function PoufPlayer({
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: '0.82rem' }}>{opt.label}</div>
-                        <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: '2px' }}>{opt.desc}</div>
+                        <div style={{ fontWeight: 800, fontSize: '0.76rem' }}>{opt.label}</div>
+                        <div style={{ fontSize: '0.64rem', color: '#9ca3af', marginTop: '1px' }}>{opt.desc}</div>
                       </div>
-                      {isActive && <Check size={16} />}
+                      {isActive && <Check size={14} />}
                     </button>
                   );
                 })}
               </div>
             )}
 
-            {/* TAB 4: PLAYBACK SPEED & ROOM SYNC */}
+            {/* TAB: PLAYBACK SPEED & ROOM SYNC */}
             {activeSettingsTab === 'speed' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                {/* Speed Presets */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
                     Playback Speed
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                     {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(spd => {
                       const isActive = playbackSpeed === spd;
                       return (
@@ -1700,28 +1879,24 @@ export function PoufPlayer({
                           key={spd}
                           onClick={() => handleSpeedChange(spd)}
                           style={{
-                            padding: '8px 4px',
-                            borderRadius: '8px',
+                            padding: '6px 2px',
+                            borderRadius: '6px',
                             background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.06)',
                             color: isActive ? '#ffffff' : '#d1d5db',
                             border: 'none',
                             fontWeight: 800,
-                            fontSize: '0.78rem',
+                            fontSize: '0.74rem',
                             cursor: 'pointer'
                           }}
                         >
-                          {spd === 1.0 ? '1.0x (Normal)' : `${spd}x`}
+                          {spd === 1.0 ? '1.0x' : `${spd}x`}
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Force Sync Room Action */}
-                <div style={{ paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Room Synchronization
-                  </div>
+                <div style={{ paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
                   <button
                     onClick={() => {
                       onForceSyncAll?.();
@@ -1729,26 +1904,23 @@ export function PoufPlayer({
                     }}
                     style={{
                       width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
                       background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)',
                       color: '#1a1006',
                       border: 'none',
                       fontWeight: 800,
-                      fontSize: '0.84rem',
+                      fontSize: '0.78rem',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '8px',
+                      gap: '6px',
                       cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
+                      boxShadow: '0 3px 10px rgba(245, 158, 11, 0.4)'
                     }}
                   >
                     <span>⚡ Force Sync Both Viewers</span>
                   </button>
-                  <div style={{ fontSize: '0.68rem', color: '#9ca3af', textAlign: 'center', marginTop: '6px' }}>
-                    Snaps timeline and audio clock across all connected viewers instantly.
-                  </div>
                 </div>
               </div>
             )}

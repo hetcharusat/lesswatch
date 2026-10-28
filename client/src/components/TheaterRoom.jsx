@@ -1208,9 +1208,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const item = { ...msg, id: messageId, fading: false };
         setRecentMessages((prev) => [...prev.slice(-3), item]);
 
-        const charCount = msg.text.length;
-        const fadeDelay = Math.min(10000, Math.max(3500, charCount * 80));
-        const removeDelay = fadeDelay + 700;
+        const charCount = (msg.text || '').length;
+        // Dynamic reading delay: short messages fade promptly, longer sentences stay long enough to read
+        const fadeDelay = Math.min(12000, Math.max(2200, 1800 + (charCount * 95)));
+        const removeDelay = fadeDelay + 600;
 
         setTimeout(() => {
           setRecentMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, fading: true } : m));
@@ -2395,29 +2396,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         return;
       }
 
-      // Enter opens floating chat immediately
+      // Enter opens floating chat typing input (if sidebar is not open)
       if (e.key === 'Enter') {
-        e.preventDefault();
-        setChatOpen(true);
-        resetChatInactivityTimer();
-        setTimeout(() => {
-          if (chatInputRef.current) chatInputRef.current.focus();
-        }, 30);
+        const isSidebarActive = (isChitChatModeRef.current && !isChatCollapsedRef.current) || isChatSidebarOpenRef.current;
+        if (!isSidebarActive) {
+          e.preventDefault();
+          setChatOpen(true);
+          resetChatInactivityTimer();
+          setTimeout(() => {
+            if (chatInputRef.current) chatInputRef.current.focus();
+          }, 40);
+        }
         return;
-      }
-
-      // Typing ANY letter or character immediately starts floating chat
-      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        setChatOpen(true);
-        setChatInputText(e.key);
-        resetChatInactivityTimer();
-        setTimeout(() => {
-          if (chatInputRef.current) {
-            chatInputRef.current.focus();
-            chatInputRef.current.selectionStart = chatInputRef.current.selectionEnd = chatInputRef.current.value.length;
-          }
-        }, 30);
       }
     }
 
@@ -2499,8 +2489,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     return `${m}:${remS.toString().padStart(2, '0')}`;
   }
 
-  // Floating in-video chat overlay (works seamlessly on Neko, YouTube, and Library)
+  // Floating in-video chat overlay (hidden if chat sidebar is open)
   function renderChatOverlay() {
+    const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
+    if (isSidebarActive) return null;
+
     const overlay = (
       <div
         className="floating-chat-overlay"
