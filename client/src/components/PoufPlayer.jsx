@@ -868,8 +868,8 @@ export function PoufPlayer({
           top: 0,
           left: 0,
           right: 0,
-          padding: '0.85rem 1.25rem',
-          background: 'linear-gradient(180deg, rgba(16, 6, 24, 0.88) 0%, rgba(16, 6, 24, 0.4) 60%, transparent 100%)',
+          padding: '0.85rem 1.4rem',
+          background: 'linear-gradient(180deg, rgba(10, 10, 15, 0.70) 0%, rgba(10, 10, 15, 0.20) 60%, transparent 100%)',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
           display: 'flex',
@@ -1002,26 +1002,28 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 6. Compact Control Deck & Scrim with Pink Glassmorphism */}
+      {/* 6. Minimalist Obsidian Cinema HUD Glass Controls Overlay */}
       <div
-        className="pouf-glass-deck"
+        className="pouf-hud-overlay"
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          padding: '16px 18px 12px 18px',
+          padding: '0 24px 24px 24px',
+          background: 'linear-gradient(to top, rgba(8, 8, 12, 0.65) 0%, rgba(8, 8, 12, 0.15) 50%, transparent 100%)',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          alignItems: 'center',
+          gap: '10px',
           opacity: showControls ? 1 : 0,
-          transform: showControls ? 'translateY(0)' : 'translateY(12px)',
-          transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
+          transform: showControls ? 'translateY(0)' : 'translateY(16px)',
+          transition: 'all 0.28s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: showControls ? 'auto' : 'none'
         }}
       >
-        {/* Full-Width Pink Scrubber Bar */}
+        {/* Floating Precision Scrubber Bar */}
         <div
           id="pouf-progress-track"
           onMouseDown={handleScrubberMouseDown}
@@ -1030,7 +1032,8 @@ export function PoufPlayer({
           style={{
             position: 'relative',
             width: '100%',
-            height: '14px',
+            maxWidth: '860px',
+            height: '16px',
             display: 'flex',
             alignItems: 'center',
             cursor: 'pointer'
@@ -1043,16 +1046,20 @@ export function PoufPlayer({
               style={{
                 position: 'absolute',
                 left: `${hoverPosition}%`,
-                bottom: '22px',
+                bottom: '24px',
                 transform: 'translateX(-50%)',
-                color: '#fce7f3',
-                padding: '3px 8px',
-                borderRadius: '6px',
-                fontSize: '0.70rem',
+                color: '#ffe4e6',
+                background: 'rgba(14, 15, 23, 0.92)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(255, 46, 147, 0.4)',
+                padding: '4px 10px',
+                borderRadius: '9999px',
+                fontSize: '0.72rem',
                 fontWeight: 700,
                 fontVariantNumeric: 'tabular-nums',
                 pointerEvents: 'none',
-                boxShadow: '0 4px 14px rgba(0,0,0,0.6), 0 0 10px rgba(244,114,182,0.3)',
+                boxShadow: '0 6px 20px rgba(0,0,0,0.8), 0 0 12px rgba(255,46,147,0.35)',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -1060,18 +1067,19 @@ export function PoufPlayer({
             </div>
           )}
 
-          {/* Rail */}
+          {/* Rail Track */}
           <div
             className="pouf-progress-rail"
             style={{
               width: '100%',
-              height: '5px',
+              height: '4px',
               borderRadius: '9999px',
               position: 'relative',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              background: 'rgba(255, 228, 230, 0.16)'
             }}
           >
-            {/* Buffer bar */}
+            {/* Buffer progress bar */}
             <div
               style={{
                 position: 'absolute',
@@ -1079,7 +1087,8 @@ export function PoufPlayer({
                 top: 0,
                 bottom: 0,
                 width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%`,
-                background: 'rgba(244, 114, 182, 0.45)'
+                background: 'rgba(255, 110, 167, 0.30)',
+                borderRadius: '9999px'
               }}
             />
             {/* Play progress bar */}
@@ -1090,7 +1099,10 @@ export function PoufPlayer({
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`
+                width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
+                background: 'linear-gradient(90deg, #f43f5e 0%, #ff2e93 60%, #ec4899 100%)',
+                boxShadow: '0 0 12px rgba(255, 46, 147, 0.7)',
+                borderRadius: '9999px'
               }}
             />
           </div>
@@ -1102,78 +1114,46 @@ export function PoufPlayer({
               position: 'absolute',
               left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
               transform: 'translateX(-50%)',
-              width: '14px',
-              height: '14px',
+              width: '13px',
+              height: '13px',
               borderRadius: '50%',
+              background: '#ffffff',
+              border: '2px solid #ff2e93',
+              boxShadow: '0 0 12px #ff2e93, 0 2px 6px rgba(0,0,0,0.5)',
               pointerEvents: 'none'
             }}
           />
         </div>
 
-        {/* Bottom Control Actions (Compact & Sleek) */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          {/* Left Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Hot Pink Play/Pause Button */}
-            <button
-              onClick={togglePlayPause}
-              className="pouf-glass-btn-primary"
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
-            >
-              {localPlaying ? <ClayPause size={18} /> : <ClayPlay size={18} />}
-            </button>
-
-            {/* -10s Rewind Button */}
-            <button
-              onClick={() => handleSeekRelative(-10)}
-              className="pouf-glass-btn"
-              style={{
-                width: '30px',
-                height: '30px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Rewind 10s (Left Arrow)"
-            >
-              <RotateCcw size={13} />
-            </button>
-
-            {/* +10s Forward Button */}
-            <button
-              onClick={() => handleSeekRelative(10)}
-              className="pouf-glass-btn"
-              style={{
-                width: '30px',
-                height: '30px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Fast Forward 10s (Right Arrow)"
-            >
-              <RotateCw size={13} />
-            </button>
-
-            {/* Volume Control */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px' }}>
+        {/* Floating Luxury Glass Pill Dock */}
+        <div
+          className="pouf-glass-pill-dock"
+          style={{
+            width: '100%',
+            maxWidth: '860px',
+            background: 'rgba(14, 15, 23, 0.76)',
+            backdropFilter: 'blur(28px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+            border: '1px solid rgba(255, 110, 167, 0.28)',
+            borderRadius: '9999px',
+            padding: '7px 20px',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9), 0 0 25px rgba(255, 46, 147, 0.16)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}
+        >
+          {/* Left Cluster: Volume & Timestamps */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Volume */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button
                 onClick={() => setIsMuted(m => !m)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px', color: '#fff', display: 'flex', alignItems: 'center' }}
+                className="pouf-dock-icon-btn"
                 title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
               >
-                {isMuted || volume === 0 ? <VolumeX size={17} color="#f472b6" /> : <Volume2 size={17} />}
+                {isMuted || volume === 0 ? <VolumeX size={17} color="#ff2e93" /> : <Volume2 size={17} color="#ffe4e6" />}
               </button>
 
               <input
@@ -1188,73 +1168,104 @@ export function PoufPlayer({
                   setIsMuted(false);
                   localStorage.setItem('wt_player_vol', val);
                 }}
+                className="pouf-vol-slider"
                 style={{
                   width: '56px',
-                  accentColor: '#ec4899',
+                  accentColor: '#ff2e93',
                   cursor: 'pointer',
                   height: '3px'
                 }}
               />
             </div>
 
-            {/* Steady Tabular Time Stamp */}
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255, 228, 230, 0.15)' }} />
+
+            {/* Timestamps */}
             <div
               style={{
-                color: '#ffffff',
-                fontWeight: 700,
-                fontSize: '0.80rem',
+                color: '#ffe4e6',
+                fontWeight: 600,
+                fontSize: '0.78rem',
                 fontVariantNumeric: 'tabular-nums',
                 letterSpacing: '0.3px',
-                marginLeft: '4px'
+                whiteSpace: 'nowrap'
               }}
             >
-              {formatTime(playProgress)} / {formatTime(duration)}
+              <span>{formatTime(playProgress)}</span>
+              <span style={{ color: 'rgba(255, 228, 230, 0.45)', margin: '0 5px' }}>/</span>
+              <span style={{ color: 'rgba(255, 228, 230, 0.70)' }}>{formatTime(duration)}</span>
             </div>
           </div>
 
-          {/* Right Controls: Dedicated Subs Menu Button, Settings Gear, Fullscreen */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {/* DEDICATED SUBTITLES MENU BUTTON (OUTSIDE SETTINGS) */}
+          {/* Center Cluster: Playback Action Hero */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* -10s Rewind */}
+            <button
+              onClick={() => handleSeekRelative(-10)}
+              className="pouf-dock-icon-btn"
+              title="Rewind 10s (Left Arrow)"
+            >
+              <RotateCcw size={15} color="#ffe4e6" />
+            </button>
+
+            {/* Center Hero Play/Pause Button */}
+            <button
+              onClick={togglePlayPause}
+              className="pouf-hero-play-btn"
+              title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {localPlaying ? <ClayPause size={20} /> : <ClayPlay size={20} />}
+            </button>
+
+            {/* +10s Forward */}
+            <button
+              onClick={() => handleSeekRelative(10)}
+              className="pouf-dock-icon-btn"
+              title="Fast Forward 10s (Right Arrow)"
+            >
+              <RotateCw size={15} color="#ffe4e6" />
+            </button>
+          </div>
+
+          {/* Right Cluster: Speed, Subs Pill, Settings, Fullscreen */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Playback Speed Pill */}
+            <button
+              onClick={() => {
+                const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
+                const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+                handleSpeedChange(speeds[nextIdx]);
+              }}
+              className="pouf-dock-pill-btn"
+              title="Cycle Playback Speed"
+            >
+              {playbackSpeed === 1.0 ? '1.0x' : `${playbackSpeed}x`}
+            </button>
+
+            {/* Dedicated Subs Pill (Translucent Glass Pill with glowing indicator) */}
             <button
               onClick={() => {
                 setShowSubMenu(prev => !prev);
                 setShowSettingsMenu(false);
               }}
-              className={showSubMenu || activeSubtitleIndex >= 0 ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-              style={{
-                padding: '5px 11px',
-                fontSize: '0.74rem',
-                fontWeight: 800,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                cursor: 'pointer'
-              }}
+              className={showSubMenu ? 'pouf-dock-pill-btn active' : 'pouf-dock-pill-btn'}
               title="Subtitles & SubDL Search"
             >
-              <ClaySubtitles size={15} />
+              <ClaySubtitles size={14} />
               <span>Subs</span>
               {activeSubtitleIndex >= 0 && (
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34d399' }} />
+                <span className="pouf-active-dot" />
               )}
             </button>
 
-            {/* SETTINGS GEAR BUTTON */}
+            {/* Settings Gear */}
             <button
               onClick={() => {
                 setShowSettingsMenu(prev => !prev);
                 setShowSubMenu(false);
               }}
-              className={showSettingsMenu ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-              style={{
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Settings (Audio, Ratio, Speed)"
+              className={showSettingsMenu ? 'pouf-dock-icon-btn active' : 'pouf-dock-icon-btn'}
+              title="Settings (Audio, Ratio, Sync)"
             >
               <Settings
                 size={16}
@@ -1265,18 +1276,10 @@ export function PoufPlayer({
               />
             </button>
 
-            {/* Fullscreen Button */}
+            {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              className="pouf-glass-btn"
-              style={{
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
+              className="pouf-dock-icon-btn"
               title="Fullscreen (F)"
             >
               {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
@@ -1293,15 +1296,15 @@ export function PoufPlayer({
             className="pouf-glass-popover"
             style={{
               position: 'absolute',
-              bottom: '56px',
-              right: '50px',
-              padding: '14px',
-              width: '340px',
+              bottom: '76px',
+              right: '32px',
+              padding: '16px',
+              width: '360px',
               maxHeight: '480px',
               zIndex: 70,
               display: 'flex',
               flexDirection: 'column',
-              gap: '10px',
+              gap: '12px',
               overflowY: 'auto'
             }}
           >
@@ -1710,15 +1713,15 @@ export function PoufPlayer({
             className="pouf-glass-popover"
             style={{
               position: 'absolute',
-              bottom: '56px',
-              right: '16px',
-              padding: '14px',
-              width: '300px',
-              maxHeight: '440px',
+              bottom: '76px',
+              right: '32px',
+              padding: '16px',
+              width: '320px',
+              maxHeight: '460px',
               zIndex: 70,
               display: 'flex',
               flexDirection: 'column',
-              gap: '10px',
+              gap: '12px',
               overflowY: 'auto'
             }}
           >

@@ -1522,11 +1522,20 @@ body.in-chit-chat-mode header {
   transition: flex 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.theater-view-wrapper.chit-chat-mode.chat-collapsed {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
 .theater-view-wrapper.chit-chat-mode.chat-collapsed .theater-stage-column,
 .theater-view-wrapper.chit-chat-mode .theater-stage-column.full-width {
   flex: 1 1 100% !important;
   width: 100% !important;
   max-width: 100% !important;
+}
+
+.theater-view-wrapper.chit-chat-mode.chat-collapsed .theater-canvas {
+  border-radius: 0 !important;
 }
 
 .theater-view-wrapper.chit-chat-mode .theater-canvas {
@@ -1862,6 +1871,91 @@ body.in-chit-chat-mode header {
 /* ============================================================
    POUFPLAYER PINK GLASSMORHPISM CINEMA SUITE 🌸✨
    ============================================================ */
+/* ============================================================
+   STITCH OBSIDIAN CINEMA LUXURY HUD CONTROLS 🌸✨
+   ============================================================ */
+.pouf-dock-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #ffe4e6;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pouf-dock-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 110, 167, 0.35);
+  color: #ff2e93;
+  transform: scale(1.08);
+}
+.pouf-dock-icon-btn.active {
+  background: rgba(255, 46, 147, 0.22);
+  border-color: rgba(255, 46, 147, 0.55);
+  color: #ff2e93;
+}
+
+.pouf-dock-pill-btn {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 110, 167, 0.24);
+  color: #ffe4e6;
+  font-size: 0.74rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pouf-dock-pill-btn:hover {
+  background: rgba(255, 110, 167, 0.16);
+  border-color: rgba(255, 110, 167, 0.5);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.pouf-dock-pill-btn.active {
+  background: linear-gradient(135deg, rgba(255, 46, 147, 0.28) 0%, rgba(244, 63, 94, 0.28) 100%);
+  border-color: rgba(255, 46, 147, 0.6);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(255, 46, 147, 0.3);
+}
+
+.pouf-hero-play-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff4799 0%, #ff2e93 60%, #e11d48 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px rgba(255, 46, 147, 0.65), 0 4px 12px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pouf-hero-play-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 28px rgba(255, 46, 147, 0.85), 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+.pouf-hero-play-btn:active {
+  transform: scale(0.95);
+}
+
+.pouf-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff2e93;
+  box-shadow: 0 0 8px #ff2e93;
+}
+
 .pouf-glass-deck {
   background: linear-gradient(180deg, rgba(14, 6, 20, 0) 0%, rgba(18, 7, 26, 0.72) 35%, rgba(22, 8, 32, 0.94) 100%) !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
