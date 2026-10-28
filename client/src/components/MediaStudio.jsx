@@ -760,3 +760,4 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
 }
 
 export default MediaStudio;
+

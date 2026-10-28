@@ -2,7 +2,7 @@ import React from 'react';
 import { LogOut } from 'lucide-react';
 import { UserAvatar } from './JojoAvatar';
 import { PinkPopcornLogo } from './PinkPopcornLogo';
-import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClayClose, ClayPlay } from './ClayIcons';
+import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClayClose, ClayPlay, ClaySparkle } from './ClayIcons';
 
 export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, onLogout, liveData }) {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
