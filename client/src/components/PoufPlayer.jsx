@@ -121,13 +121,13 @@ export function PoufPlayer({
   });
   const [uploadedSubtitles, setUploadedSubtitles] = useState([]);
 
-  // OpenSubtitles Online Search State
+  // SubDL Online Search State
   const [showOnlineSubSearch, setShowOnlineSubSearch] = useState(false);
   const [onlineSearchQuery, setOnlineSearchQuery] = useState(() => {
     return (title || '')
       .replace(/\.(mkv|mp4|avi|webm)$/i, '')
       .replace(/[\._]/g, ' ')
-      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts)\b/gi, '')
+      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf)\b/gi, '')
       .trim();
   });
   const [onlineSearchResults, setOnlineSearchResults] = useState([]);
@@ -469,7 +469,7 @@ export function PoufPlayer({
     e.target.value = '';
   };
 
-  // OpenSubtitles Online Search & Download
+  // SubDL Online Search & Download
   const handleSearchOnlineSubtitles = async () => {
     if (!onlineSearchQuery.trim()) return;
     setIsSearchingOnline(true);
@@ -480,7 +480,7 @@ export function PoufPlayer({
         setOnlineSearchResults(data.data || []);
       }
     } catch (e) {
-      console.warn('Online subtitle search error:', e);
+      console.warn('SubDL search error:', e);
     } finally {
       setIsSearchingOnline(false);
     }
@@ -499,8 +499,8 @@ export function PoufPlayer({
         if (data.success) {
           const parsedCues = parseSubtitlesText(data.vttContent);
           const newTrack = {
-            id: `os-${Date.now()}`,
-            title: `🌐 ${sub.fileName || 'OpenSubtitles'}`,
+            id: `subdl-${Date.now()}`,
+            title: `🌸 ${sub.fileName || 'SubDL'}`,
             url: data.url,
             cues: parsedCues,
             isCustom: true
@@ -513,7 +513,7 @@ export function PoufPlayer({
         }
       }
     } catch (e) {
-      console.warn('Online subtitle download error:', e);
+      console.warn('SubDL download error:', e);
     } finally {
       setIsDownloadingOnline(false);
     }
@@ -824,7 +824,7 @@ export function PoufPlayer({
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Compact Top Title & Specs Overlay */}
+      {/* 3. Compact Top Title & Specs Overlay with Pink Glassmorphism */}
       <div
         style={{
           position: 'absolute',
@@ -832,7 +832,9 @@ export function PoufPlayer({
           left: 0,
           right: 0,
           padding: '0.85rem 1.25rem',
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)',
+          background: 'linear-gradient(180deg, rgba(16, 6, 24, 0.88) 0%, rgba(16, 6, 24, 0.4) 60%, transparent 100%)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -844,16 +846,16 @@ export function PoufPlayer({
         }}
       >
         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
-          <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 4px rgba(0,0,0,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 8px rgba(0,0,0,0.8), 0 0 12px rgba(244,114,182,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {title || 'Video Stream'}
           </h2>
-          <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '2px', fontWeight: 600, display: 'flex', gap: '8px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            <span>Direct Stream</span>
+          <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span style={{ background: 'rgba(244, 114, 182, 0.22)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#f472b6', fontWeight: 700 }}>Direct Stream</span>
             {audioTracks.length > 1 && (
-              <span style={{ color: '#f472b6' }}>• Multi-Audio ({audioTracks.length})</span>
+              <span style={{ color: '#fbcfe8', fontWeight: 700 }}>• 🎵 Multi-Audio ({audioTracks.length})</span>
             )}
             {allSubtitles.length > 0 && (
-              <span style={{ color: '#a7f3d0' }}>• Subs ({allSubtitles.length})</span>
+              <span style={{ color: '#a7f3d0', fontWeight: 700 }}>• 💬 Subs ({allSubtitles.length})</span>
             )}
           </div>
         </div>
@@ -861,12 +863,10 @@ export function PoufPlayer({
         {/* Top-Right Badges */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <div
+            className="pouf-glass-card"
             style={{
               padding: '4px 10px',
               borderRadius: '9999px',
-              background: 'rgba(255, 255, 255, 0.15)',
-              backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
               color: '#fff',
               fontSize: '0.74rem',
               fontWeight: 700,
@@ -881,12 +881,10 @@ export function PoufPlayer({
 
           <button
             onClick={toggleFullscreen}
+            className="pouf-glass-btn"
             style={{
               width: '32px',
               height: '32px',
-              borderRadius: '8px',
-              background: 'rgba(255, 255, 255, 0.15)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
               color: '#fff',
               display: 'flex',
               alignItems: 'center',
@@ -944,36 +942,38 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 5. Center Play/Pause Burst Animation */}
+      {/* 5. Center Play/Pause Burst Animation (Frosted Glass Roundel) */}
       {centerAnimation && (
         <div style={{ position: 'absolute', pointerEvents: 'none', zIndex: 35, animation: 'poufPopIn 0.5s forwards' }}>
           <div
             style={{
-              width: '74px',
-              height: '74px',
+              width: '78px',
+              height: '78px',
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, rgba(255,255,255,0.95), rgba(254,215,226,0.92))',
+              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(254, 215, 226, 0.92))',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 12px 30px rgba(236,72,153,0.4)',
+              boxShadow: '0 12px 36px rgba(236,72,153,0.5), 0 0 24px rgba(244,114,182,0.6)',
               border: '2.5px solid #f472b6'
             }}
           >
-            {centerAnimation === 'play' ? <ClayPlay size={38} /> : <ClayPause size={38} />}
+            {centerAnimation === 'play' ? <ClayPlay size={40} /> : <ClayPause size={40} />}
           </div>
         </div>
       )}
 
-      {/* 6. Compact Control Deck & Scrim */}
+      {/* 6. Compact Control Deck & Scrim with Pink Glassmorphism */}
       <div
+        className="pouf-glass-deck"
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          padding: '16px 16px 10px 16px',
-          background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 65%, transparent 100%)',
+          padding: '16px 18px 12px 18px',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
@@ -1002,22 +1002,20 @@ export function PoufPlayer({
           {/* Hover Time Tooltip */}
           {hoverTime !== null && (
             <div
+              className="pouf-glass-card"
               style={{
                 position: 'absolute',
                 left: `${hoverPosition}%`,
-                bottom: '20px',
+                bottom: '22px',
                 transform: 'translateX(-50%)',
-                background: 'rgba(23, 15, 32, 0.95)',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(244, 114, 182, 0.5)',
                 color: '#fce7f3',
-                padding: '2px 7px',
-                borderRadius: '5px',
+                padding: '3px 8px',
+                borderRadius: '6px',
                 fontSize: '0.70rem',
                 fontWeight: 700,
                 fontVariantNumeric: 'tabular-nums',
                 pointerEvents: 'none',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.6), 0 0 10px rgba(244,114,182,0.3)',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -1027,11 +1025,11 @@ export function PoufPlayer({
 
           {/* Rail */}
           <div
+            className="pouf-progress-rail"
             style={{
               width: '100%',
-              height: '4px',
+              height: '5px',
               borderRadius: '9999px',
-              background: 'rgba(255, 255, 255, 0.22)',
               position: 'relative',
               overflow: 'hidden'
             }}
@@ -1044,35 +1042,32 @@ export function PoufPlayer({
                 top: 0,
                 bottom: 0,
                 width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%`,
-                background: 'rgba(244, 114, 182, 0.4)'
+                background: 'rgba(244, 114, 182, 0.45)'
               }}
             />
             {/* Play progress bar */}
             <div
+              className="pouf-progress-fill"
               style={{
                 position: 'absolute',
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
-                background: 'linear-gradient(90deg, #ec4899, #f472b6)',
-                boxShadow: '0 0 8px #ec4899'
+                width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`
               }}
             />
           </div>
 
           {/* Scrubber Knob */}
           <div
+            className="pouf-scrubber-knob"
             style={{
               position: 'absolute',
               left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
               transform: 'translateX(-50%)',
-              width: '12px',
-              height: '12px',
+              width: '14px',
+              height: '14px',
               borderRadius: '50%',
-              background: '#ec4899',
-              border: '2px solid #ffffff',
-              boxShadow: '0 0 8px rgba(236,72,153,0.9)',
               pointerEvents: 'none'
             }}
           />
@@ -1085,44 +1080,33 @@ export function PoufPlayer({
             {/* Hot Pink Play/Pause Button */}
             <button
               onClick={togglePlayPause}
+              className="pouf-glass-btn-primary"
               style={{
-                width: '36px',
-                height: '36px',
+                width: '38px',
+                height: '38px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-                color: '#ffffff',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 3px 12px rgba(236, 72, 153, 0.55)',
-                cursor: 'pointer',
-                transition: 'transform 0.15s ease'
-              }}
-              className="pouf-btn-tactile"
-              title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
-            >
-              {localPlaying ? <ClayPause size={17} /> : <ClayPlay size={17} />}
-            </button>
-
-            {/* -10s Rewind Button */}
-            <button
-              onClick={() => handleSeekRelative(-10)}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.18)',
-                color: '#ffffff',
-                fontSize: '10px',
-                fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer'
               }}
-              className="pouf-btn-tactile"
+              title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {localPlaying ? <ClayPause size={18} /> : <ClayPlay size={18} />}
+            </button>
+
+            {/* -10s Rewind Button */}
+            <button
+              onClick={() => handleSeekRelative(-10)}
+              className="pouf-glass-btn"
+              style={{
+                width: '30px',
+                height: '30px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
               title="Rewind 10s (Left Arrow)"
             >
               <RotateCcw size={13} />
@@ -1131,28 +1115,22 @@ export function PoufPlayer({
             {/* +10s Forward Button */}
             <button
               onClick={() => handleSeekRelative(10)}
+              className="pouf-glass-btn"
               style={{
                 width: '30px',
                 height: '30px',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.18)',
-                color: '#ffffff',
-                fontSize: '10px',
-                fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer'
               }}
-              className="pouf-btn-tactile"
               title="Fast Forward 10s (Right Arrow)"
             >
               <RotateCw size={13} />
             </button>
 
             {/* Volume Control */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px' }}>
               <button
                 onClick={() => setIsMuted(m => !m)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px', color: '#fff', display: 'flex', alignItems: 'center' }}
@@ -1174,7 +1152,7 @@ export function PoufPlayer({
                   localStorage.setItem('wt_player_vol', val);
                 }}
                 style={{
-                  width: '54px',
+                  width: '56px',
                   accentColor: '#ec4899',
                   cursor: 'pointer',
                   height: '3px'
@@ -1205,22 +1183,17 @@ export function PoufPlayer({
                 setShowSubMenu(prev => !prev);
                 setShowSettingsMenu(false);
               }}
+              className={showSubMenu || activeSubtitleIndex >= 0 ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
               style={{
-                padding: '5px 10px',
-                borderRadius: '8px',
-                background: showSubMenu || activeSubtitleIndex >= 0 ? 'rgba(236, 72, 153, 0.28)' : 'rgba(255, 255, 255, 0.08)',
-                border: showSubMenu || activeSubtitleIndex >= 0 ? '1px solid rgba(244, 114, 182, 0.55)' : '1px solid rgba(255, 255, 255, 0.15)',
-                color: showSubMenu || activeSubtitleIndex >= 0 ? '#f472b6' : '#d1d5db',
-                fontWeight: 800,
+                padding: '5px 11px',
                 fontSize: '0.74rem',
+                fontWeight: 800,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '5px',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                boxShadow: showSubMenu ? '0 0 10px rgba(236,72,153,0.4)' : 'none'
+                cursor: 'pointer'
               }}
-              title="Subtitles & Styling"
+              title="Subtitles & SubDL Search"
             >
               <ClaySubtitles size={15} />
               <span>Subs</span>
@@ -1235,19 +1208,14 @@ export function PoufPlayer({
                 setShowSettingsMenu(prev => !prev);
                 setShowSubMenu(false);
               }}
+              className={showSettingsMenu ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
               style={{
                 width: '32px',
                 height: '32px',
-                borderRadius: '8px',
-                background: showSettingsMenu ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.08)',
-                border: showSettingsMenu ? '1px solid #f472b6' : '1px solid rgba(255, 255, 255, 0.18)',
-                color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                boxShadow: showSettingsMenu ? '0 0 12px rgba(236,72,153,0.45)' : 'none'
+                cursor: 'pointer'
               }}
               title="Settings (Audio, Ratio, Speed)"
             >
@@ -1263,13 +1231,10 @@ export function PoufPlayer({
             {/* Fullscreen Button */}
             <button
               onClick={toggleFullscreen}
+              className="pouf-glass-btn"
               style={{
                 width: '32px',
                 height: '32px',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.18)',
-                color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1288,18 +1253,14 @@ export function PoufPlayer({
         {showSubMenu && (
           <div
             onClick={(e) => e.stopPropagation()}
+            className="pouf-glass-popover"
             style={{
               position: 'absolute',
-              bottom: '52px',
+              bottom: '56px',
               right: '50px',
-              background: 'rgba(18, 10, 24, 0.96)',
-              backdropFilter: 'blur(20px)',
-              border: '1.5px solid rgba(244, 114, 182, 0.4)',
-              borderRadius: '16px',
-              padding: '12px',
-              width: '330px',
-              maxHeight: '450px',
-              boxShadow: '0 14px 38px rgba(0, 0, 0, 0.85), 0 0 18px rgba(244, 114, 182, 0.15)',
+              padding: '14px',
+              width: '340px',
+              maxHeight: '480px',
               zIndex: 70,
               display: 'flex',
               flexDirection: 'column',
@@ -1308,35 +1269,33 @@ export function PoufPlayer({
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <ClaySubtitles size={16} />
-                <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#fce7f3' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(244, 114, 182, 0.2)', paddingBottom: '7px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <ClaySubtitles size={17} />
+                <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fce7f3' }}>
                   Subtitles & Customization
                 </span>
               </div>
               <button
                 onClick={() => setShowSubMenu(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}
+                className="pouf-glass-btn"
+                style={{ width: '24px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             </div>
 
             {/* Subtitle Track Selector */}
             <div>
-              <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
-                Active Track
+              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '0.04em' }}>
+                Active Subtitle Track
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '100px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
                 <button
                   onClick={() => onSubtitleChange?.(-1)}
+                  className={activeSubtitleIndex === -1 ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                   style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: activeSubtitleIndex === -1 ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                    color: activeSubtitleIndex === -1 ? '#f472b6' : '#e5e7eb',
-                    border: activeSubtitleIndex === -1 ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                    padding: '6px 9px',
                     fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
                     fontSize: '0.76rem',
                     display: 'flex',
@@ -1355,12 +1314,9 @@ export function PoufPlayer({
                     <button
                       key={idx}
                       onClick={() => onSubtitleChange?.(idx)}
+                      className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                       style={{
-                        padding: '5px 8px',
-                        borderRadius: '6px',
-                        background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                        color: isActive ? '#f472b6' : '#e5e7eb',
-                        border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                        padding: '6px 9px',
                         fontWeight: isActive ? 800 : 600,
                         fontSize: '0.76rem',
                         display: 'flex',
@@ -1379,7 +1335,7 @@ export function PoufPlayer({
               </div>
             </div>
 
-            {/* Quick Actions: Upload File & OpenSubtitles Search */}
+            {/* Quick Actions: Upload File & SubDL Direct Search */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
               <input
                 type="file"
@@ -1390,12 +1346,9 @@ export function PoufPlayer({
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
+                className="pouf-glass-btn"
                 style={{
                   padding: '6px 8px',
-                  borderRadius: '6px',
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#e5e7eb',
                   fontSize: '0.72rem',
                   fontWeight: 700,
                   display: 'flex',
@@ -1411,12 +1364,9 @@ export function PoufPlayer({
 
               <button
                 onClick={() => setShowOnlineSubSearch(prev => !prev)}
+                className={showOnlineSubSearch ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                 style={{
                   padding: '6px 8px',
-                  borderRadius: '6px',
-                  background: showOnlineSubSearch ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(244, 114, 182, 0.15)',
-                  border: '1px solid rgba(244, 114, 182, 0.45)',
-                  color: showOnlineSubSearch ? '#fff' : '#f472b6',
                   fontSize: '0.72rem',
                   fontWeight: 800,
                   display: 'flex',
@@ -1426,40 +1376,49 @@ export function PoufPlayer({
                   cursor: 'pointer'
                 }}
               >
-                <Globe size={12} />
-                <span>OpenSubtitles</span>
+                <Sparkles size={12} />
+                <span>SubDL Search</span>
               </button>
             </div>
 
-            {/* OpenSubtitles Direct Search Drawer */}
+            {/* SubDL Direct Search Drawer */}
             {showOnlineSubSearch && (
-              <div style={{ background: 'rgba(0, 0, 0, 0.35)', padding: '8px', borderRadius: '8px', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div
+                className="pouf-glass-card"
+                style={{
+                  padding: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '7px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    🌸 SubDL Online Subtitles
+                  </span>
+                  <span style={{ fontSize: '0.62rem', color: '#9ca3af' }}>API Active ✨</span>
+                </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
                     type="text"
                     value={onlineSearchQuery}
                     onChange={(e) => setOnlineSearchQuery(e.target.value)}
-                    placeholder="Search movie/show subtitles..."
+                    placeholder="Search title or episode..."
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()}
+                    className="pouf-glass-input"
                     style={{
                       flex: 1,
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: '6px',
-                      padding: '4px 8px',
-                      color: '#fff',
+                      padding: '5px 8px',
                       fontSize: '0.72rem'
                     }}
                   />
                   <button
                     onClick={handleSearchOnlineSubtitles}
                     disabled={isSearchingOnline}
+                    className="pouf-glass-btn-primary"
                     style={{
                       padding: '4px 10px',
                       borderRadius: '6px',
-                      background: '#ec4899',
-                      border: 'none',
-                      color: '#fff',
                       fontSize: '0.72rem',
                       fontWeight: 700,
                       cursor: 'pointer'
@@ -1470,31 +1429,64 @@ export function PoufPlayer({
                 </div>
 
                 {onlineSearchResults.length > 0 && (
-                  <div style={{ maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                    {onlineSearchResults.slice(0, 6).map((sub, sIdx) => (
-                      <button
+                  <div style={{ maxHeight: '130px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                    {onlineSearchResults.map((sub, sIdx) => (
+                      <div
                         key={sIdx}
-                        onClick={() => handleDownloadOnlineSubtitle(sub)}
-                        disabled={isDownloadingOnline}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: '4px 6px',
-                          borderRadius: '5px',
-                          background: 'rgba(255,255,255,0.05)',
-                          border: 'none',
-                          color: '#e5e7eb',
-                          fontSize: '0.68rem',
-                          textAlign: 'left',
-                          cursor: 'pointer'
+                          padding: '5px 7px',
+                          borderRadius: '6px',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(244, 114, 182, 0.15)',
+                          gap: '6px'
                         }}
                       >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-                          {sub.fileName}
-                        </span>
-                        <Download size={11} color="#34d399" />
-                      </button>
+                        <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, textAlign: 'left' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.70rem', color: '#f3f4f6', fontWeight: 700 }}>
+                            {sub.fileName}
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginTop: '2px', fontSize: '0.60rem' }}>
+                            <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(244, 114, 182, 0.25)', color: '#f472b6', fontWeight: 800 }}>
+                              {sub.language}
+                            </span>
+                            {sub.episode && (
+                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>
+                                S{sub.season}E{sub.episode}
+                              </span>
+                            )}
+                            {sub.hi && (
+                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24' }}>
+                                SDH
+                              </span>
+                            )}
+                            {sub.author && (
+                              <span style={{ color: '#9ca3af' }}>by {sub.author}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDownloadOnlineSubtitle(sub)}
+                          disabled={isDownloadingOnline}
+                          className="pouf-glass-btn"
+                          style={{
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            fontSize: '0.66rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            flexShrink: 0
+                          }}
+                        >
+                          <Download size={11} color="#34d399" />
+                          <span>Get</span>
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1503,8 +1495,8 @@ export function PoufPlayer({
 
             {/* Special Pink Aesthetic Subtitle Mode & Appearance */}
             <div>
-              <div style={{ fontSize: '0.70rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
-                Appearance & Aesthetic
+              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '0.04em' }}>
+                Appearance & Aesthetic Mode
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
                 {[
@@ -1516,16 +1508,12 @@ export function PoufPlayer({
                   <button
                     key={st.id}
                     onClick={() => handleStyleChange(st.id)}
+                    className={subtitleStyle === st.id ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                     style={{
                       padding: '5px 2px',
-                      borderRadius: '6px',
-                      background: subtitleStyle === st.id ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.05)',
-                      color: subtitleStyle === st.id ? '#ffffff' : '#9ca3af',
-                      border: subtitleStyle === st.id ? '1px solid #f472b6' : '1px solid transparent',
                       fontSize: '0.68rem',
                       fontWeight: 800,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
+                      cursor: 'pointer'
                     }}
                   >
                     {st.label}
@@ -1535,7 +1523,7 @@ export function PoufPlayer({
             </div>
 
             {/* Pixel Controller: Font Size */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
                   Font Size
@@ -1547,7 +1535,8 @@ export function PoufPlayer({
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
                   onClick={() => handleSizeChange(subtitleSize - 1)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   -
                 </button>
@@ -1561,7 +1550,8 @@ export function PoufPlayer({
                 />
                 <button
                   onClick={() => handleSizeChange(subtitleSize + 1)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   +
                 </button>
@@ -1569,7 +1559,7 @@ export function PoufPlayer({
             </div>
 
             {/* Pixel Controller: Bottom Position */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
                   Bottom Position
@@ -1581,7 +1571,8 @@ export function PoufPlayer({
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
                   onClick={() => handleBottomChange(subtitleBottom - 5)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   -
                 </button>
@@ -1596,7 +1587,8 @@ export function PoufPlayer({
                 />
                 <button
                   onClick={() => handleBottomChange(subtitleBottom + 5)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   +
                 </button>
@@ -1604,7 +1596,7 @@ export function PoufPlayer({
             </div>
 
             {/* Subtitle Sync Delay */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 8px', borderRadius: '8px' }}>
+            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
                   Sync Delay
@@ -1616,7 +1608,8 @@ export function PoufPlayer({
                   {subtitleDelay !== 0 && (
                     <button
                       onClick={() => handleDelayChange(0.0)}
-                      style={{ padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af', fontSize: '0.62rem', cursor: 'pointer' }}
+                      className="pouf-glass-btn"
+                      style={{ padding: '1px 5px', fontSize: '0.62rem', cursor: 'pointer' }}
                     >
                       Reset
                     </button>
@@ -1626,7 +1619,8 @@ export function PoufPlayer({
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
                   onClick={() => handleDelayChange(subtitleDelay - 0.1)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   -
                 </button>
@@ -1641,7 +1635,8 @@ export function PoufPlayer({
                 />
                 <button
                   onClick={() => handleDelayChange(subtitleDelay + 0.1)}
-                  style={{ width: '22px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                  className="pouf-glass-btn"
+                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
                 >
                   +
                 </button>
@@ -1656,18 +1651,14 @@ export function PoufPlayer({
         {showSettingsMenu && (
           <div
             onClick={(e) => e.stopPropagation()}
+            className="pouf-glass-popover"
             style={{
               position: 'absolute',
-              bottom: '52px',
+              bottom: '56px',
               right: '16px',
-              background: 'rgba(18, 10, 24, 0.96)',
-              backdropFilter: 'blur(20px)',
-              border: '1.5px solid rgba(244, 114, 182, 0.4)',
-              borderRadius: '16px',
-              padding: '12px',
-              width: '290px',
-              maxHeight: '420px',
-              boxShadow: '0 14px 38px rgba(0, 0, 0, 0.85), 0 0 18px rgba(244, 114, 182, 0.15)',
+              padding: '14px',
+              width: '300px',
+              maxHeight: '440px',
               zIndex: 70,
               display: 'flex',
               flexDirection: 'column',
@@ -1676,23 +1667,24 @@ export function PoufPlayer({
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(244, 114, 182, 0.2)', paddingBottom: '7px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Settings size={15} color="#f472b6" />
-                <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#fce7f3' }}>
+                <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fce7f3' }}>
                   Settings
                 </span>
               </div>
               <button
                 onClick={() => setShowSettingsMenu(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}
+                className="pouf-glass-btn"
+                style={{ width: '24px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             </div>
 
             {/* Compact Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '2px', borderRadius: '8px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '3px', borderRadius: '10px' }}>
               {[
                 { id: 'audio', label: '🎵 Audio' },
                 { id: 'aspect', label: '📐 Ratio' },
@@ -1703,16 +1695,12 @@ export function PoufPlayer({
                   <button
                     key={tab.id}
                     onClick={() => setActiveSettingsTab(tab.id)}
+                    className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                     style={{
                       padding: '5px 2px',
-                      borderRadius: '6px',
-                      background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'transparent',
-                      color: isActive ? '#ffffff' : '#9ca3af',
-                      border: 'none',
                       fontSize: '0.70rem',
                       fontWeight: 800,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
+                      cursor: 'pointer'
                     }}
                   >
                     {tab.label}
@@ -1724,7 +1712,7 @@ export function PoufPlayer({
             {/* TAB: AUDIO TRACKS */}
             {activeSettingsTab === 'audio' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Audio Stream
                 </div>
 
@@ -1745,12 +1733,9 @@ export function PoufPlayer({
                         <button
                           key={trackIdx}
                           onClick={() => onAudioTrackChange?.(trackIdx)}
+                          className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                           style={{
                             padding: '6px 10px',
-                            borderRadius: '8px',
-                            background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                            color: isActive ? '#f472b6' : '#e5e7eb',
-                            border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
                             fontWeight: isActive ? 800 : 600,
                             fontSize: '0.76rem',
                             display: 'flex',
@@ -1771,11 +1756,11 @@ export function PoufPlayer({
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                             {isReady ? (
-                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.22)', color: '#34d399', fontWeight: 700 }}>
                                 ✓ Ready
                               </span>
                             ) : isProcessing ? (
-                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(251, 191, 36, 0.22)', color: '#fbbf24', fontWeight: 700 }}>
                                 ⏳ Extracting
                               </span>
                             ) : (
@@ -1792,7 +1777,7 @@ export function PoufPlayer({
                 </div>
 
                 {audioTracks.length > 1 && (
-                  <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
                     {audioStatusData?.allReady ? (
                       <div style={{ fontSize: '0.68rem', color: '#34d399', textAlign: 'center', fontWeight: 700 }}>
                         ✨ All audio tracks cached for 0ms instant zero-lag switching!
@@ -1801,15 +1786,13 @@ export function PoufPlayer({
                       <button
                         onClick={handleProcessAllAudio}
                         disabled={isProcessingAudio}
+                        className="pouf-glass-btn-primary"
                         style={{
                           width: '100%',
-                          padding: '6px 10px',
-                          borderRadius: '6px',
-                          background: 'linear-gradient(135deg, #f472b6, #ec4899)',
-                          color: '#ffffff',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
                           fontWeight: 700,
                           fontSize: '0.72rem',
-                          border: 'none',
                           cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
                           display: 'flex',
                           alignItems: 'center',
@@ -1829,7 +1812,7 @@ export function PoufPlayer({
             {/* TAB: ASPECT RATIO */}
             {activeSettingsTab === 'aspect' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '2px' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.04em' }}>
                   Aspect Ratio Fit
                 </div>
 
@@ -1843,12 +1826,9 @@ export function PoufPlayer({
                     <button
                       key={opt.id}
                       onClick={() => handleAspectChange(opt.id)}
+                      className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                       style={{
                         padding: '8px 10px',
-                        borderRadius: '8px',
-                        background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                        border: isActive ? '1px solid rgba(244, 114, 182, 0.5)' : '1px solid transparent',
-                        color: isActive ? '#f472b6' : '#e5e7eb',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -1858,7 +1838,7 @@ export function PoufPlayer({
                     >
                       <div>
                         <div style={{ fontWeight: 800, fontSize: '0.76rem' }}>{opt.label}</div>
-                        <div style={{ fontSize: '0.64rem', color: '#9ca3af', marginTop: '1px' }}>{opt.desc}</div>
+                        <div style={{ fontSize: '0.64rem', color: isActive ? '#fce7f3' : '#9ca3af', marginTop: '1px' }}>{opt.desc}</div>
                       </div>
                       {isActive && <Check size={14} />}
                     </button>
@@ -1871,7 +1851,7 @@ export function PoufPlayer({
             {activeSettingsTab === 'speed' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.04em' }}>
                     Playback Speed
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
@@ -1881,12 +1861,9 @@ export function PoufPlayer({
                         <button
                           key={spd}
                           onClick={() => handleSpeedChange(spd)}
+                          className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                           style={{
                             padding: '6px 2px',
-                            borderRadius: '6px',
-                            background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.06)',
-                            color: isActive ? '#ffffff' : '#d1d5db',
-                            border: 'none',
                             fontWeight: 800,
                             fontSize: '0.74rem',
                             cursor: 'pointer'
@@ -1899,7 +1876,7 @@ export function PoufPlayer({
                   </div>
                 </div>
 
-                <div style={{ paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                <div style={{ paddingTop: '6px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
                   <button
                     onClick={() => {
                       onForceSyncAll?.();

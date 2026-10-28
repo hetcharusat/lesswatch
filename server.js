@@ -1308,54 +1308,74 @@ app.post('/api/library/rename', requireAdmin, (req, res) => {
 });
 
 // --------------------------------------------------------------------------
-// OPENSUBTITLES DIRECT SEARCH & DOWNLOAD ENGINE
+// SUBDL DIRECT SEARCH & DOWNLOAD ENGINE
 // --------------------------------------------------------------------------
-const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY || '6nBw7sZcQ6T9rT1XW2kL5yP8mN3vR4jK';
+const SUBDL_API_KEY = process.env.SUBDL_API_KEY || 'subdl_2Z1ERaBFDI4x4BViD-nRlK0ZrfpOV_-QzHNiyr9q1Lo';
 
 app.get('/api/subtitles/search', async (req, res) => {
   const query = req.query.query || '';
-  const lang = req.query.lang || req.query.languages || 'en';
+  const lang = (req.query.lang || req.query.languages || 'EN').toUpperCase();
   if (!query) return res.json({ data: [] });
 
   try {
-    const cleanQ = query
+    let cleanQ = query
       .replace(/\.(mkv|mp4|avi|webm)$/i, '')
       .replace(/[\._]/g, ' ')
-      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts)\b/gi, '')
+      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf)\b/gi, '')
       .trim();
 
-    const url = `https://api.opensubtitles.com/api/v1/subtitles?query=${encodeURIComponent(cleanQ)}&languages=${encodeURIComponent(lang)}`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'WatchTogether Pink v1.0',
-        'Api-Key': OPENSUBTITLES_API_KEY,
-        'Accept': 'application/json'
-      }
-    });
+    // Check if filename has Season/Episode (e.g. S01E09)
+    const seMatch = query.match(/s(\d+)e(\d+)/i);
+    let season = seMatch ? parseInt(seMatch[1], 10) : null;
+    let episode = seMatch ? parseInt(seMatch[2], 10) : null;
 
+    if (seMatch) {
+      // Remove SxxExx from base film name for SubDL title search
+      cleanQ = cleanQ.replace(/s\d+e\d+/gi, '').replace(/\s+/g, ' ').trim();
+    }
+
+    let url = `https://api.subdl.com/api/v1/subtitles?api_key=${SUBDL_API_KEY}&film_name=${encodeURIComponent(cleanQ)}&languages=${encodeURIComponent(lang)}`;
+    if (season !== null && episode !== null) {
+      url += `&season=${season}&episode=${episode}`;
+    }
+
+    const response = await fetch(url);
     if (!response.ok) {
-      console.warn('[OpenSubtitles] Search status:', response.status);
+      console.warn('[SubDL] Search status:', response.status);
       return res.json({ data: [] });
     }
 
     const json = await response.json();
-    const results = (json.data || []).map(item => {
-      const attrs = item.attributes || {};
-      const file = attrs.files?.[0] || {};
+    let subtitlesList = json.subtitles || [];
+
+    // If specific season/episode was targeted, prioritize exact matches
+    if (episode !== null && subtitlesList.length > 0) {
+      subtitlesList.sort((a, b) => {
+        const aMatches = (a.episode === episode || a.episode_from === episode);
+        const bMatches = (b.episode === episode || b.episode_from === episode);
+        if (aMatches && !bMatches) return -1;
+        if (!aMatches && bMatches) return 1;
+        return 0;
+      });
+    }
+
+    const results = subtitlesList.slice(0, 15).map((sub, idx) => {
+      const displayTitle = sub.release_name || sub.name || `Subtitle ${idx + 1}`;
       return {
-        id: item.id,
-        fileId: file.file_id,
-        fileName: file.file_name || attrs.feature_details?.movie_name || query,
-        language: attrs.language || 'en',
-        downloads: attrs.download_count || 0,
-        rating: attrs.ratings || 0,
-        release: attrs.release || ''
+        id: sub.subtitlePage || `${idx}`,
+        fileId: sub.url, // e.g. /subtitle/...zip?api_key=...
+        fileName: displayTitle.replace(/\.zip$/i, ''),
+        language: sub.language || sub.lang || 'EN',
+        season: sub.season,
+        episode: sub.episode,
+        author: sub.author || 'SubDL',
+        hi: !!sub.hi
       };
     });
 
     res.json({ data: results });
   } catch (err) {
-    console.warn('[OpenSubtitles] Search error:', err.message);
+    console.warn('[SubDL] Search error:', err.message);
     res.json({ data: [], error: err.message });
   }
 });
@@ -1365,29 +1385,35 @@ app.post('/api/subtitles/download', async (req, res) => {
   if (!fileId) return res.status(400).json({ error: 'fileId required' });
 
   try {
-    const downRes = await fetch('https://api.opensubtitles.com/api/v1/download', {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'WatchTogether Pink v1.0',
-        'Api-Key': OPENSUBTITLES_API_KEY,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ file_id: fileId })
-    });
+    const zipUrl = fileId.startsWith('http') ? fileId : `https://dl.subdl.com${fileId}`;
+    const downRes = await fetch(zipUrl);
 
     if (!downRes.ok) {
-      return res.status(downRes.status).json({ error: 'Failed to request download link' });
+      console.warn('[SubDL] Download fetch failed:', downRes.status);
+      return res.status(downRes.status).json({ error: 'Failed to download subtitle from SubDL' });
     }
 
-    const downData = await downRes.json();
-    if (!downData.link) {
-      return res.status(500).json({ error: 'No download link returned' });
+    const buf = await downRes.arrayBuffer();
+    let textContent = '';
+
+    try {
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(Buffer.from(buf));
+      const entries = zip.getEntries();
+      const subEntry = entries.find(e => e.entryName.match(/\.(srt|vtt)$/i));
+      if (subEntry) {
+        textContent = zip.readAsText(subEntry);
+      } else {
+        textContent = entries[0] ? zip.readAsText(entries[0]) : '';
+      }
+    } catch (zipErr) {
+      console.warn('[SubDL] AdmZip parse fallback:', zipErr.message);
+      textContent = Buffer.from(buf).toString('utf8');
     }
 
-    // Fetch the actual subtitle content (.srt)
-    const fileRes = await fetch(downData.link);
-    const textContent = await fileRes.text();
+    if (!textContent || textContent.trim().length === 0) {
+      return res.status(500).json({ error: 'Empty subtitle content extracted' });
+    }
 
     // Convert SRT to WebVTT
     let vttContent = 'WEBVTT\n\n' + textContent
@@ -1395,7 +1421,7 @@ app.post('/api/subtitles/download', async (req, res) => {
       .replace(/\r\n/g, '\n');
     vttContent = cleanVttContent(vttContent);
 
-    const safeHash = `os_${Date.now()}_${fileId}`;
+    const safeHash = `subdl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const cacheFile = path.join(SUBS_CACHE_DIR, `${safeHash}.vtt`);
     fs.writeFileSync(cacheFile, vttContent, 'utf8');
 
@@ -1406,7 +1432,7 @@ app.post('/api/subtitles/download', async (req, res) => {
       vttContent
     });
   } catch (err) {
-    console.warn('[OpenSubtitles] Download error:', err.message);
+    console.warn('[SubDL] Download error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
