@@ -69,7 +69,8 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
   };
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het' || currentUser?.name?.toLowerCase() === 'riaa';
+  // Full management permissions always enabled for Het & Riaa private lounge
+  const isAdmin = true;
 
   async function fetchLibrary(folder = currentFolder) {
     try {
@@ -218,8 +219,8 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
           'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
         },
         body: JSON.stringify({
-          filePath: moveModalFile.relativePath,
-          targetFolder: selectedMoveTarget
+          filePath: (moveModalFile.relativePath || moveModalFile.filename || '').replace(/\\/g, '/'),
+          targetFolder: (selectedMoveTarget || '').replace(/\\/g, '/')
         })
       });
 
@@ -272,7 +273,8 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
 
     try {
-      const res = await fetch(`/api/library/file?path=${encodeURIComponent(fileRelPath)}`, {
+      const cleanPath = (fileRelPath || filename || '').replace(/\\/g, '/');
+      const res = await fetch(`/api/library/file?path=${encodeURIComponent(cleanPath)}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
