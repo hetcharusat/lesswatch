@@ -1230,6 +1230,41 @@ function cleanVttContent(vttText) {
   return cleaned;
 }
 
+function formatAssTime(t) {
+  const m = t.match(/^(\d+):(\d{2}):(\d{2})\.(\d{2,3})/);
+  if (!m) return t;
+  const h = m[1].padStart(2, '0');
+  const mm = m[2];
+  const s = m[3];
+  const ms = m[4].padEnd(3, '0').slice(0, 3);
+  return `${h}:${mm}:${s}.${ms}`;
+}
+
+function assToVtt(assText) {
+  if (!assText) return 'WEBVTT\n\n';
+  const lines = assText.split(/\r?\n/);
+  const cues = [];
+  for (const line of lines) {
+    if (line.startsWith('Dialogue:')) {
+      const parts = line.split(',');
+      if (parts.length >= 10) {
+        const start = formatAssTime(parts[1].trim());
+        const end = formatAssTime(parts[2].trim());
+        let text = parts.slice(9).join(',');
+        // Strip ASS override curly-bracket tags like {\pos(x,y)}, {\an8}, {\c&H...}
+        text = text.replace(/\{[^\}]*\}/g, '');
+        text = text.replace(/\\N/g, '\n');
+        text = text.replace(/\\h/g, ' ');
+        text = text.trim();
+        if (text) {
+          cues.push(`${start} --> ${end}\n${text}`);
+        }
+      }
+    }
+  }
+  return 'WEBVTT\n\n' + cues.join('\n\n');
+}
+
 // Subtitle stream extraction (Converts MKV embedded ASS/SRT to clean WebVTT on demand)
 app.get(['/api/media/subtitles/:filename/:streamIndex.vtt', '/api/media/subtitles/*'], (req, res) => {
   let relPath = req.params.filename;
@@ -1313,57 +1348,93 @@ app.post('/api/library/rename', requireAdmin, (req, res) => {
 const SUBDL_API_KEY = process.env.SUBDL_API_KEY || 'subdl_2Z1ERaBFDI4x4BViD-nRlK0ZrfpOV_-QzHNiyr9q1Lo';
 
 app.get('/api/subtitles/search', async (req, res) => {
-  const query = req.query.query || '';
+  const rawQuery = (req.query.query || '').trim();
+  const rawFileName = (req.query.filename || '').trim();
+  const target = rawFileName || rawQuery;
   const lang = (req.query.lang || req.query.languages || 'EN').toUpperCase();
-  if (!query) return res.json({ data: [] });
+
+  if (!target) return res.json({ data: [] });
 
   try {
-    let cleanQ = query
-      .replace(/\.(mkv|mp4|avi|webm)$/i, '')
-      .replace(/[\._]/g, ' ')
-      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf)\b/gi, '')
-      .trim();
+    let subtitlesList = [];
 
-    // Check if filename has Season/Episode (e.g. S01E09)
-    const seMatch = query.match(/s(\d+)e(\d+)/i);
-    let season = seMatch ? parseInt(seMatch[1], 10) : null;
-    let episode = seMatch ? parseInt(seMatch[2], 10) : null;
-
-    if (seMatch) {
-      // Remove SxxExx from base film name for SubDL title search
-      cleanQ = cleanQ.replace(/s\d+e\d+/gi, '').replace(/\s+/g, ' ').trim();
+    // Strategy 1: SubDL direct file_name lookup (highest precision for release torrents/files)
+    try {
+      const fileUrl = `https://api.subdl.com/api/v1/subtitles?api_key=${SUBDL_API_KEY}&file_name=${encodeURIComponent(target)}&languages=${encodeURIComponent(lang)}`;
+      const fileRes = await fetch(fileUrl);
+      if (fileRes.ok) {
+        const fJson = await fileRes.json();
+        if (fJson.status && Array.isArray(fJson.subtitles) && fJson.subtitles.length > 0) {
+          subtitlesList = fJson.subtitles;
+        }
+      }
+    } catch (fErr) {
+      console.warn('[SubDL] file_name search error:', fErr.message);
     }
 
-    let url = `https://api.subdl.com/api/v1/subtitles?api_key=${SUBDL_API_KEY}&film_name=${encodeURIComponent(cleanQ)}&languages=${encodeURIComponent(lang)}`;
-    if (season !== null && episode !== null) {
-      url += `&season=${season}&episode=${episode}`;
+    // Strategy 2: Fallback to film_name search with cleaned show/movie title
+    if (subtitlesList.length === 0) {
+      let cleanQ = target
+        .replace(/\.(mkv|mp4|avi|webm)$/i, '')
+        .replace(/[\._]/g, ' ')
+        .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf|4khdhub|com|kontrast|amzn)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const seMatch = target.match(/s(\d+)e(\d+)/i) || target.match(/(\d+)x(\d+)/i);
+      let season = seMatch ? parseInt(seMatch[1], 10) : null;
+      let episode = seMatch ? parseInt(seMatch[2], 10) : null;
+
+      if (seMatch) {
+        cleanQ = cleanQ.replace(/s\d+e\d+/gi, '').replace(/\d+x\d+/gi, '').replace(/\s+/g, ' ').trim();
+      }
+
+      // Deduplicate repeated words (e.g. "STEEL BALL RUN JoJos Bizarre Adventure STEEL BALL RUN")
+      const words = cleanQ.split(' ');
+      const seen = new Set();
+      const deduped = [];
+      for (const w of words) {
+        const lower = w.toLowerCase();
+        if (!seen.has(lower)) {
+          seen.add(lower);
+          deduped.push(w);
+        }
+      }
+      cleanQ = deduped.join(' ');
+
+      let url = `https://api.subdl.com/api/v1/subtitles?api_key=${SUBDL_API_KEY}&film_name=${encodeURIComponent(cleanQ)}&languages=${encodeURIComponent(lang)}`;
+      if (season !== null && episode !== null) {
+        url += `&season=${season}&episode=${episode}`;
+      }
+
+      const response = await fetch(url);
+      if (response.ok) {
+        const json = await response.json();
+        if (json.status && Array.isArray(json.subtitles)) {
+          subtitlesList = json.subtitles;
+        }
+      }
     }
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.warn('[SubDL] Search status:', response.status);
-      return res.json({ data: [] });
-    }
+    // Season / Episode prioritization
+    const seMatchTarget = target.match(/s(\d+)e(\d+)/i) || target.match(/(\d+)x(\d+)/i);
+    const targetEp = seMatchTarget ? parseInt(seMatchTarget[2], 10) : null;
 
-    const json = await response.json();
-    let subtitlesList = json.subtitles || [];
-
-    // If specific season/episode was targeted, prioritize exact matches
-    if (episode !== null && subtitlesList.length > 0) {
+    if (targetEp !== null && subtitlesList.length > 0) {
       subtitlesList.sort((a, b) => {
-        const aMatches = (a.episode === episode || a.episode_from === episode);
-        const bMatches = (b.episode === episode || b.episode_from === episode);
+        const aMatches = (a.episode === targetEp || a.episode_from === targetEp);
+        const bMatches = (b.episode === targetEp || b.episode_from === targetEp);
         if (aMatches && !bMatches) return -1;
         if (!aMatches && bMatches) return 1;
         return 0;
       });
     }
 
-    const results = subtitlesList.slice(0, 15).map((sub, idx) => {
+    const results = subtitlesList.slice(0, 20).map((sub, idx) => {
       const displayTitle = sub.release_name || sub.name || `Subtitle ${idx + 1}`;
       return {
         id: sub.subtitlePage || `${idx}`,
-        fileId: sub.url, // e.g. /subtitle/...zip?api_key=...
+        fileId: sub.url,
         fileName: displayTitle.replace(/\.zip$/i, ''),
         language: sub.language || sub.lang || 'EN',
         season: sub.season,
@@ -1381,7 +1452,7 @@ app.get('/api/subtitles/search', async (req, res) => {
 });
 
 app.post('/api/subtitles/download', async (req, res) => {
-  const { fileId, fileName = 'subtitles' } = req.body;
+  const { fileId, fileName = 'subtitles', targetEpisode = null } = req.body;
   if (!fileId) return res.status(400).json({ error: 'fileId required' });
 
   try {
@@ -1395,30 +1466,54 @@ app.post('/api/subtitles/download', async (req, res) => {
 
     const buf = await downRes.arrayBuffer();
     let textContent = '';
+    let isAss = false;
 
     try {
       const AdmZip = require('adm-zip');
       const zip = new AdmZip(Buffer.from(buf));
       const entries = zip.getEntries();
-      const subEntry = entries.find(e => e.entryName.match(/\.(srt|vtt)$/i));
-      if (subEntry) {
-        textContent = zip.readAsText(subEntry);
-      } else {
-        textContent = entries[0] ? zip.readAsText(entries[0]) : '';
+
+      // Filter all valid subtitle entries
+      const subEntries = entries.filter(e => !e.isDirectory && e.entryName.match(/\.(srt|vtt|ass|ssa)$/i));
+
+      let matchedEntry = null;
+
+      // If target episode is specified, find matching entry in season pack
+      if (targetEpisode !== null && subEntries.length > 1) {
+        const epPad = String(targetEpisode).padStart(2, '0');
+        const epRegex = new RegExp(`(e${epPad}|e${targetEpisode}|[._ -]${epPad}[._ -]|[._ -]0*${targetEpisode}[._ -])`, 'i');
+        matchedEntry = subEntries.find(e => epRegex.test(e.entryName));
+      }
+
+      if (!matchedEntry && subEntries.length > 0) {
+        matchedEntry = subEntries[0];
+      }
+
+      if (matchedEntry) {
+        isAss = !!matchedEntry.entryName.match(/\.(ass|ssa)$/i);
+        textContent = zip.readAsText(matchedEntry);
+      } else if (entries.length > 0) {
+        textContent = zip.readAsText(entries[0]);
+        isAss = !!entries[0].entryName.match(/\.(ass|ssa)$/i);
       }
     } catch (zipErr) {
       console.warn('[SubDL] AdmZip parse fallback:', zipErr.message);
       textContent = Buffer.from(buf).toString('utf8');
+      isAss = textContent.includes('[Script Info]');
     }
 
     if (!textContent || textContent.trim().length === 0) {
       return res.status(500).json({ error: 'Empty subtitle content extracted' });
     }
 
-    // Convert SRT to WebVTT
-    let vttContent = 'WEBVTT\n\n' + textContent
-      .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
-      .replace(/\r\n/g, '\n');
+    let vttContent = '';
+    if (isAss || textContent.includes('[Script Info]') || textContent.includes('Dialogue:')) {
+      vttContent = assToVtt(textContent);
+    } else {
+      vttContent = 'WEBVTT\n\n' + textContent
+        .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
+        .replace(/\r\n/g, '\n');
+    }
     vttContent = cleanVttContent(vttContent);
 
     const safeHash = `subdl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

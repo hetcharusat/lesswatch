@@ -127,12 +127,28 @@ export function PoufPlayer({
     return (title || '')
       .replace(/\.(mkv|mp4|avi|webm)$/i, '')
       .replace(/[\._]/g, ' ')
-      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf)\b/gi, '')
+      .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf|4khdhub|com|kontrast|amzn)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   });
   const [onlineSearchResults, setOnlineSearchResults] = useState([]);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [isDownloadingOnline, setIsDownloadingOnline] = useState(false);
+  const [downloadingSubId, setDownloadingSubId] = useState(null);
+
+  // Re-sync SubDL search query whenever active video changes
+  useEffect(() => {
+    if (title) {
+      const cleaned = (title || '')
+        .replace(/\.(mkv|mp4|avi|webm)$/i, '')
+        .replace(/[\._]/g, ' ')
+        .replace(/\b(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac|dts|ddp5\.1|nf|4khdhub|com|kontrast|amzn)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      setOnlineSearchQuery(cleaned);
+      setOnlineSearchResults([]);
+    }
+  }, [title]);
 
   // Aspect Ratio & Playback Speed
   const [aspectRatio, setAspectRatio] = useState(() => {
@@ -470,11 +486,13 @@ export function PoufPlayer({
   };
 
   // SubDL Online Search & Download
-  const handleSearchOnlineSubtitles = async () => {
-    if (!onlineSearchQuery.trim()) return;
+  const handleSearchOnlineSubtitles = async (overrideQuery = null) => {
+    const q = (overrideQuery !== null ? overrideQuery : onlineSearchQuery).trim();
+    const rawTarget = cleanFilename || title || '';
+    if (!q && !rawTarget) return;
     setIsSearchingOnline(true);
     try {
-      const res = await fetch(`/api/subtitles/search?query=${encodeURIComponent(onlineSearchQuery.trim())}`);
+      const res = await fetch(`/api/subtitles/search?query=${encodeURIComponent(q || rawTarget)}&filename=${encodeURIComponent(rawTarget)}`);
       if (res.ok) {
         const data = await res.json();
         setOnlineSearchResults(data.data || []);
@@ -486,17 +504,35 @@ export function PoufPlayer({
     }
   };
 
+  const handleToggleOnlineSubSearch = () => {
+    setShowOnlineSubSearch(prev => {
+      const next = !prev;
+      if (next && onlineSearchResults.length === 0) {
+        handleSearchOnlineSubtitles();
+      }
+      return next;
+    });
+  };
+
   const handleDownloadOnlineSubtitle = async (sub) => {
     setIsDownloadingOnline(true);
+    setDownloadingSubId(sub.fileId);
     try {
+      const seMatch = (cleanFilename || title || '').match(/s(\d+)e(\d+)/i) || (cleanFilename || title || '').match(/(\d+)x(\d+)/i);
+      const targetEpisode = seMatch ? parseInt(seMatch[2], 10) : (sub.episode || null);
+
       const res = await fetch('/api/subtitles/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId: sub.fileId, fileName: sub.fileName })
+        body: JSON.stringify({
+          fileId: sub.fileId,
+          fileName: sub.fileName,
+          targetEpisode
+        })
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.vttContent) {
           const parsedCues = parseSubtitlesText(data.vttContent);
           const newTrack = {
             id: `subdl-${Date.now()}`,
@@ -516,6 +552,7 @@ export function PoufPlayer({
       console.warn('SubDL download error:', e);
     } finally {
       setIsDownloadingOnline(false);
+      setDownloadingSubId(null);
     }
   };
 
@@ -1363,7 +1400,7 @@ export function PoufPlayer({
               </button>
 
               <button
-                onClick={() => setShowOnlineSubSearch(prev => !prev)}
+                onClick={handleToggleOnlineSubSearch}
                 className={showOnlineSubSearch ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
                 style={{
                   padding: '6px 8px',
@@ -1403,7 +1440,7 @@ export function PoufPlayer({
                     type="text"
                     value={onlineSearchQuery}
                     onChange={(e) => setOnlineSearchQuery(e.target.value)}
-                    placeholder="Search title or episode..."
+                    placeholder="Search title, filename or episode..."
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()}
                     className="pouf-glass-input"
                     style={{
@@ -1413,7 +1450,7 @@ export function PoufPlayer({
                     }}
                   />
                   <button
-                    onClick={handleSearchOnlineSubtitles}
+                    onClick={() => handleSearchOnlineSubtitles()}
                     disabled={isSearchingOnline}
                     className="pouf-glass-btn-primary"
                     style={{
@@ -1428,66 +1465,85 @@ export function PoufPlayer({
                   </button>
                 </div>
 
-                {onlineSearchResults.length > 0 && (
-                  <div style={{ maxHeight: '130px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
-                    {onlineSearchResults.map((sub, sIdx) => (
-                      <div
-                        key={sIdx}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '5px 7px',
-                          borderRadius: '6px',
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(244, 114, 182, 0.15)',
-                          gap: '6px'
-                        }}
-                      >
-                        <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, textAlign: 'left' }}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.70rem', color: '#f3f4f6', fontWeight: 700 }}>
-                            {sub.fileName}
-                          </div>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginTop: '2px', fontSize: '0.60rem' }}>
-                            <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(244, 114, 182, 0.25)', color: '#f472b6', fontWeight: 800 }}>
-                              {sub.language}
-                            </span>
-                            {sub.episode && (
-                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-                                S{sub.season}E{sub.episode}
-                              </span>
-                            )}
-                            {sub.hi && (
-                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24' }}>
-                                SDH
-                              </span>
-                            )}
-                            {sub.author && (
-                              <span style={{ color: '#9ca3af' }}>by {sub.author}</span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleDownloadOnlineSubtitle(sub)}
-                          disabled={isDownloadingOnline}
-                          className="pouf-glass-btn"
+                {isSearchingOnline ? (
+                  <div style={{ padding: '12px 0', textAlign: 'center', color: '#f472b6', fontSize: '0.70rem', fontWeight: 700 }}>
+                    ✨ Searching SubDL releases...
+                  </div>
+                ) : onlineSearchResults.length > 0 ? (
+                  <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                    {onlineSearchResults.map((sub, sIdx) => {
+                      const isDownloadingThis = downloadingSubId === sub.fileId;
+                      return (
+                        <div
+                          key={sIdx}
                           style={{
-                            padding: '3px 7px',
-                            borderRadius: '5px',
-                            fontSize: '0.66rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '3px',
-                            flexShrink: 0
+                            justifyContent: 'space-between',
+                            padding: '6px 8px',
+                            borderRadius: '6px',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(244, 114, 182, 0.18)',
+                            gap: '6px'
                           }}
                         >
-                          <Download size={11} color="#34d399" />
-                          <span>Get</span>
-                        </button>
-                      </div>
-                    ))}
+                          <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, textAlign: 'left' }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.70rem', color: '#f3f4f6', fontWeight: 700 }} title={sub.fileName}>
+                              {sub.fileName}
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginTop: '2px', fontSize: '0.60rem' }}>
+                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(244, 114, 182, 0.25)', color: '#f472b6', fontWeight: 800 }}>
+                                {sub.language}
+                              </span>
+                              {sub.episode && (
+                                <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db', fontWeight: 700 }}>
+                                  S{sub.season}E{sub.episode}
+                                </span>
+                              )}
+                              {sub.hi && (
+                                <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24', fontWeight: 700 }}>
+                                  SDH
+                                </span>
+                              )}
+                              {sub.author && (
+                                <span style={{ color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  by {sub.author}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDownloadOnlineSubtitle(sub)}
+                            disabled={isDownloadingOnline}
+                            className={isDownloadingThis ? 'pouf-glass-btn' : 'pouf-glass-btn-primary'}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '5px',
+                              fontSize: '0.66rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              flexShrink: 0
+                            }}
+                          >
+                            {isDownloadingThis ? (
+                              <span>Loading...</span>
+                            ) : (
+                              <>
+                                <Download size={11} />
+                                <span>Get</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#9ca3af', fontSize: '0.66rem' }}>
+                    Type a title or episode and tap Search 🌸
                   </div>
                 )}
               </div>
