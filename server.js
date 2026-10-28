@@ -991,7 +991,6 @@ function probeMediaFile(filePath, relPath = '') {
             preExtractAudioTrack(filePath, t.index);
           }
         });
-        }
 
         resolve(result);
       } catch (e) {
