@@ -1,0 +1,19 @@
+{
+    email hetpatel.dev@gmail.com
+}
+
+letswatch.atmyhome.tech {
+    @notMedia not path /api/media/stream/*
+    encode @notMedia gzip zstd
+
+    reverse_proxy /neko* 172.17.0.1:8080
+    reverse_proxy watch-together:3000
+}
+
+:80 {
+    @notMedia not path /api/media/stream/*
+    encode @notMedia gzip zstd
+
+    reverse_proxy /neko* 172.17.0.1:8080
+    reverse_proxy watch-together:3000
+}

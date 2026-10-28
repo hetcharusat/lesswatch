@@ -1,0 +1,13 @@
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+public/assets/
+.gitnexus/
+*.pem
+update.tar.gz
+downloads/
+media/
+data/
+.env
+

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watch Together - Theater Room</title>
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/css/style.css">
+  
+  <!-- HLS.js for .m3u8 anime & movie streams -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="theater-page">
+  <!-- Top Navigation Bar -->
+  <header class="top-nav">
+    <div style="display: flex; align-items: center; gap: 1rem;">
+      <a href="/" class="brand" title="Back to Home & Planner">
+        <span class="brand-icon">🍿</span>
+        <div class="brand-text">Watch<span>Together</span></div>
+      </a>
+      <div class="room-badge">
+        <span>Room:</span>
+        <strong id="room-name-display">loading...</strong>
+      </div>
+      <button id="btn-copy-link" class="btn-share" title="Copy shareable room link for your friend">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+        <span>Invite Friend</span>
+      </button>
+    </div>
+
+    <!-- Center: Voice Chat & Sync Status -->
+    <div class="nav-center">
+      <!-- WebRTC Voice Bar -->
+      <div class="voice-bar" id="voice-bar">
+        <button id="btn-toggle-voice" class="btn-voice" title="Connect Peer-to-Peer Voice Chat">
+          <span id="voice-icon">🎙️</span>
+          <span id="voice-label">Join Voice</span>
+        </button>
+        <div id="voice-peers-indicator" class="voice-peers" style="display: none;">
+          <span class="voice-pulse-ring"></span>
+          <span id="voice-peer-name">Friend in Voice</span>
+        </div>
+      </div>
+
+      <!-- Sync Status Pill -->
+      <div id="sync-status" class="sync-status-pill" title="Click to force resync playback">
+        <span class="status-dot"></span>
+        <span id="sync-status-text">In Sync</span>
+      </div>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="nav-right">
+      <!-- Danmaku Toggle -->
+      <button id="btn-toggle-danmaku" class="btn-icon active-icon" title="Toggle Floating Danmaku Bullet Comments on Video">
+        <span style="font-size: 0.95rem;">💬 Danmaku</span>
+      </button>
+
+      <!-- Screenshot Frame Tool -->
+      <button id="btn-screenshot" class="btn-icon" title="Capture Frame / Screenshot">
+        <span style="font-size: 1rem;">📸</span>
+      </button>
+
+      <!-- Slide-Over Chat Toggle -->
+      <button id="btn-toggle-chat" class="btn-icon" title="Toggle Chat Drawer (Press C)">
+        <span style="font-size: 1.1rem;">🗨️</span>
+        <span id="chat-unread-badge" class="unread-dot" style="display: none;"></span>
+      </button>
+
+      <!-- Profile Badge -->
+      <div id="user-badge" class="user-badge" title="Change nickname">
+        <div id="avatar-dot" class="avatar-circle">👑</div>
+        <span id="username-display">Prince</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Fullscreen Cinema Stage Container -->
+  <main class="theater-stage-container">
+    <div class="video-theater-wrapper" id="video-theater-wrapper">
+      <!-- Floating Danmaku / Bullet Comments Layer (Over video) -->
+      <div id="danmaku-container" class="danmaku-container"></div>
+
+      <!-- Floating Emoji Reactions Spam Physics Layer -->
+      <div id="reactions-overlay" class="reactions-overlay"></div>
+
+      <!-- Video Toast Alert (e.g. "Prince paused video at 12:45") -->
+      <div id="player-toast" class="player-toast">
+        <span id="toast-icon">⚡</span>
+        <span id="toast-message">Syncing...</span>
+      </div>
+
+      <!-- YouTube Player -->
+      <div id="yt-player-container" class="player-container">
+        <div id="yt-player"></div>
+      </div>
+
+      <!-- Direct Video / HLS Stream Player -->
+      <div id="html5-player-container" class="player-container" style="display: none;">
+        <video id="html5-video" playsinline controls controlsList="nodownload" preload="auto">
+          <!-- Subtitle track element dynamically loaded -->
+          <track id="html5-subtitle-track" kind="subtitles" srclang="en" label="English" default>
+        </video>
+      </div>
+    </div>
+
+    <!-- Quick Floating Emoji Reaction Spammer Bar (Right over bottom of video) -->
+    <div class="floating-emoji-spammer">
+      <button class="spam-emoji-btn" data-emoji="🍿" title="Spam Popcorn">🍿</button>
+      <button class="spam-emoji-btn" data-emoji="❤️" title="Spam Love">❤️</button>
+      <button class="spam-emoji-btn" data-emoji="😂" title="Spam Laugh">😂</button>
+      <button class="spam-emoji-btn" data-emoji="🔥" title="Spam Fire">🔥</button>
+      <button class="spam-emoji-btn" data-emoji="💀" title="Spam Skull">💀</button>
+      <button class="spam-emoji-btn" data-emoji="😮" title="Spam Wow">😮</button>
+      <button class="spam-emoji-btn" data-emoji="👏" title="Spam Claps">👏</button>
+      <button class="spam-emoji-btn" data-emoji="🎉" title="Spam Party">🎉</button>
+    </div>
+
+    <!-- Media Controls & Stream Switcher Deck -->
+    <div class="theater-control-deck">
+      <div class="deck-top-row">
+        <!-- URL Input with Auto Stream Resolver -->
+        <div class="input-group" style="flex: 1;">
+          <span class="input-icon">🎬</span>
+          <input type="text" id="media-url-input" class="input-control" placeholder="Paste Magnet, Anime Stream (.m3u8), YouTube, or pick from Library..." autocomplete="off">
+        </div>
+        <button id="btn-play-now" class="btn-primary">
+          <span>Play Now</span>
+        </button>
+        <button id="btn-add-queue" class="btn-secondary" title="Add to upcoming video queue">
+          <span>+ Queue</span>
+        </button>
+        <button id="btn-open-library-modal" class="btn-secondary" title="Pick from downloaded files on EC2">
+          <span>📁 Library</span>
+        </button>
+      </div>
+
+      <div class="deck-bottom-row">
+        <div class="media-meta-info">
+          <span id="current-media-type" class="media-type-tag">YOUTUBE</span>
+          <span id="current-media-title" class="media-title-text">Loading media...</span>
+        </div>
+
+        <!-- Subtitles, Host controls, and Resync -->
+        <div class="deck-actions-group">
+          <!-- Subtitle Selector -->
+          <label class="subtitle-label-btn" title="Upload or change subtitle file (.srt, .vtt)">
+            <span>🔤 Subs</span>
+            <input type="file" id="sub-file-input" accept=".vtt,.srt" style="display: none;">
+          </label>
+
+          <button id="btn-toggle-host" class="btn-chip" title="Toggle host-only play/pause permissions">
+            <span id="host-mode-label">🔓 Free Mode</span>
+          </button>
+
+          <button id="btn-manual-sync" class="btn-chip" title="Force resync if lag occurs">
+            <span>🔄 Resync</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Slide-Over Glassmorphic Chat & Queue Drawer (Doesn't shrink the video!) -->
+  <aside class="slide-drawer" id="slide-drawer">
+    <div class="drawer-header">
+      <div class="drawer-tabs">
+        <button class="drawer-tab-btn active" data-tab="chat">💬 Chat</button>
+        <button class="drawer-tab-btn" data-tab="queue">📋 Queue (<span id="queue-count">0</span>)</button>
+        <button class="drawer-tab-btn" data-tab="users">👥 Viewers (<span id="user-count">1</span>)</button>
+      </div>
+      <button id="btn-close-drawer" class="btn-icon" title="Close Drawer (C)">✕</button>
+    </div>
+
+    <!-- Tab 1: Chat Feed -->
+    <div class="drawer-content active" id="drawer-tab-chat">
+      <div class="chat-feed" id="chat-feed">
+        <!-- Messages rendered dynamically -->
+      </div>
+
+      <form id="drawer-chat-form" class="drawer-chat-input-bar">
+        <input type="text" id="drawer-chat-input" class="input-control" placeholder="Send message (floats as Danmaku)..." autocomplete="off">
+        <button type="submit" class="btn-primary" style="padding: 0.6rem 0.9rem;">➤</button>
+      </form>
+    </div>
+
+    <!-- Tab 2: Queue -->
+    <div class="drawer-content" id="drawer-tab-queue">
+      <div class="queue-drawer-header">
+        <span style="font-size: 0.85rem; color: var(--text-dim);">Upcoming Videos</span>
+        <button id="btn-skip-next" class="btn-chip">Skip Next ⏭</button>
+      </div>
+      <div id="drawer-queue-list" class="queue-list-container">
+        <div class="queue-empty">Queue is empty.<br>Add videos above!</div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Connected Users -->
+    <div class="drawer-content" id="drawer-tab-users">
+      <div id="drawer-users-list" class="users-list-container">
+        <!-- Users list -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- Screenshot Preview Modal -->
+  <div class="modal-backdrop" id="screenshot-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">📸 Frame Captured</h3>
+        <button class="btn-icon" id="btn-close-screenshot">✕</button>
+      </div>
+      <div class="screenshot-preview-container">
+        <img id="screenshot-img" alt="Captured Frame" style="width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+      </div>
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button id="btn-download-screenshot" class="btn-secondary">📥 Save Image</button>
+        <button id="btn-share-screenshot" class="btn-primary">💬 Share in Chat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media Library Picker Modal -->
+  <div class="modal-backdrop" id="library-picker-modal">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📁 Select from EC2 Library</h3>
+        <button class="btn-icon" id="btn-close-library-modal">✕</button>
+      </div>
+      <div id="library-picker-list" class="library-picker-list">
+        <!-- Loaded dynamically from /api/library -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Toast -->
+  <div id="global-toast" class="global-toast">
+    <span>✅</span>
+    <span id="toast-text">Notice</span>
+  </div>
+
+  <!-- Room Engine Script -->
+  <script src="/js/room.js"></script>
+</body>
+</html>
