@@ -1508,6 +1508,14 @@ body.in-chit-chat-mode header {
   margin: 0 !important;
   padding: 0 !important;
   gap: 0 !important;
+  transition: flex 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theater-view-wrapper.chit-chat-mode.chat-collapsed .theater-stage-column,
+.theater-view-wrapper.chit-chat-mode .theater-stage-column.full-width {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .theater-view-wrapper.chit-chat-mode .theater-canvas {
@@ -1535,6 +1543,19 @@ body.in-chit-chat-mode header {
   flex-shrink: 0 !important;
   border-radius: 20px !important;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theater-view-wrapper.chit-chat-mode .theater-chat-sidebar-container.collapsed {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* Beautiful Floating Exit Chit Chat Button */

@@ -3219,9 +3219,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   return (
-    <div className={`theater-view-wrapper ${isChitChatMode ? 'chit-chat-mode' : (isChatSidebarOpen ? 'chat-expanded' : '')}`}>
+    <div className={`theater-view-wrapper ${isChitChatMode ? 'chit-chat-mode' : (isChatSidebarOpen ? 'chat-expanded' : '')} ${isChatCollapsed ? 'chat-collapsed' : ''}`}>
       {/* Left Column: Video Stage + Bottom Control Deck */}
-      <div className="theater-stage-column">
+      <div className={`theater-stage-column ${(isChitChatMode && isChatCollapsed) ? 'full-width' : ''}`}>
       {/* Video Canvas */}
       <div
         ref={theaterCanvasRef}
@@ -3493,8 +3493,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {/* Floating Chat Overlay (auto-fades in 5s) */}
         {renderChatOverlay()}
 
-        {/* Floating Quick Chat Pill for Neko & Fullscreen (visible when chatOpen is false) */}
-        {(activePlayerType === 'neko' || isTheaterFullscreen) && !chatOpen && (
+        {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
+        {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -3875,13 +3875,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       </div>
 
       {/* CHIT CHAT MODE: Full-Height Dedicated Sidebar Beside Video Screen */}
-      {isChitChatMode && (
-        <div className={`theater-chat-sidebar-container ${isChatCollapsed ? 'collapsed' : ''}`}>
+      {isChitChatMode && !isChatCollapsed && (
+        <div className="theater-chat-sidebar-container">
           <ChatSidebar
             isOpen={true}
             isCollapsible={true}
-            isCollapsed={isChatCollapsed}
-            onToggleCollapse={() => setIsChatCollapsed((prev) => !prev)}
+            isCollapsed={false}
+            onToggleCollapse={() => setIsChatCollapsed(true)}
             messages={chatMessages}
             onSendMessage={(text) => {
               socket?.emit('chat:send_message', { text, isDanmaku: true });

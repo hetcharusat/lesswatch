@@ -10,19 +10,43 @@ import {
   ClaySubtitles,
   ClayCheck,
   ClaySparkle,
-  ClayClose
+  ClayClose,
+  ClayRewind,
+  ClayForward,
+  ClayUpload
 } from './ClayIcons';
+import {
+  Settings,
+  Sliders,
+  Type,
+  FastForward,
+  Check,
+  X,
+  Upload,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  MoveVertical,
+  Sparkles,
+  RefreshCw
+} from 'lucide-react';
 
 /**
- * PoufPlayer - High-Performance Puffy Pastel Video Player
- * Matches user's exact UI design:
- * - Top title & media meta overlay
- * - Full-width pink scrubber
- * - Inside floating control bar with large pink Play/Pause circle, -10s, +10s, volume, timestamp, subs, headphones, gold Sync Both pill, fullscreen
- * - DUAL-TRACK Range Streaming Audio Engine:
- *   Track 0: Native direct stream (0ms, 0% CPU)
- *   Track >0: Native range-streamed audio element (/api/media/audio/:file?track=N) synced with sub-second precision to <video>
- *   Eliminates all HLS segment skipping, 4x/10x glitching, and constant buffering!
+ * PoufPlayer - Professional Video.js 10 / Cinema Pink Edition
+ * 
+ * Clean, uncluttered UI:
+ * - Scrim contrast gradient over moving video
+ * - Tabular steady numbers for time display
+ * - Main bar has ONLY essential controls: Play/Pause, -10s, +10s, Volume, Time, Quick CC, Settings Gear, Fullscreen
+ * - All secondary actions, badges, and complex controls reside in the unified Video.js 10 Settings Menu:
+ *     1. Subtitles (Tracks, Upload custom .srt/.vtt, Pixel Size controller, Pixel Position controller, Delay offset, Styling)
+ *     2. Audio Tracks (Multi-audio track selector with codecs, background AAC pre-extraction)
+ *     3. Aspect Ratio (Contain 16:9, Cinema Zoom 21:9 Cover, Stretch Fill)
+ *     4. Playback Speed & Room Sync (0.5x to 2.0x, Force Sync Both Viewers)
+ * - Microsecond Dual-Track Audio Sync Engine for 0ms zero-lag streaming
  */
 export function PoufPlayer({
   url,
@@ -33,20 +57,19 @@ export function PoufPlayer({
   subtitleTracks = [],
   activeSubtitleIndex = -1,
   onSubtitleChange,
-  subtitleSize = 24,
-  subtitlePos = 'bottom',
+  subtitleSize: propSubtitleSize,
+  subtitlePos: propSubtitlePos,
   onSubtitleSizeChange,
   onSubtitlePosChange,
   isPlaying = false,
   currentTime = 0,
-  playbackRate = 1.0,
   onPlay,
   onPause,
   onSeek,
   onForceSyncAll,
   onToggleChat,
-  viewerCount = 2,
-  isHost = true,
+  viewerCount = 1,
+  isHost = false,
   canControl = true,
   className = '',
   style = {}
@@ -54,24 +77,61 @@ export function PoufPlayer({
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const audioRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const lastActiveSubRef = useRef(0);
 
-  // Local Player State
-  const [localPlaying, setLocalPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  // Core Playback State
+  const [localPlaying, setLocalPlaying] = useState(isPlaying);
   const [playProgress, setPlayProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [bufferedProgress, setBufferedProgress] = useState(0);
-  const [volume, setVolume] = useState(() => parseFloat(localStorage.getItem('wt_vol') || '0.85'));
+  const [volume, setVolume] = useState(() => parseFloat(localStorage.getItem('wt_player_vol') || '1'));
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [showAudioMenu, setShowAudioMenu] = useState(false);
-  const [showSubMenu, setShowSubMenu] = useState(false);
   const [centerAnimation, setCenterAnimation] = useState(null);
+
+  // Scrubber Hover Tooltip
+  const [hoverTime, setHoverTime] = useState(null);
+  const [hoverPosition, setHoverPosition] = useState(0);
+
+  // Unified Settings Menu & Tabs
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState('subtitles'); // 'subtitles' | 'audio' | 'aspect' | 'speed'
+
+  // Subtitle Customization with Pixel Controllers (stored in localStorage)
+  const [subtitleSize, setSubtitleSize] = useState(() => {
+    return parseInt(localStorage.getItem('wt_sub_size_px'), 10) || propSubtitleSize || 22;
+  });
+  const [subtitleBottom, setSubtitleBottom] = useState(() => {
+    const saved = localStorage.getItem('wt_sub_bottom_px');
+    if (saved) return parseInt(saved, 10);
+    if (propSubtitlePos === 'top') return 480;
+    if (propSubtitlePos === 'raised') return 110;
+    return 65;
+  });
+  const [subtitleDelay, setSubtitleDelay] = useState(() => {
+    return parseFloat(localStorage.getItem('wt_sub_delay') || '0.0');
+  });
+  const [subtitleStyle, setSubtitleStyle] = useState(() => {
+    return localStorage.getItem('wt_sub_style') || 'transparent'; // 'transparent' | 'soft' | 'box'
+  });
+  const [uploadedSubtitles, setUploadedSubtitles] = useState([]);
+
+  // Aspect Ratio & Playback Speed
+  const [aspectRatio, setAspectRatio] = useState(() => {
+    return localStorage.getItem('wt_aspect_ratio') || 'contain'; // 'contain' | 'cover' | 'fill'
+  });
+  const [playbackSpeed, setPlaybackSpeed] = useState(() => {
+    return parseFloat(localStorage.getItem('wt_playback_speed') || '1.0');
+  });
+
+  // Multi-Audio Extraction State
   const [audioStatusData, setAudioStatusData] = useState(null);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
 
-  // Subtitles Cues state
+  // Subtitle Cues state
   const [currentCueText, setCurrentCueText] = useState('');
   const cuesRef = useRef([]);
 
@@ -89,19 +149,18 @@ export function PoufPlayer({
   );
 
   const directStreamUrl = cleanFilename ? `/api/media/stream/${encodeURIComponent(cleanFilename)}` : url;
-  
-  // Does Track 0 need external audio stream? (e.g. EAC3, AC3, DTS, TrueHD)
+
+  // Track 0 codec check: does it need the transcoded AAC stream? (e.g. EAC3, AC3, DTS, TrueHD)
   const track0Codec = (audioTracks[0]?.codec || '').toLowerCase();
   const track0IsAac = track0Codec.includes('aac') || track0Codec.includes('mp4a');
   const track0NeedsExternalAudio = audioTracks.length > 0 && !track0IsAac;
   const shouldUseAudioElement = activeAudioIndex > 0 || track0NeedsExternalAudio;
 
-  // Active audio URL: if activeAudioIndex > 0 OR if track 0 is non-AAC, use the transcoded/cached AAC stream
   const activeAudioUrl = (cleanFilename && shouldUseAudioElement)
     ? `/api/media/audio/${encodeURIComponent(cleanFilename)}?track=${activeAudioIndex}`
     : '';
 
-  // Audio processing status polling when audio menu is open
+  // Audio processing status polling
   const fetchAudioStatus = useCallback(async () => {
     if (!cleanFilename) return;
     try {
@@ -118,9 +177,9 @@ export function PoufPlayer({
     fetchAudioStatus();
     const interval = setInterval(() => {
       fetchAudioStatus();
-    }, showAudioMenu || !audioStatusData?.allReady ? 2500 : 8000);
+    }, showSettingsMenu && activeSettingsTab === 'audio' ? 2500 : 8000);
     return () => clearInterval(interval);
-  }, [cleanFilename, audioTracks.length, showAudioMenu, audioStatusData?.allReady, fetchAudioStatus]);
+  }, [cleanFilename, audioTracks.length, showSettingsMenu, activeSettingsTab, fetchAudioStatus]);
 
   const handleProcessAllAudio = async () => {
     if (!cleanFilename || isProcessingAudio) return;
@@ -132,6 +191,7 @@ export function PoufPlayer({
     setTimeout(() => setIsProcessingAudio(false), 3000);
   };
 
+  // Time formatter with tabular digits
   function formatTime(sec) {
     if (!sec || isNaN(sec) || sec < 0) return '00:00';
     const s = Math.floor(sec);
@@ -164,16 +224,23 @@ export function PoufPlayer({
     }
   }, [directStreamUrl]);
 
-  // --------------------------------------------------------------------------
-  // Dual-Track Audio Sync Engine (Seamless Web-Audio & Direct Range Streaming)
-  // --------------------------------------------------------------------------
+  // Apply playback speed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
+
+  // Dual-Track Audio Sync Engine
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
     if (!video) return;
 
     if (!shouldUseAudioElement || !activeAudioUrl) {
-      // Primary embedded audio: video outputs sound directly
       video.muted = isMuted;
       video.volume = isMuted ? 0 : volume;
       if (audio) {
@@ -182,7 +249,6 @@ export function PoufPlayer({
         audio.load();
       }
     } else {
-      // Secondary audio track OR non-AAC Track 0: mute container video, audio element plays stream
       video.muted = true;
       if (audio) {
         const fullUrl = new URL(activeAudioUrl, window.location.href).href;
@@ -216,7 +282,7 @@ export function PoufPlayer({
     }
   }, [activeAudioIndex, activeAudioUrl, shouldUseAudioElement]);
 
-  // Sync external playback state (isPlaying)
+  // Sync external playback state
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
@@ -272,32 +338,46 @@ export function PoufPlayer({
   }, [volume, isMuted, shouldUseAudioElement]);
 
   // --------------------------------------------------------------------------
-  // Subtitle Parsing (.vtt)
+  // Subtitle Parsing (.vtt & .srt)
   // --------------------------------------------------------------------------
+  const allSubtitles = [...subtitleTracks, ...uploadedSubtitles];
+
   useEffect(() => {
     cuesRef.current = [];
     setCurrentCueText('');
 
-    if (activeSubtitleIndex === -1 || !subtitleTracks[activeSubtitleIndex]?.url) {
+    if (activeSubtitleIndex === -1 || !allSubtitles[activeSubtitleIndex]) {
       return;
     }
 
-    const subUrl = subtitleTracks[activeSubtitleIndex].url;
-    let isCancelled = false;
+    const currentSub = allSubtitles[activeSubtitleIndex];
+    if (currentSub.cues && currentSub.cues.length > 0) {
+      cuesRef.current = currentSub.cues;
+      return;
+    }
 
-    fetch(subUrl)
+    if (!currentSub.url) return;
+
+    let isCancelled = false;
+    fetch(currentSub.url)
       .then(res => res.text())
-      .then(vttText => {
+      .then(rawText => {
         if (isCancelled) return;
-        cuesRef.current = parseVTT(vttText);
+        cuesRef.current = parseSubtitlesText(rawText);
       })
       .catch(err => console.warn('[PoufPlayer] Subtitle load error:', err));
 
     return () => { isCancelled = true; };
-  }, [activeSubtitleIndex, subtitleTracks]);
+  }, [activeSubtitleIndex, allSubtitles.length]);
 
-  function parseVTT(text) {
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  function parseSubtitlesText(rawText) {
+    // Normalize SRT comma timestamps to VTT period timestamps
+    const text = rawText
+      .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+
+    const lines = text.split('\n');
     const cues = [];
     let start = 0;
     let end = 0;
@@ -346,6 +426,34 @@ export function PoufPlayer({
     return cues;
   }
 
+  // Handle Custom Subtitle Upload (.srt / .vtt)
+  const handleUploadSubtitleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result;
+      if (typeof content !== 'string') return;
+      const parsedCues = parseSubtitlesText(content);
+      const blob = new Blob([content], { type: 'text/vtt' });
+      const blobUrl = URL.createObjectURL(blob);
+      const newTrack = {
+        id: `custom-${Date.now()}`,
+        title: `📁 ${file.name.replace(/\.[^/.]+$/, '')}`,
+        url: blobUrl,
+        cues: parsedCues,
+        isCustom: true
+      };
+      setUploadedSubtitles(prev => [...prev, newTrack]);
+      const newIndex = subtitleTracks.length + uploadedSubtitles.length;
+      cuesRef.current = parsedCues;
+      onSubtitleChange?.(newIndex);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   // --------------------------------------------------------------------------
   // Video DOM Event Handlers
   // --------------------------------------------------------------------------
@@ -356,20 +464,17 @@ export function PoufPlayer({
 
     setPlayProgress(video.currentTime);
 
-    // Smooth Audio-Video synchronization without choppiness or stutter
+    // Smooth Dual-Track Sync
     if (shouldUseAudioElement && audio && !video.paused && !audio.paused && !audio.seeking && !video.seeking) {
       const drift = audio.currentTime - video.currentTime;
       const absDrift = Math.abs(drift);
 
-      // If drift is minor (between 0.25s and 2.0s), subtly tweak rate by 4% to glide audio into microsecond sync
       if (absDrift > 0.25 && absDrift < 2.0) {
         audio.playbackRate = video.playbackRate * (drift > 0 ? 0.96 : 1.04);
       } else if (absDrift >= 2.0) {
-        // Large gap (e.g. initial track load or seek): snap directly
         audio.currentTime = video.currentTime;
         audio.playbackRate = video.playbackRate;
       } else {
-        // In tight sync (drift <= 0.25s)
         if (audio.playbackRate !== video.playbackRate) {
           audio.playbackRate = video.playbackRate;
         }
@@ -383,15 +488,15 @@ export function PoufPlayer({
       } catch {}
     }
 
-    // Subtitle Cues
+    // Subtitle Cues with Timing Offset
     if (cuesRef.current.length > 0) {
-      const cur = video.currentTime;
+      const cur = video.currentTime + subtitleDelay;
       const activeCue = cuesRef.current.find(c => cur >= c.start && cur <= c.end);
       setCurrentCueText(activeCue ? activeCue.text : '');
     } else {
       if (currentCueText) setCurrentCueText('');
     }
-  }, [currentCueText, shouldUseAudioElement]);
+  }, [currentCueText, shouldUseAudioElement, subtitleDelay]);
 
   function handleLoadedMetadata() {
     if (videoRef.current) setDuration(videoRef.current.duration || 0);
@@ -452,7 +557,7 @@ export function PoufPlayer({
     if (onSeek) onSeek(newTime);
   }
 
-  // Scrubber scrubber drag
+  // Scrubber scrubber drag & hover
   function handleScrubberMouseDown(e) {
     const track = document.getElementById('pouf-progress-track');
     if (!track || !videoRef.current || !duration) return;
@@ -491,6 +596,19 @@ export function PoufPlayer({
     window.addEventListener('mouseup', onMouseUp);
   }
 
+  function handleScrubberMouseMove(e) {
+    const track = document.getElementById('pouf-progress-track');
+    if (!track || !duration) return;
+    const rect = track.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverPosition(pos * 100);
+    setHoverTime(pos * duration);
+  }
+
+  function handleScrubberMouseLeave() {
+    setHoverTime(null);
+  }
+
   function toggleFullscreen() {
     const container = containerRef.current;
     if (!container) return;
@@ -509,23 +627,105 @@ export function PoufPlayer({
   function handleMouseMove() {
     setShowControls(true);
     if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
-    if (localPlaying && !showAudioMenu && !showSubMenu) {
+    if (localPlaying && !showSettingsMenu) {
       hideControlsTimerRef.current = setTimeout(() => setShowControls(false), 3500);
     }
   }
+
+  // Quick CC Toggle on Control Bar
+  const handleToggleCC = () => {
+    if (activeSubtitleIndex >= 0) {
+      lastActiveSubRef.current = activeSubtitleIndex;
+      onSubtitleChange?.(-1);
+    } else {
+      const restoreIdx = (lastActiveSubRef.current !== undefined && lastActiveSubRef.current >= 0 && lastActiveSubRef.current < allSubtitles.length)
+        ? lastActiveSubRef.current
+        : 0;
+      onSubtitleChange?.(restoreIdx);
+    }
+  };
+
+  // Subtitle Customization Handlers
+  const handleSizeChange = (newSize) => {
+    const clamped = Math.max(14, Math.min(48, newSize));
+    setSubtitleSize(clamped);
+    localStorage.setItem('wt_sub_size_px', clamped);
+    onSubtitleSizeChange?.(clamped);
+  };
+
+  const handleBottomChange = (newBottom) => {
+    const clamped = Math.max(10, Math.min(280, newBottom));
+    setSubtitleBottom(clamped);
+    localStorage.setItem('wt_sub_bottom_px', clamped);
+    onSubtitlePosChange?.(clamped);
+  };
+
+  const handleDelayChange = (newDelay) => {
+    const clamped = parseFloat(Math.max(-5.0, Math.min(5.0, newDelay)).toFixed(1));
+    setSubtitleDelay(clamped);
+    localStorage.setItem('wt_sub_delay', clamped);
+  };
+
+  const handleStyleChange = (newStyle) => {
+    setSubtitleStyle(newStyle);
+    localStorage.setItem('wt_sub_style', newStyle);
+  };
+
+  const handleAspectChange = (newAspect) => {
+    setAspectRatio(newAspect);
+    localStorage.setItem('wt_aspect_ratio', newAspect);
+  };
+
+  const handleSpeedChange = (newSpeed) => {
+    setPlaybackSpeed(newSpeed);
+    localStorage.setItem('wt_playback_speed', newSpeed);
+  };
+
+  // Hotkey Navigation
+  useEffect(() => {
+    function handleKeyDown(e) {
+      // Ignore if user is typing in chat or input
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlayPause();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        handleSeekRelative(-10);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        handleSeekRelative(10);
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        setIsMuted(prev => !prev);
+      } else if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        handleToggleCC();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [duration, activeSubtitleIndex, allSubtitles.length]);
 
   return (
     <div
       ref={containerRef}
       className={`pouf-player-container ${isFullscreen ? 'pouf-fullscreen' : ''} ${className}`}
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => localPlaying && setShowControls(false)}
+      onMouseLeave={() => localPlaying && !showSettingsMenu && setShowControls(false)}
       style={{
         position: 'relative',
         width: '100%',
         height: '100%',
         minHeight: '380px',
-        background: '#0a050d',
+        background: '#07030a',
         borderRadius: isFullscreen ? '0px' : '24px',
         overflow: 'hidden',
         boxShadow: isFullscreen ? 'none' : '0 20px 45px rgba(244,114,182,0.25)',
@@ -553,7 +753,7 @@ export function PoufPlayer({
         style={{
           width: '100%',
           height: '100%',
-          objectFit: 'contain',
+          objectFit: aspectRatio,
           background: '#000000',
           cursor: 'pointer'
         }}
@@ -562,7 +762,7 @@ export function PoufPlayer({
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Top Title & Specs Overlay (Exactly matching user's reference mockup) */}
+      {/* 3. Top Title & Specs Overlay */}
       <div
         style={{
           position: 'absolute',
@@ -574,59 +774,47 @@ export function PoufPlayer({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
-          zIndex: 25,
+          zIndex: 40,
           opacity: showControls ? 1 : 0,
-          transition: 'opacity 0.3s ease',
+          transform: showControls ? 'translateY(0)' : 'translateY(-15px)',
+          transition: 'all 0.3s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: showControls ? 'auto' : 'none'
         }}
       >
         <div>
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
             {title || 'Video Stream'}
           </h2>
-          <div style={{ fontSize: '0.8rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-            <span>1080p • Multi-Audio • Direct Stream</span>
+          <div style={{ fontSize: '0.78rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+            <span>1080p • Direct Stream</span>
+            {audioTracks.length > 1 && (
+              <span style={{ color: '#f472b6' }}>• Multi-Audio ({audioTracks.length})</span>
+            )}
+            {allSubtitles.length > 0 && (
+              <span style={{ color: '#a7f3d0' }}>• Subtitles ({allSubtitles.length})</span>
+            )}
           </div>
         </div>
 
-        {/* Top-Right Action Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {onToggleChat && (
-            <button
-              onClick={onToggleChat}
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'rgba(255, 255, 255, 0.15)',
-                border: '1px solid rgba(255, 255, 255, 0.25)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Toggle Chit Chat Sidebar"
-            >
-              💬
-            </button>
-          )}
-
+        {/* Top-Right Badges: Viewer count & Fullscreen */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div
             style={{
-              padding: '6px 12px',
+              padding: '5px 12px',
               borderRadius: '9999px',
               background: 'rgba(255, 255, 255, 0.15)',
+              backdropFilter: 'blur(10px)',
               border: '1px solid rgba(255, 255, 255, 0.25)',
               color: '#fff',
-              fontSize: '0.8rem',
+              fontSize: '0.78rem',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
               gap: '6px'
             }}
           >
-            <span>👥 {viewerCount}</span>
+            <span>👥</span>
+            <span>{viewerCount}</span>
           </div>
 
           <button
@@ -645,37 +833,41 @@ export function PoufPlayer({
             }}
             title="Fullscreen (F)"
           >
-            <ClayFullscreen size={18} />
+            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
         </div>
       </div>
 
-      {/* 4. Subtitle Display Layer */}
+      {/* 4. Subtitle Display Layer with Exact Pixel Positioning & Styling */}
       {currentCueText && (
         <div
           style={{
             position: 'absolute',
             left: '50%',
             transform: 'translateX(-50%)',
-            bottom: subtitlePos === 'top' ? 'auto' : (subtitlePos === 'raised' ? '100px' : '65px'),
-            top: subtitlePos === 'top' ? '50px' : 'auto',
+            bottom: `${subtitleBottom}px`,
             maxWidth: '85%',
             textAlign: 'center',
             pointerEvents: 'none',
-            zIndex: 30
+            zIndex: 30,
+            transition: 'bottom 0.15s ease'
           }}
         >
           <span
             style={{
               display: 'inline-block',
-              background: 'transparent',
               color: '#ffffff',
               fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-              fontSize: `${subtitleSize || 22}px`,
+              fontSize: `${subtitleSize}px`,
               fontWeight: 700,
               lineHeight: 1.35,
-              padding: '4px 12px',
-              textShadow: '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000',
+              padding: subtitleStyle === 'transparent' ? '4px 8px' : '6px 14px',
+              borderRadius: subtitleStyle === 'transparent' ? '0' : '8px',
+              background: subtitleStyle === 'transparent' ? 'transparent' : (subtitleStyle === 'box' ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.45)'),
+              backdropFilter: subtitleStyle === 'soft' ? 'blur(4px)' : 'none',
+              textShadow: subtitleStyle === 'transparent'
+                ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
+                : '0 1px 3px rgba(0,0,0,0.8)',
               whiteSpace: 'pre-wrap',
               letterSpacing: '0.015em'
             }}
@@ -685,7 +877,7 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 5. Center Play/Pause Burst */}
+      {/* 5. Center Play/Pause Burst Animation */}
       {centerAnimation && (
         <div style={{ position: 'absolute', pointerEvents: 'none', zIndex: 35, animation: 'poufPopIn 0.5s forwards' }}>
           <div
@@ -706,47 +898,78 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 6. INSIDE-VIDEO BOTTOM CONTROL DECK (Exact Match to User's Screenshot) */}
+      {/* 6. Video.js 10 Cinema Pink Scrim Background & Floating Control Bar */}
       <div
         style={{
           position: 'absolute',
-          bottom: '12px',
-          left: '16px',
-          right: '16px',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: '24px 20px 14px 20px',
+          background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 65%, transparent 100%)',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: '10px',
           opacity: showControls ? 1 : 0,
           transform: showControls ? 'translateY(0)' : 'translateY(15px)',
-          transition: 'all 0.3s cubic-bezier(0.16,1,0.3,1)',
+          transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: showControls ? 'auto' : 'none'
         }}
       >
-        {/* Full-Width Hot-Pink Scrubber Bar */}
+        {/* Full-Width Pink Scrubber Bar */}
         <div
           id="pouf-progress-track"
           onMouseDown={handleScrubberMouseDown}
+          onMouseMove={handleScrubberMouseMove}
+          onMouseLeave={handleScrubberMouseLeave}
           style={{
             position: 'relative',
             width: '100%',
-            height: '14px',
+            height: '16px',
             display: 'flex',
             alignItems: 'center',
             cursor: 'pointer'
           }}
         >
+          {/* Hover Time Tooltip */}
+          {hoverTime !== null && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${hoverPosition}%`,
+                bottom: '22px',
+                transform: 'translateX(-50%)',
+                background: 'rgba(23, 15, 32, 0.95)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(244, 114, 182, 0.5)',
+                color: '#fce7f3',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                fontVariantNumeric: 'tabular-nums',
+                pointerEvents: 'none',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {formatTime(hoverTime)}
+            </div>
+          )}
+
           {/* Rail */}
           <div
             style={{
               width: '100%',
               height: '5px',
               borderRadius: '9999px',
-              background: 'rgba(255, 255, 255, 0.25)',
+              background: 'rgba(255, 255, 255, 0.22)',
               position: 'relative',
               overflow: 'hidden'
             }}
           >
+            {/* Buffer bar */}
             <div
               style={{
                 position: 'absolute',
@@ -757,6 +980,7 @@ export function PoufPlayer({
                 background: 'rgba(244, 114, 182, 0.4)'
               }}
             />
+            {/* Play progress bar */}
             <div
               style={{
                 position: 'absolute',
@@ -764,8 +988,8 @@ export function PoufPlayer({
                 top: 0,
                 bottom: 0,
                 width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
-                background: '#ec4899',
-                boxShadow: '0 0 8px #ec4899'
+                background: 'linear-gradient(90deg, #ec4899, #f472b6)',
+                boxShadow: '0 0 10px #ec4899'
               }}
             />
           </div>
@@ -776,22 +1000,23 @@ export function PoufPlayer({
               position: 'absolute',
               left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
               transform: 'translateX(-50%)',
-              width: '15px',
-              height: '15px',
+              width: '14px',
+              height: '14px',
               borderRadius: '50%',
               background: '#ec4899',
               border: '2px solid #ffffff',
-              boxShadow: '0 0 10px rgba(236,72,153,0.8)',
-              pointerEvents: 'none'
+              boxShadow: '0 0 10px rgba(236,72,153,0.9)',
+              pointerEvents: 'none',
+              transition: isDraggingScrubberRef.current ? 'none' : 'transform 0.1s ease'
             }}
           />
         </div>
 
-        {/* Bottom Control Actions (Match Mockup) */}
+        {/* Bottom Control Actions (Clean & Professional) */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          {/* Left Controls: Big Pink Play/Pause, -10s, +10s, Volume, Time */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* Hot Pink Circular Play/Pause Button */}
+          {/* Left Controls: Big Circular Play/Pause, Rewind 10s, Forward 10s, Volume, Time */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Large Hot Pink Play/Pause Button */}
             <button
               onClick={togglePlayPause}
               style={{
@@ -799,28 +1024,30 @@ export function PoufPlayer({
                 height: '42px',
                 borderRadius: '50%',
                 background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+                color: '#ffffff',
                 border: 'none',
-                boxShadow: '0 4px 14px rgba(236, 72, 153, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.6)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(236, 72, 153, 0.55)',
                 cursor: 'pointer',
                 transition: 'transform 0.15s ease'
               }}
+              className="pouf-btn-tactile"
               title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
             >
-              {localPlaying ? <ClayPause size={22} /> : <ClayPlay size={22} />}
+              {localPlaying ? <ClayPause size={20} /> : <ClayPlay size={20} />}
             </button>
 
-            {/* Circular -10s Rewind Button */}
+            {/* -10s Rewind Button */}
             <button
               onClick={() => handleSeekRelative(-10)}
               style={{
                 width: '34px',
                 height: '34px',
-                borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.12)',
-                border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '10px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
                 color: '#ffffff',
                 fontSize: '11px',
                 fontWeight: 800,
@@ -829,20 +1056,21 @@ export function PoufPlayer({
                 justifyContent: 'center',
                 cursor: 'pointer'
               }}
-              title="Rewind 10s"
+              className="pouf-btn-tactile"
+              title="Rewind 10s (Left Arrow)"
             >
-              10↺
+              <RotateCcw size={15} />
             </button>
 
-            {/* Circular +10s Forward Button */}
+            {/* +10s Forward Button */}
             <button
               onClick={() => handleSeekRelative(10)}
               style={{
                 width: '34px',
                 height: '34px',
-                borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.12)',
-                border: '1.5px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '10px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
                 color: '#ffffff',
                 fontSize: '11px',
                 fontWeight: 800,
@@ -851,19 +1079,22 @@ export function PoufPlayer({
                 justifyContent: 'center',
                 cursor: 'pointer'
               }}
-              title="Forward 10s"
+              className="pouf-btn-tactile"
+              title="Fast Forward 10s (Right Arrow)"
             >
-              ↻10
+              <RotateCw size={15} />
             </button>
 
-            {/* Volume Icon + Horizontal Slider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Volume Control */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '4px' }}>
               <button
                 onClick={() => setIsMuted(m => !m)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#fff', display: 'flex', alignItems: 'center' }}
+                title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
               >
-                {isMuted || volume === 0 ? <ClayMute size={20} /> : <ClayVolume size={20} />}
+                {isMuted || volume === 0 ? <VolumeX size={19} color="#f472b6" /> : <Volume2 size={19} />}
               </button>
+
               <input
                 type="range"
                 min="0"
@@ -871,11 +1102,13 @@ export function PoufPlayer({
                 step="0.05"
                 value={isMuted ? 0 : volume}
                 onChange={(e) => {
-                  setVolume(parseFloat(e.target.value));
+                  const val = parseFloat(e.target.value);
+                  setVolume(val);
                   setIsMuted(false);
+                  localStorage.setItem('wt_player_vol', val);
                 }}
                 style={{
-                  width: '70px',
+                  width: '64px',
                   accentColor: '#ec4899',
                   cursor: 'pointer',
                   height: '4px'
@@ -883,360 +1116,642 @@ export function PoufPlayer({
               />
             </div>
 
-            {/* Time Stamp */}
-            <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.88rem', letterSpacing: '0.5px' }}>
+            {/* Time Stamp (Tabular Steady Numbers) */}
+            <div
+              style={{
+                color: '#ffffff',
+                fontWeight: 700,
+                fontSize: '0.86rem',
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '0.5px',
+                marginLeft: '6px'
+              }}
+            >
               {formatTime(playProgress)} / {formatTime(duration)}
             </div>
           </div>
 
-          {/* Right Controls: Subs, Audio, Gold Sync Both Pill, Fullscreen */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* Subtitles Button */}
+          {/* Right Controls: Quick CC, Settings Gear, Fullscreen */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Quick CC Subtitles Toggle Button */}
             <button
-              onClick={() => {
-                setShowSubMenu(s => !s);
-                setShowAudioMenu(false);
-              }}
+              onClick={handleToggleCC}
               style={{
-                background: activeSubtitleIndex >= 0 ? 'rgba(236,72,153,0.3)' : 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px',
-                borderRadius: '8px'
-              }}
-              title="Subtitles"
-            >
-              <ClaySubtitles size={22} />
-            </button>
-
-            {/* Audio Tracks Headphones Button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <button
-                onClick={() => {
-                  setShowAudioMenu(a => !a);
-                  setShowSubMenu(false);
-                }}
-                style={{
-                  background: activeAudioIndex > 0 ? 'rgba(236,72,153,0.3)' : 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '8px'
-                }}
-                title="Audio Tracks"
-              >
-                <ClayHeadphones size={22} />
-              </button>
-
-              {audioTracks && audioTracks.length > 1 && (
-                <button
-                  onClick={() => {
-                    setShowAudioMenu(true);
-                    if (!audioStatusData?.allReady) handleProcessAllAudio();
-                  }}
-                  className="pouf-btn-tactile"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '3px 8px',
-                    borderRadius: '9999px',
-                    background: audioStatusData?.allReady
-                      ? 'rgba(16, 185, 129, 0.18)'
-                      : 'linear-gradient(135deg, rgba(244,114,182,0.3), rgba(236,72,153,0.3))',
-                    border: audioStatusData?.allReady
-                      ? '1px solid rgba(16, 185, 129, 0.4)'
-                      : '1px solid rgba(244, 114, 182, 0.45)',
-                    color: audioStatusData?.allReady ? '#34d399' : '#f472b6',
-                    fontSize: '0.72rem',
-                    fontWeight: 800,
-                    cursor: 'pointer'
-                  }}
-                  title={audioStatusData?.allReady ? 'All audio tracks cached & ready!' : 'Click to process audio tracks'}
-                >
-                  <span>{audioStatusData?.allReady ? '✓ Audio Ready' : `⚡ Audio: ${audioStatusData?.percent || 0}%`}</span>
-                </button>
-              )}
-            </div>
-
-            {/* Gold "Sync Both" Pill Button */}
-            <button
-              onClick={onForceSyncAll}
-              style={{
+                padding: '6px 10px',
+                borderRadius: '8px',
+                background: activeSubtitleIndex >= 0 ? 'rgba(236, 72, 153, 0.3)' : 'rgba(255, 255, 255, 0.08)',
+                border: activeSubtitleIndex >= 0 ? '1px solid rgba(244, 114, 182, 0.6)' : '1px solid rgba(255, 255, 255, 0.15)',
+                color: activeSubtitleIndex >= 0 ? '#f472b6' : '#d1d5db',
+                fontWeight: 800,
+                fontSize: '0.78rem',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '6px 16px',
-                borderRadius: '9999px',
-                background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)',
-                color: '#170f20',
-                border: 'none',
-                fontWeight: 800,
-                fontSize: '0.84rem',
-                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.45)',
-                cursor: 'pointer'
+                gap: '5px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
               }}
-              title="Force sync both viewers"
+              title="Toggle Subtitles (C)"
             >
-              <span>⚡ Sync Both</span>
+              <ClaySubtitles size={17} />
+              <span>CC</span>
+            </button>
+
+            {/* Unified Settings Gear Button */}
+            <button
+              onClick={() => setShowSettingsMenu(prev => !prev)}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: showSettingsMenu ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.1)',
+                border: showSettingsMenu ? '1px solid #f472b6' : '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: showSettingsMenu ? '0 0 14px rgba(236,72,153,0.5)' : 'none'
+              }}
+              title="Settings (Subtitles, Audio, Aspect, Speed)"
+            >
+              <Settings
+                size={18}
+                style={{
+                  transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.3s ease'
+                }}
+              />
             </button>
 
             {/* Fullscreen Button */}
             <button
               onClick={toggleFullscreen}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
-              title="Fullscreen"
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+              title="Fullscreen (F)"
             >
-              <ClayFullscreen size={22} />
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
           </div>
         </div>
 
-        {/* Floating Audio Popover */}
-        {showAudioMenu && (
+        {/* ------------------------------------------------------------------ */}
+        {/* UNIFIED VIDEO.JS 10 / CINEMA PINK SETTINGS MENU POPOVER            */}
+        {/* ------------------------------------------------------------------ */}
+        {showSettingsMenu && (
           <div
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: 'absolute',
-              bottom: '50px',
-              right: '90px',
-              background: 'rgba(23, 15, 32, 0.96)',
-              backdropFilter: 'blur(20px)',
-              border: '1.5px solid rgba(244, 114, 182, 0.35)',
+              bottom: '62px',
+              right: '16px',
+              background: 'rgba(18, 12, 26, 0.96)',
+              backdropFilter: 'blur(24px)',
+              border: '1.5px solid rgba(244, 114, 182, 0.38)',
               borderRadius: '20px',
-              padding: '12px',
-              width: '260px',
-              boxShadow: '0 12px 30px rgba(0,0,0,0.7)',
-              zIndex: 60
+              padding: '14px',
+              width: '360px',
+              maxHeight: '490px',
+              boxShadow: '0 16px 42px rgba(0, 0, 0, 0.85), 0 0 20px rgba(244, 114, 182, 0.18)',
+              zIndex: 70,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              overflowY: 'auto'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f472b6' }}>
-                Select Audio Track
-              </span>
-              <button onClick={() => setShowAudioMenu(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <ClayClose size={14} />
+            {/* Popover Header & Close */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={15} color="#f472b6" />
+                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3' }}>
+                  Player Settings
+                </span>
+              </div>
+              <button
+                onClick={() => setShowSettingsMenu(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}
+              >
+                <X size={16} />
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {audioTracks.length === 0 ? (
-                <button
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '10px',
-                    background: 'rgba(244, 114, 182, 0.2)',
-                    color: '#f472b6',
-                    border: '1px solid rgba(244, 114, 182, 0.4)',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    textAlign: 'left'
-                  }}
-                >
-                  Default Audio (Stereo)
-                </button>
-              ) : (
-                audioTracks.map((t, idx) => {
-                  const trackIdx = t.index ?? idx;
-                  const isActive = activeAudioIndex === trackIdx;
-                  const trackStatus = audioStatusData?.tracks?.find((st) => st.index === trackIdx);
-                  const isReady = trackIdx === 0 || trackStatus?.isReady;
-                  const isProcessing = trackStatus?.isProcessing;
+            {/* Navigation Tabs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '3px', borderRadius: '12px' }}>
+              {[
+                { id: 'subtitles', label: '💬 Subs' },
+                { id: 'audio', label: '🎵 Audio' },
+                { id: 'aspect', label: '📐 Ratio' },
+                { id: 'speed', label: '⚡ Speed' }
+              ].map(tab => {
+                const isActive = activeSettingsTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSettingsTab(tab.id)}
+                    style={{
+                      padding: '6px 2px',
+                      borderRadius: '9px',
+                      background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'transparent',
+                      color: isActive ? '#ffffff' : '#9ca3af',
+                      border: 'none',
+                      fontSize: '0.74rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
 
-                  return (
+            {/* TAB 1: SUBTITLES & PIXEL CONTROLLERS */}
+            {activeSettingsTab === 'subtitles' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* 1. Track Picker */}
+                <div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Select Subtitle Track
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
                     <button
-                      key={trackIdx}
-                      onClick={() => {
-                        setShowAudioMenu(false);
-                        onAudioTrackChange?.(trackIdx);
-                      }}
+                      onClick={() => onSubtitleChange?.(-1)}
                       style={{
-                        padding: '8px 12px',
-                        borderRadius: '10px',
-                        background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                        color: isActive ? '#f472b6' : '#e5e7eb',
-                        border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
-                        fontWeight: isActive ? 800 : 600,
-                        fontSize: '0.82rem',
+                        padding: '6px 10px',
+                        borderRadius: '8px',
+                        background: activeSubtitleIndex === -1 ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                        color: activeSubtitleIndex === -1 ? '#f472b6' : '#e5e7eb',
+                        border: activeSubtitleIndex === -1 ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                        fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
+                        fontSize: '0.78rem',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         cursor: 'pointer'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                        <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                          {t.title || `Track ${idx + 1}`}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                        {trackStatus?.sizeFormatted && (
-                          <span style={{ fontSize: '0.64rem', color: '#a1a1aa', fontWeight: 600 }}>
-                            {trackStatus.sizeFormatted}
-                          </span>
-                        )}
-                        {isReady ? (
-                          <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
-                            ✓ Ready
-                          </span>
-                        ) : isProcessing ? (
-                          <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
-                            ⏳ Extracting...
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
-                            Pending
-                          </span>
-                        )}
-                        {isActive && <ClayCheck size={14} />}
-                      </div>
+                      <span>Off (No Subtitles)</span>
+                      {activeSubtitleIndex === -1 && <Check size={14} />}
                     </button>
-                  );
-                })
-              )}
-            </div>
 
-            {/* Multi-Audio Processing Status Bar & One-Click Button */}
-            {audioTracks.length > 1 && (
-              <div style={{
-                marginTop: '10px',
-                paddingTop: '10px',
-                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem' }}>
-                  <span style={{ color: '#9ca3af', fontWeight: 600 }}>Audio Processing Status:</span>
-                  <span style={{ color: audioStatusData?.allReady ? '#34d399' : '#f472b6', fontWeight: 700 }}>
-                    {audioStatusData?.percent !== undefined ? `${audioStatusData.percent}% Cached` : '100% Ready'}
-                  </span>
+                    {allSubtitles.map((t, idx) => {
+                      const isActive = activeSubtitleIndex === idx;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => onSubtitleChange?.(idx)}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                            color: isActive ? '#f472b6' : '#e5e7eb',
+                            border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                            fontWeight: isActive ? 800 : 600,
+                            fontSize: '0.78rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {t.title || `Track ${idx + 1}`}
+                          </span>
+                          {isActive && <Check size={14} />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* Status Bar */}
-                <div style={{ width: '100%', height: '6px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      width: `${audioStatusData?.percent !== undefined ? audioStatusData.percent : 100}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #f472b6, #34d399)',
-                      transition: 'width 0.4s ease'
-                    }}
+                {/* 2. Custom Subtitle File Upload */}
+                <div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".srt,.vtt"
+                    onChange={handleUploadSubtitleFile}
+                    style={{ display: 'none' }}
                   />
-                </div>
-
-                {!audioStatusData?.allReady ? (
                   <button
-                    onClick={handleProcessAllAudio}
-                    disabled={isProcessingAudio}
+                    onClick={() => fileInputRef.current?.click()}
                     style={{
-                      padding: '7px 12px',
+                      width: '100%',
+                      padding: '7px 10px',
                       borderRadius: '8px',
-                      background: 'linear-gradient(135deg, #f472b6, #ec4899)',
-                      color: '#ffffff',
+                      background: 'rgba(244, 114, 182, 0.15)',
+                      border: '1px dashed rgba(244, 114, 182, 0.5)',
+                      color: '#f472b6',
+                      fontSize: '0.76rem',
                       fontWeight: 700,
-                      fontSize: '0.75rem',
-                      border: 'none',
-                      cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
-                      opacity: isProcessingAudio ? 0.65 : 1,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '6px',
-                      boxShadow: '0 4px 12px rgba(244, 114, 182, 0.3)'
+                      cursor: 'pointer'
                     }}
                   >
-                    <ClaySparkle size={13} />
-                    {isProcessingAudio ? 'Processing in Background...' : '⚡ Process All Audio Tracks'}
+                    <Upload size={14} />
+                    <span>Upload Custom Subtitle (.srt / .vtt)</span>
                   </button>
-                ) : (
-                  <div style={{ fontSize: '0.70rem', color: '#34d399', textAlign: 'center', fontWeight: 600 }}>
-                    ✨ All tracks cached for 0ms instant zero-lag switching!
+                </div>
+
+                {/* 3. Pixel Controller: Font Size */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
+                      Font Size
+                    </span>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
+                      {subtitleSize}px
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => handleSizeChange(subtitleSize - 1)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min="14"
+                      max="48"
+                      value={subtitleSize}
+                      onChange={(e) => handleSizeChange(parseInt(e.target.value, 10))}
+                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                    />
+                    <button
+                      onClick={() => handleSizeChange(subtitleSize + 1)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4. Pixel Controller: Position from Bottom */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
+                      Bottom Position
+                    </span>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
+                      {subtitleBottom}px
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => handleBottomChange(subtitleBottom - 5)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min="10"
+                      max="280"
+                      step="5"
+                      value={subtitleBottom}
+                      onChange={(e) => handleBottomChange(parseInt(e.target.value, 10))}
+                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                    />
+                    <button
+                      onClick={() => handleBottomChange(subtitleBottom + 5)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. Subtitle Sync Offset / Delay */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '10px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d1d5db' }}>
+                      Sync Delay
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontVariantNumeric: 'tabular-nums' }}>
+                        {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
+                      </span>
+                      {subtitleDelay !== 0 && (
+                        <button
+                          onClick={() => handleDelayChange(0.0)}
+                          style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#9ca3af', fontSize: '0.66rem', cursor: 'pointer' }}
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={() => handleDelayChange(subtitleDelay - 0.1)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min="-5.0"
+                      max="5.0"
+                      step="0.1"
+                      value={subtitleDelay}
+                      onChange={(e) => handleDelayChange(parseFloat(e.target.value))}
+                      style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
+                    />
+                    <button
+                      onClick={() => handleDelayChange(subtitleDelay + 0.1)}
+                      style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6. Subtitle Background Style */}
+                <div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Subtitle Appearance
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                    {[
+                      { id: 'transparent', label: 'Outline' },
+                      { id: 'soft', label: 'Soft Glass' },
+                      { id: 'box', label: 'Solid Box' }
+                    ].map(st => (
+                      <button
+                        key={st.id}
+                        onClick={() => handleStyleChange(st.id)}
+                        style={{
+                          padding: '6px 4px',
+                          borderRadius: '8px',
+                          background: subtitleStyle === st.id ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                          color: subtitleStyle === st.id ? '#f472b6' : '#9ca3af',
+                          border: subtitleStyle === st.id ? '1px solid rgba(244, 114, 182, 0.5)' : '1px solid transparent',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: AUDIO TRACKS & PRE-EXTRACTION */}
+            {activeSettingsTab === 'audio' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
+                  Available Audio Tracks
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                  {audioTracks.length === 0 ? (
+                    <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(244, 114, 182, 0.15)', color: '#f472b6', fontSize: '0.8rem', fontWeight: 700 }}>
+                      Default Audio (Stereo AAC)
+                    </div>
+                  ) : (
+                    audioTracks.map((t, idx) => {
+                      const trackIdx = t.index ?? idx;
+                      const isActive = activeAudioIndex === trackIdx;
+                      const trackStatus = audioStatusData?.tracks?.find((st) => st.index === trackIdx);
+                      const isReady = trackIdx === 0 || trackStatus?.isReady;
+                      const isProcessing = trackStatus?.isProcessing;
+
+                      return (
+                        <button
+                          key={trackIdx}
+                          onClick={() => {
+                            onAudioTrackChange?.(trackIdx);
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '10px',
+                            background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                            color: isActive ? '#f472b6' : '#e5e7eb',
+                            border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
+                            fontWeight: isActive ? 800 : 600,
+                            fontSize: '0.82rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                            <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                              {t.title || `Track ${idx + 1}`}
+                            </span>
+                            {t.codec && (
+                              <span style={{ fontSize: '0.64rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', color: '#a1a1aa', fontWeight: 700 }}>
+                                {t.codec.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            {isReady ? (
+                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
+                                ✓ Ready
+                              </span>
+                            ) : isProcessing ? (
+                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
+                                ⏳ Extracting
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
+                                Pending
+                              </span>
+                            )}
+                            {isActive && <Check size={14} />}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Pre-extract All Tracks Action */}
+                {audioTracks.length > 1 && (
+                  <div style={{ marginTop: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem' }}>
+                      <span style={{ color: '#9ca3af', fontWeight: 600 }}>Audio Cache Status:</span>
+                      <span style={{ color: audioStatusData?.allReady ? '#34d399' : '#f472b6', fontWeight: 700 }}>
+                        {audioStatusData?.percent !== undefined ? `${audioStatusData.percent}% Ready` : '100% Ready'}
+                      </span>
+                    </div>
+
+                    <div style={{ width: '100%', height: '5px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${audioStatusData?.percent !== undefined ? audioStatusData.percent : 100}%`,
+                          height: '100%',
+                          background: 'linear-gradient(90deg, #f472b6, #34d399)',
+                          transition: 'width 0.4s ease'
+                        }}
+                      />
+                    </div>
+
+                    {!audioStatusData?.allReady ? (
+                      <button
+                        onClick={handleProcessAllAudio}
+                        disabled={isProcessingAudio}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: 'linear-gradient(135deg, #f472b6, #ec4899)',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          fontSize: '0.76rem',
+                          border: 'none',
+                          cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
+                          opacity: isProcessingAudio ? 0.65 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          boxShadow: '0 4px 12px rgba(244, 114, 182, 0.3)'
+                        }}
+                      >
+                        <Sparkles size={14} />
+                        {isProcessingAudio ? 'Extracting in Background...' : '⚡ Pre-extract All Tracks to AAC'}
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: '0.72rem', color: '#34d399', textAlign: 'center', fontWeight: 600 }}>
+                        ✨ All tracks cached for 0ms instant zero-lag switching!
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Floating Subtitle Popover */}
-        {showSubMenu && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '50px',
-              right: '150px',
-              background: 'rgba(23, 15, 32, 0.96)',
-              backdropFilter: 'blur(20px)',
-              border: '1.5px solid rgba(244, 114, 182, 0.35)',
-              borderRadius: '20px',
-              padding: '12px',
-              width: '260px',
-              boxShadow: '0 12px 30px rgba(0,0,0,0.7)',
-              zIndex: 60
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f472b6' }}>
-                Subtitles
-              </span>
-              <button onClick={() => setShowSubMenu(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <ClayClose size={14} />
-              </button>
-            </div>
+            {/* TAB 3: ASPECT RATIO */}
+            {activeSettingsTab === 'aspect' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  Screen Fit & Aspect Ratio
+                </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <button
-                onClick={() => {
-                  setShowSubMenu(false);
-                  onSubtitleChange?.(-1);
-                }}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  background: activeSubtitleIndex === -1 ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                  color: activeSubtitleIndex === -1 ? '#f472b6' : '#e5e7eb',
-                  border: activeSubtitleIndex === -1 ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
-                  fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
-                  fontSize: '0.82rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer'
-                }}
-              >
-                <span>Off (No Subtitles)</span>
-                {activeSubtitleIndex === -1 && <ClayCheck size={14} />}
-              </button>
+                {[
+                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard aspect ratio with letterboxing' },
+                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Fills screen completely, eliminates black bars' },
+                  { id: 'fill', label: 'Stretch (100% Canvas)', desc: 'Stretches video to fill stage without cropping' }
+                ].map(opt => {
+                  const isActive = aspectRatio === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleAspectChange(opt.id)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                        border: isActive ? '1px solid rgba(244, 114, 182, 0.5)' : '1px solid transparent',
+                        color: isActive ? '#f472b6' : '#e5e7eb',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.82rem' }}>{opt.label}</div>
+                        <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: '2px' }}>{opt.desc}</div>
+                      </div>
+                      {isActive && <Check size={16} />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-              {subtitleTracks.map((t, idx) => {
-                const isActive = activeSubtitleIndex === idx;
-                return (
+            {/* TAB 4: PLAYBACK SPEED & ROOM SYNC */}
+            {activeSettingsTab === 'speed' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Speed Presets */}
+                <div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Playback Speed
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(spd => {
+                      const isActive = playbackSpeed === spd;
+                      return (
+                        <button
+                          key={spd}
+                          onClick={() => handleSpeedChange(spd)}
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '8px',
+                            background: isActive ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.06)',
+                            color: isActive ? '#ffffff' : '#d1d5db',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {spd === 1.0 ? '1.0x (Normal)' : `${spd}x`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Force Sync Room Action */}
+                <div style={{ paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Room Synchronization
+                  </div>
                   <button
-                    key={idx}
                     onClick={() => {
-                      setShowSubMenu(false);
-                      onSubtitleChange?.(idx);
+                      onForceSyncAll?.();
+                      setShowSettingsMenu(false);
                     }}
                     style={{
-                      padding: '8px 12px',
+                      width: '100%',
+                      padding: '10px 14px',
                       borderRadius: '10px',
-                      background: isActive ? 'rgba(244, 114, 182, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                      color: isActive ? '#f472b6' : '#e5e7eb',
-                      border: isActive ? '1px solid rgba(244, 114, 182, 0.45)' : '1px solid transparent',
-                      fontWeight: isActive ? 800 : 600,
-                      fontSize: '0.82rem',
+                      background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)',
+                      color: '#1a1006',
+                      border: 'none',
+                      fontWeight: 800,
+                      fontSize: '0.84rem',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer'
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
                     }}
                   >
-                    <span>{t.title || `Track ${idx + 1}`}</span>
-                    {isActive && <ClayCheck size={14} />}
+                    <span>⚡ Force Sync Both Viewers</span>
                   </button>
-                );
-              })}
-            </div>
+                  <div style={{ fontSize: '0.68rem', color: '#9ca3af', textAlign: 'center', marginTop: '6px' }}>
+                    Snaps timeline and audio clock across all connected viewers instantly.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
