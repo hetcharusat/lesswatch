@@ -786,6 +786,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (isRemoteActionRef.current || isBufferingRef.current || isSeekingRef.current) return;
     if (!serverSyncStateRef.current.isPlaying) return;
     if (activePlayerType === 'neko') return;
+    // Solo viewer: local playback is master, never seek or adjust rate!
+    if (!connectedUsers || connectedUsers.length <= 1) return;
 
     const authTime = getAuthoritativeTime();
     const clientTime = UnifiedPlayer.getTime();
@@ -794,7 +796,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     const drift = clientTime - authTime;
 
     // Sub-second precision threshold matrix
-    if (Math.abs(drift) <= 0.35) {
+    if (Math.abs(drift) <= 0.4) {
       if (UnifiedPlayer.getRate() !== 1.0) {
         UnifiedPlayer.setRate(1.0);
       }
@@ -802,17 +804,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return;
     }
 
-    if (Math.abs(drift) <= 1.8) {
-      // Minor drift (0.35s - 1.8s): Smooth micro rate nudging (no video stutter or pauses)
+    if (Math.abs(drift) <= 3.5) {
+      // Gentle micro rate nudging (3% speed difference) - smooth, imperceptible, zero frame skips!
       if (drift < 0) {
-        UnifiedPlayer.setRate(1.06);
+        UnifiedPlayer.setRate(1.03);
         setSyncStatus('Catching Up 🚀');
       } else {
-        UnifiedPlayer.setRate(0.94);
+        UnifiedPlayer.setRate(0.97);
         setSyncStatus('Aligning ⏳');
       }
     } else {
-      // Hard drift (> 1.8s): Jump directly to authoritative timestamp
+      // Significant drift (> 3.5s): Re-align to authoritative timestamp
       setRemoteLock(800);
       UnifiedPlayer.seek(authTime);
       UnifiedPlayer.setRate(1.0);

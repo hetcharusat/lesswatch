@@ -1746,11 +1746,15 @@ app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) =
 
   const track = req.query.track !== undefined ? parseInt(req.query.track, 10) : 0;
   const fileHash = crypto.createHash('md5').update(filePath).digest('hex');
-  const cacheKey = `${fileHash}_track_${track}.m4a`;
-  const cachedPath = path.join(AUDIO_TRACKS_CACHE, cacheKey);
+  const baseHash = crypto.createHash('md5').update(path.basename(filePath)).digest('hex');
+  const cachedPath = path.join(AUDIO_TRACKS_CACHE, `${fileHash}_track_${track}.m4a`);
+  const cachedPathBase = path.join(AUDIO_TRACKS_CACHE, `${baseHash}_track_${track}.m4a`);
 
-  if (fs.existsSync(cachedPath) && fs.statSync(cachedPath).size > 0) {
+  if (fs.existsSync(cachedPath) && fs.statSync(cachedPath).size > 1000) {
     return streamFileWithRanges(req, res, cachedPath, 'audio/mp4');
+  }
+  if (fs.existsSync(cachedPathBase) && fs.statSync(cachedPathBase).size > 1000) {
+    return streamFileWithRanges(req, res, cachedPathBase, 'audio/mp4');
   }
 
   // Not cached yet: queue with high priority in background!

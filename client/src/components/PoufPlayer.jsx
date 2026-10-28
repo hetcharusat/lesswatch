@@ -315,15 +315,18 @@ export function PoufPlayer({
     }
   }, [isPlaying, shouldUseAudioElement]);
 
-  // Sync external currentTime
+  // Sync external currentTime ONLY when paused (never interrupt active playback, which flushes video decoder and drops frames!)
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
     if (!video || typeof currentTime !== 'number' || isNaN(currentTime)) return;
     if (isDraggingScrubberRef.current) return;
 
+    // Protect active playback: native video decoder must never be interrupted while playing
+    if (!video.paused) return;
+
     const diff = Math.abs(video.currentTime - currentTime);
-    if (diff > 1.2) {
+    if (diff > 0.5) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
         audio.currentTime = currentTime;
