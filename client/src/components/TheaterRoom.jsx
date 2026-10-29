@@ -47,8 +47,20 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 10
 };
 
 // Studio Opus SDP modifier (Forces 128kbps stereo transmission, eliminates robotic artifacts)
@@ -193,11 +205,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [noiseSuppression, setNoiseSuppression] = useState(() => localStorage.getItem('wt_noise_supp') === 'true');
 
   // WebRTC Hardware Refs
+  const socketRef = useRef(null);
   const localStreamRef = useRef(null);
   const localAudioTrackRef = useRef(null);
   const peerConnectionsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteAudioElementsRef = useRef(new Map()); // peerId -> HTMLAudioElement
+  const pendingCandidatesRef = useRef(new Map()); // peerId -> RTCIceCandidate[]
   const audioContextRef = useRef(null);
+  const audioAnalyserIntervalRef = useRef(null);
   const isVoiceConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
   const isPushToTalkingRef = useRef(false);
@@ -364,12 +379,67 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  // Audio Analyser is kept lightweight and non-blocking
+  // Lightweight Web Audio Analyser for Speaking Detection
   function setupAudioAnalyser(stream) {
-    // MediaStream is transmitted peer-to-peer over WebRTC directly without CPU polling
+    try {
+      if (audioAnalyserIntervalRef.current) {
+        clearInterval(audioAnalyserIntervalRef.current);
+        audioAnalyserIntervalRef.current = null;
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      audioContextRef.current = ctx;
+
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.5;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let speakingTicks = 0;
+
+      audioAnalyserIntervalRef.current = setInterval(() => {
+        if (!isVoiceConnectedRef.current || !localAudioTrackRef.current || isMutedRef.current) {
+          if (isLocalSpeakingRef.current) {
+            isLocalSpeakingRef.current = false;
+            setIsLocalSpeaking(false);
+            socketRef.current?.emit('voice:speaking', { isSpeaking: false });
+          }
+          return;
+        }
+
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avg = sum / dataArray.length;
+
+        const isSpeakingNow = avg > 14;
+        if (isSpeakingNow) {
+          speakingTicks = Math.min(speakingTicks + 1, 6);
+        } else {
+          speakingTicks = Math.max(speakingTicks - 1, 0);
+        }
+
+        const active = speakingTicks >= 2;
+        if (active !== isLocalSpeakingRef.current) {
+          isLocalSpeakingRef.current = active;
+          setIsLocalSpeaking(active);
+          socketRef.current?.emit('voice:speaking', { isSpeaking: active });
+        }
+      }, 120);
+    } catch (err) {
+      console.warn('Audio analyser setup error:', err);
+    }
   }
 
-  // 3. WebRTC Peer Connection Factory
+  // 3. WebRTC Peer Connection Factory (Direct Peer-to-Peer Mesh)
   async function createPeerConnection(peerId, peerInfo, isInitiator = false) {
     if (peerConnectionsRef.current.has(peerId)) {
       return peerConnectionsRef.current.get(peerId);
@@ -378,16 +448,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnectionsRef.current.set(peerId, pc);
 
-    // Add local media tracks
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current);
-      });
+    // Audio Transceiver:
+    // If local mic is currently active, attach the real track;
+    // otherwise add a sendrecv transceiver so the bidirectional audio m-line is pre-negotiated.
+    // The moment the mic is tapped, replaceTrack swaps the live audio in with 0ms lag!
+    const activeTrack = localAudioTrackRef.current || (localStreamRef.current?.getAudioTracks()[0] || null);
+    if (activeTrack) {
+      pc.addTrack(activeTrack, localStreamRef.current);
+    } else {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && socket) {
-        socket.emit('voice:signal', {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('voice:signal', {
           targetPeerId: peerId,
           signalData: { candidate: event.candidate }
         });
@@ -401,15 +475,34 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (event.track.kind === 'audio') {
         let audioEl = remoteAudioElementsRef.current.get(peerId);
         if (!audioEl) {
-          audioEl = new Audio();
+          audioEl = document.createElement('audio');
+          audioEl.id = `remote-audio-${peerId}`;
           audioEl.autoplay = true;
+          audioEl.playsInline = true;
+          audioEl.setAttribute('playsinline', '');
+          audioEl.setAttribute('autoplay', '');
+
+          const hub = document.getElementById('wt-remote-audio-hub');
+          if (hub) {
+            hub.appendChild(audioEl);
+          } else {
+            document.body.appendChild(audioEl);
+          }
+
           if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
             audioEl.setSinkId(selectedAudioOutput).catch(() => {});
           }
           remoteAudioElementsRef.current.set(peerId, audioEl);
         }
+
         audioEl.srcObject = remoteStream;
-        audioEl.play().catch(() => console.warn('Remote audio waiting for interaction'));
+        audioEl.volume = 1.0;
+        const playPromise = audioEl.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('Remote audio waiting for interaction:', err);
+          });
+        }
       }
 
       setRemotePeers((prev) => {
@@ -441,11 +534,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       try {
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: true
+          offerToReceiveVideo: false
         });
         offer.sdp = boostOpusSDP(offer.sdp);
         await pc.setLocalDescription(offer);
-        socket?.emit('voice:signal', {
+        socketRef.current?.emit('voice:signal', {
           targetPeerId: peerId,
           signalData: { desc: pc.localDescription }
         });
@@ -460,15 +553,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   function cleanupPeer(peerId) {
     const pc = peerConnectionsRef.current.get(peerId);
     if (pc) {
-      pc.close();
+      try { pc.close(); } catch {}
       peerConnectionsRef.current.delete(peerId);
     }
     const audioEl = remoteAudioElementsRef.current.get(peerId);
     if (audioEl) {
-      audioEl.pause();
-      audioEl.srcObject = null;
+      try {
+        audioEl.pause();
+        audioEl.srcObject = null;
+        if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
+      } catch {}
       remoteAudioElementsRef.current.delete(peerId);
     }
+    pendingCandidatesRef.current.delete(peerId);
     setRemotePeers((prev) => {
       const next = new Map(prev);
       next.delete(peerId);
@@ -476,10 +573,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
   }
 
-  // 4. Voice Chat Join / Leave / Mute / Camera Handlers
-  async function joinVoiceChat({ withVideo = false } = {}) {
+  // 4. Voice Chat Direct Handlers (Direct Mic, Instant Speak)
+  async function startMicrophone() {
     try {
-      showToast('Connecting to High-Definition Voice... 🎙️', '⏳');
+      showToast('Turning microphone on... 🎙️', '⏳');
       const constraints = {
         audio: {
           deviceId: selectedAudioInput ? { exact: selectedAudioInput } : undefined,
@@ -497,43 +594,69 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
         localAudioTrackRef.current = audioTrack;
-        audioTrack.enabled = !isMutedRef.current;
+        audioTrack.enabled = true;
       }
 
       isVoiceConnectedRef.current = true;
       setIsVoiceConnected(true);
+      isMutedRef.current = false;
+      setIsMuted(false);
+
+      // Attach track to all existing peer connections
+      peerConnectionsRef.current.forEach(async (pc) => {
+        const senders = pc.getSenders();
+        const audioSender = senders.find((s) => s.track?.kind === 'audio' || s.kind === 'audio');
+        if (audioSender) {
+          try {
+            await audioSender.replaceTrack(audioTrack);
+          } catch (err) {
+            console.warn('replaceTrack failed, adding track:', err);
+            pc.addTrack(audioTrack, stream);
+          }
+        } else {
+          pc.addTrack(audioTrack, stream);
+        }
+      });
 
       setupAudioAnalyser(stream);
       refreshMediaDevices();
 
-      socket?.emit('voice:join', {
+      socketRef.current?.emit('voice:join', {
         hasVideo: false,
         hasAudio: true
       });
+      socketRef.current?.emit('voice:track_state', {
+        isMuted: false,
+        hasVideo: false
+      });
 
       playAudioChirp('unmute');
-      showToast('Voice Chat Connected (Studio 48kHz Quality) ✨', '🎙️');
+      showToast('Microphone Live 🎙️', '✨');
     } catch (err) {
-      console.warn('Voice join error:', err);
+      console.warn('Microphone start error:', err);
       showToast('Microphone access denied: ' + err.message, '⚠️');
     }
   }
 
   function leaveVoiceChat() {
+    if (audioAnalyserIntervalRef.current) {
+      clearInterval(audioAnalyserIntervalRef.current);
+      audioAnalyserIntervalRef.current = null;
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
     localAudioTrackRef.current = null;
 
-    peerConnectionsRef.current.forEach((pc) => pc.close());
-    peerConnectionsRef.current.clear();
-
-    remoteAudioElementsRef.current.forEach((el) => {
-      el.pause();
-      el.srcObject = null;
+    // Detach track from senders so peers receive silence, but keep connections alive so remote audio is heard!
+    peerConnectionsRef.current.forEach((pc) => {
+      const senders = pc.getSenders();
+      const audioSender = senders.find((s) => s.track?.kind === 'audio' || s.kind === 'audio');
+      if (audioSender) {
+        audioSender.replaceTrack(null).catch(() => {});
+      }
     });
-    remoteAudioElementsRef.current.clear();
 
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close().catch(() => {});
@@ -544,16 +667,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setIsVoiceConnected(false);
     setIsLocalSpeaking(false);
     isLocalSpeakingRef.current = false;
-    setRemotePeers(new Map());
 
-    socket?.emit('voice:leave');
+    socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
     playAudioChirp('mute');
-    showToast('Left Voice Chat 🔇', '👋');
+    showToast('Microphone Off 🔇', '👋');
   }
+
+  const joinVoiceChat = startMicrophone;
 
   function handleToggleMute() {
     if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) {
-      joinVoiceChat();
+      startMicrophone();
       return;
     }
 
@@ -563,9 +687,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localAudioTrackRef.current.enabled = !nextMuted;
 
     playAudioChirp(nextMuted ? 'mute' : 'unmute');
-    showToast(nextMuted ? 'Microphone Muted 🔇' : 'Microphone Active 🎙️', nextMuted ? '🔇' : '🎙️');
+    showToast(nextMuted ? 'Microphone Muted 🔇' : 'Microphone Live 🎙️', nextMuted ? '🔇' : '🎙️');
 
-    socket?.emit('voice:track_state', {
+    socketRef.current?.emit('voice:track_state', {
       isMuted: nextMuted,
       hasVideo: false
     });
@@ -573,7 +697,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   function handleMicButtonClick() {
     if (!isVoiceConnected) {
-      joinVoiceChat();
+      startMicrophone();
     } else {
       handleToggleMute();
     }
@@ -700,6 +824,29 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [socket]);
+
+  // Autoplay Unlocker: Unmutes & resumes remote audio on first user gesture
+  useEffect(() => {
+    function unlockAudio() {
+      remoteAudioElementsRef.current.forEach((el) => {
+        if (el && el.paused && el.srcObject) {
+          el.play().catch(() => {});
+        }
+      });
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    }
+
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
 
   // Unified Player Interface
   // Unified Player Interface (Direct HTML5 Native Video + YouTube)
@@ -1056,6 +1203,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       reconnectionDelay: 1000
     });
     setSocket(s);
+    socketRef.current = s;
 
     s.emit('room:join', {
       roomId,
@@ -1066,7 +1214,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('room:initial_state', (state) => {
       setIsHost(state.currentUser?.isHost || false);
-      if (state.users) setConnectedUsers(state.users);
+      if (state.users) {
+        setConnectedUsers(state.users);
+        const myId = s.id || state.currentUser?.id;
+        state.users.forEach((u) => {
+          if (u.id && u.id !== myId) {
+            const isInitiator = myId > u.id;
+            createPeerConnection(u.id, u, isInitiator);
+          }
+        });
+      }
       if (state.messages) setChatMessages(state.messages);
       if (state.lastSeen) setRoomLastSeen(state.lastSeen);
 
@@ -1096,11 +1253,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('user:joined', ({ user, users }) => {
       if (users) setConnectedUsers(users);
+      const myId = s.id;
+      if (user && user.id && user.id !== myId) {
+        const isInitiator = myId > user.id;
+        createPeerConnection(user.id, user, isInitiator);
+      }
       showToast(`${user.avatar || '🌸'} ${user.username} joined`, '👋');
     });
 
-    s.on('user:left', ({ username, users }) => {
+    s.on('user:left', ({ userId, username, users }) => {
       if (users) setConnectedUsers(users);
+      if (userId) cleanupPeer(userId);
       showToast(`${username || 'User'} left the lounge`, '🚪');
     });
 
@@ -1246,7 +1409,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
       showToast(`${username} joined Voice Chat 🎙️`, '🔊');
 
-      if (localStreamRef.current && isVoiceConnectedRef.current) {
+      if (!localStreamRef.current && isVoiceConnectedRef.current) {
         await createPeerConnection(peerId, { username, avatar, color }, true);
       }
     });
@@ -1255,7 +1418,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (!signalData) return;
 
       let pc = peerConnectionsRef.current.get(senderPeerId);
-      if (!pc && localStreamRef.current) {
+      if (!pc) {
         pc = await createPeerConnection(senderPeerId, { username, avatar, color }, false);
       }
       if (!pc) return;
@@ -1272,14 +1435,34 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               signalData: { desc: pc.localDescription }
             });
           }
+
+          // Drain queued ICE candidates
+          const queued = pendingCandidatesRef.current.get(senderPeerId);
+          if (queued && queued.length > 0) {
+            for (const cand of queued) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (e) {
+                console.warn('Queued candidate error:', e);
+              }
+            }
+            pendingCandidatesRef.current.delete(senderPeerId);
+          }
         } catch (err) {
           console.warn('Error handling WebRTC description:', err);
         }
       } else if (signalData.candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
-        } catch (err) {
-          console.warn('Error adding ICE candidate:', err);
+        if (!pc.remoteDescription || !pc.remoteDescription.type) {
+          if (!pendingCandidatesRef.current.has(senderPeerId)) {
+            pendingCandidatesRef.current.set(senderPeerId, []);
+          }
+          pendingCandidatesRef.current.get(senderPeerId).push(signalData.candidate);
+        } else {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+          } catch (err) {
+            console.warn('Error adding ICE candidate:', err);
+          }
         }
       }
     });
@@ -1318,6 +1501,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     return () => {
       leaveVoiceChat();
+      peerConnectionsRef.current.forEach((pc) => {
+        try { pc.close(); } catch {}
+      });
+      peerConnectionsRef.current.clear();
+      remoteAudioElementsRef.current.forEach((el) => {
+        try {
+          el.pause();
+          el.srcObject = null;
+          if (el.parentNode) el.parentNode.removeChild(el);
+        } catch {}
+      });
+      remoteAudioElementsRef.current.clear();
+      pendingCandidatesRef.current.clear();
       s.disconnect();
     };
   }, [roomId]);
@@ -3189,15 +3385,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               fontSize: '0.82rem'
             }}
           >
-            Leave Voice Chat 🔇
+            Turn Off Microphone 🔇
           </button>
         ) : (
           <button
-            onClick={() => joinVoiceChat()}
+            onClick={() => startMicrophone()}
             className="btn-pink-primary"
             style={{ padding: '8px', fontSize: '0.82rem', justifyContent: 'center' }}
           >
-            Join Voice Chat 🎙️
+            Turn On Microphone 🎙️
           </button>
         )}
       </div>
@@ -3215,6 +3411,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   return (
     <div className={`theater-view-wrapper ${isChitChatMode ? 'chit-chat-mode' : (isChatSidebarOpen ? 'chat-expanded' : '')} ${isChatCollapsed ? 'chat-collapsed' : ''}`}>
+      {/* Hidden WebRTC Remote Audio Hub */}
+      <div id="wt-remote-audio-hub" style={{ display: 'none' }} aria-hidden="true" />
+
       {/* Left Column: Video Stage + Bottom Control Deck */}
       <div className={`theater-stage-column ${(isChitChatMode && isChatCollapsed) ? 'full-width' : ''}`}>
       {/* Video Canvas */}
@@ -3664,46 +3863,54 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           {/* Smart Voice / Microphone Button */}
           <button
             onClick={handleMicButtonClick}
-            className={`btn-pink-secondary ${isVoiceConnected ? (isMuted ? 'muted' : 'active') : ''}`}
+            className={`btn-pink-secondary ${isVoiceConnected && !isMuted ? 'active' : ''}`}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
               padding: '0.52rem 0.95rem',
               fontSize: '0.82rem',
+              fontWeight: 700,
+              borderRadius: '12px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
               background: !isVoiceConnected
-                ? undefined
+                ? 'rgba(244, 114, 182, 0.08)'
                 : isLocalSpeaking && !isMuted
-                  ? 'rgba(16, 185, 129, 0.28)'
+                  ? 'rgba(236, 72, 153, 0.35)'
                   : isMuted
-                    ? 'rgba(239, 68, 68, 0.22)'
-                    : 'rgba(16, 185, 129, 0.16)',
+                    ? 'rgba(239, 68, 68, 0.2)'
+                    : 'rgba(236, 72, 153, 0.2)',
               borderColor: !isVoiceConnected
-                ? undefined
+                ? 'rgba(244, 114, 182, 0.25)'
                 : isLocalSpeaking && !isMuted
-                  ? '#10b981'
+                  ? 'var(--pink-primary)'
                   : isMuted
                     ? 'rgba(239, 68, 68, 0.5)'
-                    : 'rgba(16, 185, 129, 0.4)',
+                    : 'var(--pink-primary)',
               color: !isVoiceConnected
-                ? undefined
+                ? '#f472b6'
                 : isMuted
                   ? '#fca5a5'
-                  : '#6ee7b7',
-              boxShadow: isLocalSpeaking && !isMuted ? '0 0 14px rgba(16, 185, 129, 0.5)' : undefined
+                  : '#fff',
+              boxShadow: isLocalSpeaking && !isMuted
+                ? '0 0 16px rgba(236, 72, 153, 0.6)'
+                : (isVoiceConnected && !isMuted)
+                  ? '0 0 10px rgba(236, 72, 153, 0.3)'
+                  : undefined
             }}
             title={
               !isVoiceConnected
-                ? "Join Voice Chat (Shortcut: M)"
+                ? "Turn Mic On (Press 'M')"
                 : isMuted
-                  ? "Microphone Muted - Click or Press 'M' to Unmute (or hold 'V' for Push-to-Talk)"
-                  : "Microphone Active - Click or Press 'M' to Mute"
+                  ? "Microphone Muted - Click or Press 'M' to Speak (or hold 'V')"
+                  : "Microphone Live - Click or Press 'M' to Mute"
             }
           >
             {!isVoiceConnected ? (
               <>
-                <Mic size={14} color="var(--pink-primary)" />
-                <span>Join Mic</span>
+                <Mic size={14} color="#f472b6" />
+                <span>Mic Off (M)</span>
               </>
             ) : isMuted ? (
               <>
@@ -3712,8 +3919,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               </>
             ) : (
               <>
-                <Mic size={14} color={isLocalSpeaking ? '#10b981' : 'var(--emerald-accent)'} />
-                <span>{isLocalSpeaking ? 'Speaking...' : 'Mic On'}</span>
+                <Mic size={14} color="#ec4899" />
+                <span>{isLocalSpeaking ? 'Speaking... 🎙️' : 'Mic Live 🎙️'}</span>
               </>
             )}
           </button>
