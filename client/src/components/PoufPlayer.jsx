@@ -58,6 +58,7 @@ export function PoufPlayer({
   subtitleTracks = [],
   activeSubtitleIndex = -1,
   onSubtitleChange,
+  onAddSubtitleTrack,
   subtitleSize: propSubtitleSize,
   subtitlePos: propSubtitlePos,
   onSubtitleSizeChange,
@@ -476,10 +477,14 @@ export function PoufPlayer({
         cues: parsedCues,
         isCustom: true
       };
-      setUploadedSubtitles(prev => [...prev, newTrack]);
-      const newIndex = subtitleTracks.length + uploadedSubtitles.length;
       cuesRef.current = parsedCues;
-      onSubtitleChange?.(newIndex);
+      if (onAddSubtitleTrack) {
+        onAddSubtitleTrack(newTrack);
+      } else {
+        setUploadedSubtitles((prev) => [...prev, newTrack]);
+        const newIndex = subtitleTracks.length + uploadedSubtitles.length;
+        onSubtitleChange?.(newIndex);
+      }
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -505,7 +510,7 @@ export function PoufPlayer({
   };
 
   const handleToggleOnlineSubSearch = () => {
-    setShowOnlineSubSearch(prev => {
+    setShowOnlineSubSearch((prev) => {
       const next = !prev;
       if (next && onlineSearchResults.length === 0) {
         handleSearchOnlineSubtitles();
@@ -541,10 +546,14 @@ export function PoufPlayer({
             cues: parsedCues,
             isCustom: true
           };
-          setUploadedSubtitles(prev => [...prev, newTrack]);
-          const newIndex = subtitleTracks.length + uploadedSubtitles.length;
           cuesRef.current = parsedCues;
-          onSubtitleChange?.(newIndex);
+          if (onAddSubtitleTrack) {
+            onAddSubtitleTrack(newTrack);
+          } else {
+            setUploadedSubtitles((prev) => [...prev, newTrack]);
+            const newIndex = subtitleTracks.length + uploadedSubtitles.length;
+            onSubtitleChange?.(newIndex);
+          }
           setShowOnlineSubSearch(false);
         }
       }

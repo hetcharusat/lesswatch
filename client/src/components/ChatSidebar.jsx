@@ -21,25 +21,36 @@ export function ChatSidebar({
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const prevMsgCountRef = useRef(0);
+  const isNearBottomRef = useRef(true);
 
-  // Auto-mark seen and instant scroll to bottom on initial open
+  // Track if user is scrolling up to read history or staying at the bottom
+  const handleScroll = () => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceToBottom < 120;
+  };
+
+  // Auto-mark seen and smart scroll (Never yank the user down if they scrolled up to read history!)
   useEffect(() => {
     if (isOpen && !isCollapsed) {
       onMarkSeen?.();
-      const isInitialOpen = prevMsgCountRef.current === 0;
+      const prevCount = prevMsgCountRef.current;
       prevMsgCountRef.current = messages.length;
 
-      if (isInitialOpen) {
-        // Instant snap to bottom on drawer open — no annoying long scroll animation!
+      if (prevCount === 0) {
+        // Initial open: snap to bottom immediately
         if (chatContainerRef.current) {
           chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
-      } else {
-        // Smooth scroll only when a brand-new message arrives
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      } else if (messages.length > prevCount) {
+        // Only scroll down if the user was already near the bottom!
+        if (isNearBottomRef.current) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
       }
     }
-  }, [isOpen, isCollapsed, messages.length, onMarkSeen]);
+  }, [isOpen, isCollapsed, messages.length]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -157,6 +168,7 @@ export function ChatSidebar({
       {activeTab === 'chat' && (
         <div
           ref={chatContainerRef}
+          onScroll={handleScroll}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -164,7 +176,9 @@ export function ChatSidebar({
             display: 'flex',
             flexDirection: 'column',
             gap: '14px',
-            background: 'linear-gradient(180deg, #fff7fb 0%, #ffffff 100%)'
+            background: 'linear-gradient(180deg, #fff7fb 0%, #ffffff 100%)',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch'
           }}
         >
           {messages.length === 0 ? (
