@@ -3408,7 +3408,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                   ref={nekoIframeRef}
                   onLoad={handleNekoIframeLoad}
                   key={nekoIframeKey}
-                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=neko&embed=1`}
+                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=${(currentProfile?.role === 'admin' || currentProfile?.name?.toLowerCase() === 'het' || currentProfile?.name?.toLowerCase() === 'riaa') ? 'admin' : 'neko'}&embed=1`}
                   title="Shared Virtual Browser (Neko)"
                   allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
                   style={{
