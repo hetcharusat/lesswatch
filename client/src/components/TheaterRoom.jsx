@@ -112,6 +112,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [syncStatus, setSyncStatus] = useState('In Sync ✨');
   const [isHost, setIsHost] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState([]);
+  const connectedUsersRef = useRef([]);
+  useEffect(() => {
+    connectedUsersRef.current = connectedUsers;
+  }, [connectedUsers]);
+
+  // Reactive playback state for flawless sync across all connected viewers
+  const [roomPlaybackState, setRoomPlaybackState] = useState({ isPlaying: false, currentTime: 0 });
 
   // Active Media & Players
   const [activePlayerType, setActivePlayerType] = useState(() => {
@@ -1265,12 +1272,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (state.lastSeen) setRoomLastSeen(state.lastSeen);
 
       if (state.playback) {
+        const initTime = state.playback.currentTime || 0;
+        const initPlaying = Boolean(state.playback.isPlaying);
         serverSyncStateRef.current = {
-          currentTime: state.playback.currentTime || 0,
-          isPlaying: Boolean(state.playback.isPlaying),
+          currentTime: initTime,
+          isPlaying: initPlaying,
           playbackRate: state.playback.playbackRate || 1.0,
           receivedAt: Date.now()
         };
+        setRoomPlaybackState({
+          currentTime: initTime,
+          isPlaying: initPlaying
+        });
       }
 
       // Lock local broadcasts during initial join sync so joining user does not interrupt others
@@ -1317,6 +1330,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         playbackRate: playbackRate || 1.0,
         receivedAt: Date.now()
       };
+      setRoomPlaybackState((prev) => {
+        if (prev.isPlaying !== Boolean(isPlaying)) {
+          return { ...prev, isPlaying: Boolean(isPlaying) };
+        }
+        return prev;
+      });
       evaluateSyncDrift();
     });
 
@@ -1326,6 +1345,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('player:sync_play', ({ currentTime, sender }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: true, playbackRate: 1.0, receivedAt: Date.now() };
+      setRoomPlaybackState({ currentTime, isPlaying: true });
       setRemoteLock();
       showToast(`${sender} resumed`, '▶️');
       UnifiedPlayer.seek(currentTime);
@@ -1334,6 +1354,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('player:sync_pause', ({ currentTime, sender }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: false, playbackRate: 1.0, receivedAt: Date.now() };
+      setRoomPlaybackState({ currentTime, isPlaying: false });
       setRemoteLock();
       showToast(`${sender} paused`, '⏸️');
       UnifiedPlayer.seek(currentTime);
@@ -1342,6 +1363,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('player:sync_seek', ({ currentTime, isPlaying, sender }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: Boolean(isPlaying), playbackRate: 1.0, receivedAt: Date.now() };
+      setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
       setRemoteLock();
       showToast(`${sender} scrubbed to ${formatTime(currentTime)}`, '⏩');
       UnifiedPlayer.seek(currentTime);
@@ -1383,6 +1405,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('player:sync_forced', ({ currentTime, isPlaying, syncedBy }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: Boolean(isPlaying), playbackRate: 1.0, receivedAt: Date.now() };
+      setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
       setRemoteLock();
       UnifiedPlayer.seek(currentTime);
       if (isPlaying) UnifiedPlayer.play();
@@ -1584,7 +1607,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     if (playback) {
       const targetTime = playback.currentTime || 0;
-      const shouldPlay = playback.isPlaying;
+      const shouldPlay = Boolean(playback.isPlaying);
+
+      setRoomPlaybackState({
+        currentTime: targetTime,
+        isPlaying: shouldPlay
+      });
 
       if (resolvedType === 'youtube') {
         setTimeout(() => {
@@ -1597,54 +1625,27 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         isBufferingRef.current = true;
         setSyncStatus('Buffering ⏳...');
 
-        const tryBufferAndSync = () => {
-          const art = artInstanceRef.current;
-          if (!art) return;
-
-          art.currentTime = targetTime;
-
-          const onBuffered = () => {
-            art.off('canplay', onBuffered);
-            art.off('seeked', onBuffered);
-            isBufferingRef.current = false;
-            isSeekingRef.current = false;
-            initialBufferDoneRef.current = true;
-            setSyncStatus('In Sync ✨');
-            if (shouldPlay) {
-              const currentAuth = getAuthoritativeTime();
-              if (Math.abs(art.currentTime - currentAuth) > 0.35) {
-                art.currentTime = currentAuth;
-              }
-              art.play().catch(() => setNeedsUserClickToPlay(true));
-            } else {
-              art.pause();
+        const syncDirect = () => {
+          const v = document.querySelector('.pouf-player-container video');
+          const currentAuth = getAuthoritativeTime() || targetTime;
+          if (v) {
+            if (Math.abs(v.currentTime - currentAuth) > 0.4) {
+              v.currentTime = currentAuth;
             }
-          };
-
-          if (art.video && art.video.readyState >= 3) {
-            onBuffered();
-          } else {
-            art.once('canplay', onBuffered);
-            art.once('seeked', onBuffered);
-            setTimeout(() => {
-              if (isBufferingRef.current) {
-                isBufferingRef.current = false;
-                isSeekingRef.current = false;
-                if (shouldPlay) {
-                  const currentAuth = getAuthoritativeTime();
-                  if (Math.abs(art.currentTime - currentAuth) > 0.35) {
-                    art.currentTime = currentAuth;
-                  }
-                  art.play().catch(() => setNeedsUserClickToPlay(true));
-                }
-              }
-            }, 3500);
+            if (shouldPlay && v.paused) {
+              v.play().catch(() => setNeedsUserClickToPlay(true));
+            } else if (!shouldPlay && !v.paused) {
+              v.pause();
+            }
           }
+          isBufferingRef.current = false;
+          setSyncStatus('In Sync ✨');
         };
 
-        if (artInstanceRef.current) {
-          tryBufferAndSync();
-        }
+        // Attempt immediate sync and check at intervals as the media element buffers
+        setTimeout(syncDirect, 150);
+        setTimeout(syncDirect, 500);
+        setTimeout(syncDirect, 1200);
       }
     }
   }
@@ -3667,8 +3668,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             subtitlePos={subtitlePos}
             onSubtitleSizeChange={(sz) => handleChangeSubtitleSize(sz)}
             onSubtitlePosChange={(pos) => handleChangeSubtitlePos(pos)}
-            isPlaying={serverSyncStateRef.current.isPlaying}
-            currentTime={serverSyncStateRef.current.currentTime}
+            isPlaying={roomPlaybackState.isPlaying}
+            currentTime={roomPlaybackState.currentTime}
             onPlay={() => {
               if (!isRemoteActionRef.current && socket) {
                 const video = document.querySelector('.pouf-player-container video');

@@ -332,18 +332,16 @@ export function PoufPlayer({
     }
   }, [isPlaying, shouldUseAudioElement]);
 
-  // Sync external currentTime ONLY when paused (never interrupt active playback, which flushes video decoder and drops frames!)
+  // Sync external currentTime (when paused: threshold 0.4s; when playing: threshold 2.0s so joining users and scrubs instantly sync without frame drops during playback)
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
     if (!video || typeof currentTime !== 'number' || isNaN(currentTime)) return;
     if (isDraggingScrubberRef.current) return;
 
-    // Protect active playback: native video decoder must never be interrupted while playing
-    if (!video.paused) return;
-
     const diff = Math.abs(video.currentTime - currentTime);
-    if (diff > 0.5) {
+    const threshold = video.paused ? 0.4 : 2.0;
+    if (diff > threshold) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
         audio.currentTime = currentTime;
@@ -608,7 +606,20 @@ export function PoufPlayer({
   }, [currentCueText, shouldUseAudioElement, subtitleDelay]);
 
   function handleLoadedMetadata() {
-    if (videoRef.current) setDuration(videoRef.current.duration || 0);
+    const video = videoRef.current;
+    if (!video) return;
+    setDuration(video.duration || 0);
+
+    // Initial seek to target currentTime once video metadata is ready
+    if (currentTime > 0 && Math.abs(video.currentTime - currentTime) > 0.4) {
+      video.currentTime = currentTime;
+      if (shouldUseAudioElement && audioRef.current) {
+        audioRef.current.currentTime = currentTime;
+      }
+    }
+    if (isPlaying && video.paused) {
+      video.play().catch(() => {});
+    }
   }
 
   function handlePlayEvent() {
