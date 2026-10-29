@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { io } from 'socket.io-client';
+import Peer from 'peerjs';
 import Hls from 'hls.js';
 import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
@@ -204,13 +205,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [studioAudioMode, setStudioAudioMode] = useState(() => localStorage.getItem('wt_studio_mode') !== 'false');
   const [noiseSuppression, setNoiseSuppression] = useState(() => localStorage.getItem('wt_noise_supp') === 'true');
 
-  // WebRTC Hardware Refs
+  // WebRTC Hardware Refs (PeerJS + Anti-Bluetooth Degradation Guard)
   const socketRef = useRef(null);
+  const peerRef = useRef(null);
+  const activeCallsRef = useRef(new Map()); // peerId -> MediaConnection
+  const connectedUsersRef = useRef([]);
   const localStreamRef = useRef(null);
   const localAudioTrackRef = useRef(null);
-  const peerConnectionsRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const remoteAudioElementsRef = useRef(new Map()); // peerId -> HTMLAudioElement
-  const pendingCandidatesRef = useRef(new Map()); // peerId -> RTCIceCandidate[]
   const audioContextRef = useRef(null);
   const audioAnalyserIntervalRef = useRef(null);
   const isVoiceConnectedRef = useRef(false);
@@ -358,25 +360,86 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     isChatSidebarOpenRef.current = isChatSidebarOpen;
   }, [isChatSidebarOpen]);
 
-  // 1. Hardware Audio Device Enumeration (Mic, Headphones)
+  // 1. Hardware Audio Device Enumeration (Mic, Headphones) with Anti-Bluetooth Hands-Free Guard
   async function refreshMediaDevices() {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
       const devs = await navigator.mediaDevices.enumerateDevices();
-      const aInputs = devs.filter((d) => d.kind === 'audioinput');
-      const aOutputs = devs.filter((d) => d.kind === 'audiooutput');
+      const aInputs = devs.filter((d) => d.kind === 'audioinput').map((d, i) => ({
+        ...d,
+        label: d.label || `Microphone ${i + 1}`,
+        deviceId: d.deviceId || `default-${i}`
+      }));
+      const aOutputs = devs.filter((d) => d.kind === 'audiooutput').map((d, i) => ({
+        ...d,
+        label: d.label || `Speaker/Headphones ${i + 1}`,
+        deviceId: d.deviceId || `default-${i}`
+      }));
       setAudioInputDevices(aInputs);
       setAudioOutputDevices(aOutputs);
 
-      if (!selectedAudioInput && aInputs.length > 0) {
-        setSelectedAudioInput(aInputs[0].deviceId);
+      // Smart Anti-Bluetooth Profile Guard:
+      // If user is wearing Bluetooth headphones, selecting the Bluetooth headset mic commands
+      // Windows to switch to low-bitrate 8kHz telephone mode!
+      // By prioritizing the Laptop/Built-in/USB mic, Windows keeps Bluetooth in full 48kHz A2DP Stereo!
+      const savedInput = localStorage.getItem('wt_pref_mic');
+      if (savedInput && aInputs.some((d) => d.deviceId === savedInput)) {
+        setSelectedAudioInput(savedInput);
+      } else if (aInputs.length > 0) {
+        const btKeywords = ['bluetooth', 'hands-free', 'handsfree', 'headset', 'airpods', 'buds', 'wh-', 'wf-', 'tune', 'wireless', 'bbt', 'freebuds', 'earphone'];
+        const nonBtMics = aInputs.filter((d) => {
+          const l = (d.label || '').toLowerCase();
+          return !btKeywords.some((k) => l.includes(k)) && l.length > 0;
+        });
+
+        const safeMic = nonBtMics.length > 0
+          ? (nonBtMics.find((d) => {
+              const l = d.label.toLowerCase();
+              return l.includes('array') || l.includes('realtek') || l.includes('internal') || l.includes('integrated') || l.includes('built-in');
+            }) || nonBtMics[0])
+          : aInputs[0];
+
+        setSelectedAudioInput(safeMic.deviceId);
+        localStorage.setItem('wt_pref_mic', safeMic.deviceId);
       }
+
       if (!selectedAudioOutput && aOutputs.length > 0) {
         setSelectedAudioOutput(aOutputs[0].deviceId);
       }
     } catch (err) {
       console.warn('Error enumerating audio devices:', err);
     }
+  }
+
+  // Safe Microphone Stream Acquisition (Mobile-hardened & Bluetooth-friendly)
+  async function acquireMicStream() {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    let constraints;
+
+    if (isMobile) {
+      // Safe mobile constraints: NEVER pass exact deviceId or sampleRate on mobile
+      constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      };
+    } else {
+      // Desktop constraints with selected safe input
+      constraints = {
+        audio: {
+          deviceId: selectedAudioInput ? { ideal: selectedAudioInput } : undefined,
+          echoCancellation: true,
+          noiseSuppression: noiseSuppression,
+          autoGainControl: true
+        },
+        video: false
+      };
+    }
+
+    return await navigator.mediaDevices.getUserMedia(constraints);
   }
 
   // Lightweight Web Audio Analyser for Speaking Detection
@@ -439,123 +502,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  // 3. WebRTC Peer Connection Factory (Direct Peer-to-Peer Mesh)
-  async function createPeerConnection(peerId, peerInfo, isInitiator = false) {
-    if (peerConnectionsRef.current.has(peerId)) {
-      return peerConnectionsRef.current.get(peerId);
+  // Remote Audio Management (Attached on-demand, prevents Neko iframe ducking)
+  function playRemoteAudio(peerId, remoteStream) {
+    let audioEl = remoteAudioElementsRef.current.get(peerId);
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = `remote-audio-${peerId}`;
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      audioEl.setAttribute('playsinline', '');
+      audioEl.setAttribute('autoplay', '');
+
+      const hub = document.getElementById('wt-remote-audio-hub');
+      if (hub) hub.appendChild(audioEl);
+      else document.body.appendChild(audioEl);
+
+      if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
+        audioEl.setSinkId(selectedAudioOutput).catch(() => {});
+      }
+      remoteAudioElementsRef.current.set(peerId, audioEl);
     }
 
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnectionsRef.current.set(peerId, pc);
+    audioEl.srcObject = remoteStream;
+    audioEl.volume = 1.0;
+    audioEl.play().catch((err) => console.warn('Remote audio waiting for interaction:', err));
 
-    // Audio Transceiver:
-    // If local mic is currently active, attach the real track;
-    // otherwise add a sendrecv transceiver so the bidirectional audio m-line is pre-negotiated.
-    // The moment the mic is tapped, replaceTrack swaps the live audio in with 0ms lag!
-    const activeTrack = localAudioTrackRef.current || (localStreamRef.current?.getAudioTracks()[0] || null);
-    if (activeTrack) {
-      pc.addTrack(activeTrack, localStreamRef.current);
-    } else {
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-    }
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        socketRef.current.emit('voice:signal', {
-          targetPeerId: peerId,
-          signalData: { candidate: event.candidate }
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log(`📡 Received remote track from ${peerId}:`, event.track.kind);
-      const remoteStream = event.streams[0] || new MediaStream([event.track]);
-
-      if (event.track.kind === 'audio') {
-        let audioEl = remoteAudioElementsRef.current.get(peerId);
-        if (!audioEl) {
-          audioEl = document.createElement('audio');
-          audioEl.id = `remote-audio-${peerId}`;
-          audioEl.autoplay = true;
-          audioEl.playsInline = true;
-          audioEl.setAttribute('playsinline', '');
-          audioEl.setAttribute('autoplay', '');
-
-          const hub = document.getElementById('wt-remote-audio-hub');
-          if (hub) {
-            hub.appendChild(audioEl);
-          } else {
-            document.body.appendChild(audioEl);
-          }
-
-          if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
-            audioEl.setSinkId(selectedAudioOutput).catch(() => {});
-          }
-          remoteAudioElementsRef.current.set(peerId, audioEl);
-        }
-
-        audioEl.srcObject = remoteStream;
-        audioEl.volume = 1.0;
-        const playPromise = audioEl.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn('Remote audio waiting for interaction:', err);
-          });
-        }
-      }
-
-      setRemotePeers((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(peerId) || {
-          username: peerInfo?.username || 'Viewer',
-          avatar: peerInfo?.avatar || '🍿',
-          color: peerInfo?.color || '#f472b6',
-          isSpeaking: false,
-          isMuted: false,
-          hasVideo: false
-        };
-        existing.stream = remoteStream;
-        if (event.track.kind === 'video') {
-          existing.hasVideo = true;
-        }
-        next.set(peerId, existing);
-        return next;
+    setRemotePeers((prev) => {
+      const next = new Map(prev);
+      const user = connectedUsersRef.current.find((u) => u.id === peerId);
+      next.set(peerId, {
+        username: user?.username || 'Partner',
+        avatar: user?.avatar || '🌸',
+        color: user?.color || '#f472b6',
+        isSpeaking: false,
+        isMuted: false,
+        stream: remoteStream
       });
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        cleanupPeer(peerId);
-      }
-    };
-
-    if (isInitiator) {
-      try {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false
-        });
-        offer.sdp = boostOpusSDP(offer.sdp);
-        await pc.setLocalDescription(offer);
-        socketRef.current?.emit('voice:signal', {
-          targetPeerId: peerId,
-          signalData: { desc: pc.localDescription }
-        });
-      } catch (err) {
-        console.warn('Error creating WebRTC offer:', err);
-      }
-    }
-
-    return pc;
+      return next;
+    });
   }
 
-  function cleanupPeer(peerId) {
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (pc) {
-      try { pc.close(); } catch {}
-      peerConnectionsRef.current.delete(peerId);
-    }
+  function stopRemoteAudio(peerId) {
     const audioEl = remoteAudioElementsRef.current.get(peerId);
     if (audioEl) {
       try {
@@ -565,7 +552,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       } catch {}
       remoteAudioElementsRef.current.delete(peerId);
     }
-    pendingCandidatesRef.current.delete(peerId);
     setRemotePeers((prev) => {
       const next = new Map(prev);
       next.delete(peerId);
@@ -573,22 +559,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
   }
 
-  // 4. Voice Chat Direct Handlers (Direct Mic, Instant Speak)
+  // 4. Voice Chat Handlers (PeerJS-Powered Direct Full Duplex Voice)
   async function startMicrophone() {
     try {
       showToast('Turning microphone on... 🎙️', '⏳');
-      const constraints = {
-        audio: {
-          deviceId: selectedAudioInput ? { exact: selectedAudioInput } : undefined,
-          echoCancellation: true,
-          noiseSuppression: studioAudioMode ? false : noiseSuppression,
-          autoGainControl: studioAudioMode ? false : true,
-          sampleRate: 48000
-        },
-        video: false
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await acquireMicStream();
       localStreamRef.current = stream;
 
       const audioTrack = stream.getAudioTracks()[0];
@@ -602,33 +577,33 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       isMutedRef.current = false;
       setIsMuted(false);
 
-      // Attach track to all existing peer connections
-      peerConnectionsRef.current.forEach(async (pc) => {
-        const senders = pc.getSenders();
-        const audioSender = senders.find((s) => s.track?.kind === 'audio' || s.kind === 'audio');
-        if (audioSender) {
-          try {
-            await audioSender.replaceTrack(audioTrack);
-          } catch (err) {
-            console.warn('replaceTrack failed, adding track:', err);
-            pc.addTrack(audioTrack, stream);
+      // Call all active users in the room via PeerJS
+      const p = peerRef.current;
+      if (p) {
+        connectedUsersRef.current.forEach((u) => {
+          if (u.id && u.id !== socketRef.current?.id) {
+            try {
+              const call = p.call(u.id, stream);
+              if (call) {
+                activeCallsRef.current.set(u.id, call);
+                call.on('stream', (remoteStream) => {
+                  playRemoteAudio(u.id, remoteStream);
+                });
+                call.on('close', () => stopRemoteAudio(u.id));
+                call.on('error', (err) => console.warn('Call error:', err));
+              }
+            } catch (err) {
+              console.warn('Call setup error:', err);
+            }
           }
-        } else {
-          pc.addTrack(audioTrack, stream);
-        }
-      });
+        });
+      }
 
       setupAudioAnalyser(stream);
       refreshMediaDevices();
 
-      socketRef.current?.emit('voice:join', {
-        hasVideo: false,
-        hasAudio: true
-      });
-      socketRef.current?.emit('voice:track_state', {
-        isMuted: false,
-        hasVideo: false
-      });
+      socketRef.current?.emit('voice:join', { hasVideo: false, hasAudio: true });
+      socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
 
       playAudioChirp('unmute');
       showToast('Microphone Live 🎙️', '✨');
@@ -639,24 +614,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   function leaveVoiceChat() {
+    // Close all PeerJS outgoing/incoming calls
+    activeCallsRef.current.forEach((call) => {
+      try { call.close(); } catch {}
+    });
+    activeCallsRef.current.clear();
+
     if (audioAnalyserIntervalRef.current) {
       clearInterval(audioAnalyserIntervalRef.current);
       audioAnalyserIntervalRef.current = null;
     }
+
+    // Completely stop local mic hardware tracks.
+    // This commands Windows to release the mic, keeping Bluetooth earphones in crystal-clear A2DP stereo!
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
     localAudioTrackRef.current = null;
-
-    // Detach track from senders so peers receive silence, but keep connections alive so remote audio is heard!
-    peerConnectionsRef.current.forEach((pc) => {
-      const senders = pc.getSenders();
-      const audioSender = senders.find((s) => s.track?.kind === 'audio' || s.kind === 'audio');
-      if (audioSender) {
-        audioSender.replaceTrack(null).catch(() => {});
-      }
-    });
 
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close().catch(() => {});
@@ -710,14 +685,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (!isVoiceConnectedRef.current || !localStreamRef.current) return;
 
     try {
-      const newConstraints = {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: studioAudioMode ? false : noiseSuppression,
-        autoGainControl: studioAudioMode ? false : true,
-        sampleRate: 48000
-      };
-      const newStream = await navigator.mediaDevices.getUserMedia({ audio: newConstraints });
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: isMobile
+          ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+          : {
+              deviceId: deviceId ? { ideal: deviceId } : undefined,
+              echoCancellation: true,
+              noiseSuppression: noiseSuppression,
+              autoGainControl: true
+            },
+        video: false
+      });
       const newAudioTrack = newStream.getAudioTracks()[0];
       newAudioTrack.enabled = !isMutedRef.current;
 
@@ -730,9 +709,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       localAudioTrackRef.current = newAudioTrack;
       localStreamRef.current.addTrack(newAudioTrack);
 
-      peerConnectionsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-        if (sender) sender.replaceTrack(newAudioTrack);
+      // Replace track on all PeerJS active calls
+      activeCallsRef.current.forEach((call) => {
+        if (call.peerConnection) {
+          const sender = call.peerConnection.getSenders().find((s) => s.track && s.track.kind === 'audio');
+          if (sender) sender.replaceTrack(newAudioTrack);
+        }
       });
 
       setupAudioAnalyser(localStreamRef.current);
@@ -1216,13 +1198,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       setIsHost(state.currentUser?.isHost || false);
       if (state.users) {
         setConnectedUsers(state.users);
-        const myId = s.id || state.currentUser?.id;
-        state.users.forEach((u) => {
-          if (u.id && u.id !== myId) {
-            const isInitiator = myId > u.id;
-            createPeerConnection(u.id, u, isInitiator);
-          }
-        });
+        connectedUsersRef.current = state.users;
       }
       if (state.messages) setChatMessages(state.messages);
       if (state.lastSeen) setRoomLastSeen(state.lastSeen);
@@ -1252,18 +1228,38 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
 
     s.on('user:joined', ({ user, users }) => {
-      if (users) setConnectedUsers(users);
-      const myId = s.id;
-      if (user && user.id && user.id !== myId) {
-        const isInitiator = myId > user.id;
-        createPeerConnection(user.id, user, isInitiator);
+      if (users) {
+        setConnectedUsers(users);
+        connectedUsersRef.current = users;
+      }
+      if (isVoiceConnectedRef.current && localStreamRef.current && user && user.id !== s.id && peerRef.current) {
+        try {
+          const call = peerRef.current.call(user.id, localStreamRef.current);
+          if (call) {
+            activeCallsRef.current.set(user.id, call);
+            call.on('stream', (remoteStream) => playRemoteAudio(user.id, remoteStream));
+            call.on('close', () => stopRemoteAudio(user.id));
+          }
+        } catch (e) {
+          console.warn('Call new user error:', e);
+        }
       }
       showToast(`${user.avatar || '🌸'} ${user.username} joined`, '👋');
     });
 
     s.on('user:left', ({ userId, username, users }) => {
-      if (users) setConnectedUsers(users);
-      if (userId) cleanupPeer(userId);
+      if (users) {
+        setConnectedUsers(users);
+        connectedUsersRef.current = users;
+      }
+      if (userId) {
+        stopRemoteAudio(userId);
+        const call = activeCallsRef.current.get(userId);
+        if (call) {
+          try { call.close(); } catch {}
+          activeCallsRef.current.delete(userId);
+        }
+      }
       showToast(`${username || 'User'} left the lounge`, '🚪');
     });
 
@@ -1389,83 +1385,59 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
 
     // ------------------------------------------------------------------------
-    // WebRTC Voice & Camera Event Handlers
+    // PeerJS Setup & Voice Events
     // ------------------------------------------------------------------------
-    s.on('voice:peer_joined', async ({ peerId, username, avatar, color, hasVideo, hasAudio }) => {
-      console.log(`🎙️ Peer joined voice: ${username} (${peerId})`);
-      setRemotePeers((prev) => {
-        const next = new Map(prev);
-        next.set(peerId, {
-          username: username || 'Viewer',
-          avatar: avatar || '🍿',
-          color: color || '#f472b6',
-          isSpeaking: false,
-          isMuted: false,
-          hasVideo: !!hasVideo,
-          stream: null
+    const isHttps = window.location.protocol === 'https:';
+    const peerPort = window.location.port ? Number(window.location.port) : (isHttps ? 443 : 80);
+
+    const initPeer = () => {
+      if (peerRef.current || !s.id) return;
+      try {
+        const p = new Peer(s.id, {
+          host: window.location.hostname,
+          port: peerPort,
+          path: '/peerjs',
+          secure: isHttps,
+          config: rtcConfig
         });
-        return next;
-      });
+        peerRef.current = p;
 
-      showToast(`${username} joined Voice Chat 🎙️`, '🔊');
+        p.on('open', (id) => {
+          console.log('🎙️ PeerJS engine ready with ID:', id);
+        });
 
-      if (!localStreamRef.current && isVoiceConnectedRef.current) {
-        await createPeerConnection(peerId, { username, avatar, color }, true);
+        p.on('call', (incomingCall) => {
+          console.log('📞 Incoming voice call from:', incomingCall.peer);
+          activeCallsRef.current.set(incomingCall.peer, incomingCall);
+
+          // Answer with local stream if our mic is on, otherwise receive-only
+          incomingCall.answer(localStreamRef.current || undefined);
+
+          incomingCall.on('stream', (remoteStream) => {
+            console.log('📡 Received remote audio stream from:', incomingCall.peer);
+            playRemoteAudio(incomingCall.peer, remoteStream);
+          });
+
+          incomingCall.on('close', () => {
+            stopRemoteAudio(incomingCall.peer);
+          });
+
+          incomingCall.on('error', (err) => {
+            console.warn('Call error:', err);
+            stopRemoteAudio(incomingCall.peer);
+          });
+        });
+
+        p.on('error', (err) => {
+          console.warn('PeerJS engine error:', err);
+        });
+      } catch (err) {
+        console.warn('PeerJS init failed:', err);
       }
-    });
+    };
 
-    s.on('voice:signal', async ({ senderPeerId, username, avatar, color, signalData }) => {
-      if (!signalData) return;
-
-      let pc = peerConnectionsRef.current.get(senderPeerId);
-      if (!pc) {
-        pc = await createPeerConnection(senderPeerId, { username, avatar, color }, false);
-      }
-      if (!pc) return;
-
-      if (signalData.desc) {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(signalData.desc));
-          if (signalData.desc.type === 'offer') {
-            const answer = await pc.createAnswer();
-            answer.sdp = boostOpusSDP(answer.sdp);
-            await pc.setLocalDescription(answer);
-            s.emit('voice:signal', {
-              targetPeerId: senderPeerId,
-              signalData: { desc: pc.localDescription }
-            });
-          }
-
-          // Drain queued ICE candidates
-          const queued = pendingCandidatesRef.current.get(senderPeerId);
-          if (queued && queued.length > 0) {
-            for (const cand of queued) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(cand));
-              } catch (e) {
-                console.warn('Queued candidate error:', e);
-              }
-            }
-            pendingCandidatesRef.current.delete(senderPeerId);
-          }
-        } catch (err) {
-          console.warn('Error handling WebRTC description:', err);
-        }
-      } else if (signalData.candidate) {
-        if (!pc.remoteDescription || !pc.remoteDescription.type) {
-          if (!pendingCandidatesRef.current.has(senderPeerId)) {
-            pendingCandidatesRef.current.set(senderPeerId, []);
-          }
-          pendingCandidatesRef.current.get(senderPeerId).push(signalData.candidate);
-        } else {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
-          } catch (err) {
-            console.warn('Error adding ICE candidate:', err);
-          }
-        }
-      }
-    });
+    s.on('connect', initPeer);
+    if (s.connected && s.id) initPeer();
 
     s.on('voice:speaking', ({ peerId, isSpeaking }) => {
       setRemotePeers((prev) => {
@@ -1495,16 +1467,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('voice:peer_left', ({ peerId, username }) => {
       console.log(`🎙️ Peer left voice: ${peerId}`);
-      cleanupPeer(peerId);
+      stopRemoteAudio(peerId);
       if (username) showToast(`${username} left Voice Chat`, '🔇');
     });
 
     return () => {
       leaveVoiceChat();
-      peerConnectionsRef.current.forEach((pc) => {
-        try { pc.close(); } catch {}
-      });
-      peerConnectionsRef.current.clear();
+      if (peerRef.current) {
+        try { peerRef.current.destroy(); } catch {}
+        peerRef.current = null;
+      }
       remoteAudioElementsRef.current.forEach((el) => {
         try {
           el.pause();
@@ -1513,7 +1485,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         } catch {}
       });
       remoteAudioElementsRef.current.clear();
-      pendingCandidatesRef.current.clear();
       s.disconnect();
     };
   }, [roomId]);

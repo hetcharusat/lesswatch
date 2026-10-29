@@ -127,6 +127,17 @@ app.use('/neko', async (req, res, next) => {
   nekoProxy(req, res, next);
 });
 
+// --------------------------------------------------------------------------
+// PeerJS Signaling Server (for Bulletproof Low-Latency WebRTC Voice)
+// --------------------------------------------------------------------------
+const { ExpressPeerServer } = require('peer');
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+  allow_discovery: true,
+  proxied: true
+});
+app.use('/peerjs', peerServer);
+
 
 
 const io = new Server(server, {
