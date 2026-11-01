@@ -45,7 +45,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Gauge,
-  Crop
+  Crop,
+  Camera
 } from 'lucide-react';
 
 /**
@@ -83,6 +84,7 @@ export function PoufPlayer({
   viewerCount = 1,
   isHost = false,
   canControl = true,
+  isChitChatMode = false,
   className = '',
   style = {}
 }) {
@@ -136,6 +138,11 @@ export function PoufPlayer({
       if (saved) return JSON.parse(saved);
     } catch {}
     return { brightness: 100, contrast: 100, saturation: 100 };
+  });
+
+  // Film Grain Effect ('off' | '35mm' | '16mm' | 'heavy')
+  const [filmGrain, setFilmGrain] = useState(() => {
+    return localStorage.getItem('wt_film_grain') || 'off';
   });
 
   // Audio Boost (100%, 125%, 150%, 200%)
@@ -866,6 +873,30 @@ export function PoufPlayer({
     }
   }
 
+  function handleCaptureScreenshot() {
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || video.clientWidth || 1920;
+      canvas.height = video.videoHeight || video.clientHeight || 1080;
+      const ctx = canvas.getContext('2d');
+      if (visualFilter.brightness !== 100 || visualFilter.contrast !== 100 || visualFilter.saturation !== 100) {
+        ctx.filter = `brightness(${visualFilter.brightness}%) contrast(${visualFilter.contrast}%) saturate(${visualFilter.saturation}%)`;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      const cleanName = (title || 'watch_together').replace(/[^a-zA-Z0-9_-]/g, '_');
+      a.download = `${cleanName}_${Math.floor(video.currentTime || 0)}s.png`;
+      a.href = dataUrl;
+      a.click();
+      triggerCenterAnimation('screenshot');
+    } catch (err) {
+      console.warn('Screenshot capture error:', err);
+    }
+  }
+
   function handleMouseMove() {
     setShowControls(true);
     if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
@@ -984,10 +1015,11 @@ export function PoufPlayer({
         width: '100%',
         height: '100%',
         minHeight: '340px',
-        background: '#07030a',
-        borderRadius: isFullscreen ? '0px' : '20px',
+        background: '#000000',
+        borderRadius: '0px',
         overflow: 'hidden',
-        boxShadow: isFullscreen ? 'none' : '0 16px 36px rgba(244,114,182,0.2)',
+        boxShadow: 'none',
+        border: 'none',
         userSelect: 'none',
         display: 'flex',
         flexDirection: 'column',
@@ -1022,20 +1054,39 @@ export function PoufPlayer({
         }}
       />
 
+      {/* Film Grain Cinema Layer */}
+      {filmGrain !== 'off' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: 8,
+            opacity: filmGrain === '35mm' ? 0.14 : (filmGrain === '16mm' ? 0.26 : 0.42),
+            mixBlendMode: 'overlay',
+            backgroundRepeat: 'repeat',
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`
+          }}
+        />
+      )}
+
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Compact Top Title & Specs Overlay with Pink Glassmorphism */}
+      {/* 3. Compact Top Title & Specs Overlay with Smooth 100-to-0 Gradient (Zero Blur Strip) */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          padding: '0.85rem 1.4rem',
-          background: 'linear-gradient(180deg, rgba(10, 10, 15, 0.70) 0%, rgba(10, 10, 15, 0.20) 60%, transparent 100%)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
+          padding: '1rem 1.4rem 2.8rem',
+          background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -1103,23 +1154,6 @@ export function PoufPlayer({
             title="Lock Controls (L)"
           >
             <Lock size={14} />
-          </button>
-
-          <button
-            onClick={toggleFullscreen}
-            className="pouf-glass-btn"
-            style={{
-              width: '32px',
-              height: '32px',
-              color: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-            title="Fullscreen (F)"
-          >
-            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
         </div>
       </div>
@@ -1226,8 +1260,8 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 5.2. Non-Intrusive Corner Unlock HUD Button */}
-      {isLocked && (
+      {/* 5.2. Non-Intrusive Corner Unlock HUD Button (Hidden in Chit Chat mode) */}
+      {isLocked && !isChitChatMode && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1253,7 +1287,7 @@ export function PoufPlayer({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            opacity: isHoveringUnlock ? 1 : 0.28,
+            opacity: isHoveringUnlock ? 1 : 0.22,
             boxShadow: isHoveringUnlock ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
             transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             pointerEvents: 'auto'
@@ -1546,6 +1580,15 @@ export function PoufPlayer({
               title="Picture-in-Picture (P)"
             >
               <PictureInPicture size={15} color="#ffe4e6" />
+            </button>
+
+            {/* Instant Screenshot Snapshot */}
+            <button
+              onClick={handleCaptureScreenshot}
+              className="pouf-dock-icon-btn"
+              title="Capture Screenshot Frame"
+            >
+              <Camera size={15} color="#ffe4e6" />
             </button>
 
             {/* Fullscreen */}
@@ -2122,6 +2165,34 @@ export function PoufPlayer({
                         className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
                       >
                         <span>{p.label}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Film Grain Presets */}
+                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 8px 6px 8px' }}>
+                    Film Grain Texture
+                  </div>
+                  {[
+                    { id: 'off', label: 'Grain Off' },
+                    { id: '35mm', label: '35mm Fine Cinema Grain' },
+                    { id: '16mm', label: '16mm Indie Grain' },
+                    { id: 'heavy', label: 'Vintage Heavy Grit' }
+                  ].map((g) => {
+                    const isActive = filmGrain === g.id;
+                    return (
+                      <div
+                        key={g.id}
+                        onClick={() => {
+                          setFilmGrain(g.id);
+                          localStorage.setItem('wt_film_grain', g.id);
+                        }}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
+                      >
+                        <span>{g.label}</span>
                         {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
                       </div>
                     );

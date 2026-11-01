@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserAvatar } from './JojoAvatar';
 import { ClayChat, ClayClose, ClayCheck, ClayClock, ClayArrow, ClayHeart } from './ClayIcons';
-import { Send, Smile, Users, MessageSquare, Check, CheckCheck } from 'lucide-react';
+import { Send, Smile, Users, MessageSquare, Check, CheckCheck, Sun, Moon, PanelRightClose } from 'lucide-react';
 
 export function ChatSidebar({
   isOpen = true,
@@ -18,6 +18,16 @@ export function ChatSidebar({
 }) {
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'users'
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    return localStorage.getItem('wt_chat_theme') !== 'light'; // Default to dark cinema mode!
+  });
+  const toggleTheme = () => {
+    setIsDarkTheme((prev) => {
+      const next = !prev;
+      localStorage.setItem('wt_chat_theme', next ? 'dark' : 'light');
+      return next;
+    });
+  };
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -90,38 +100,40 @@ export function ChatSidebar({
         flexDirection: 'column',
         height: '100%',
         width: '100%',
-        background: '#ffffff',
+        background: isDarkTheme ? '#0d0a14' : '#ffffff',
         borderRadius: '24px',
-        border: '1.5px solid rgba(244, 114, 182, 0.35)',
-        boxShadow: '0 12px 32px rgba(244, 114, 182, 0.16)',
+        border: isDarkTheme ? '1.5px solid rgba(244, 114, 182, 0.22)' : '1.5px solid rgba(244, 114, 182, 0.35)',
+        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(244, 114, 182, 0.08)' : '0 12px 32px rgba(244, 114, 182, 0.16)',
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        transition: 'background 0.25s ease, border-color 0.25s ease'
       }}
     >
-      {/* 1. Header Tabs: Chat & Users (Matches User's Reference Screenshot) */}
+      {/* 1. Header Tabs: Chat, Users, Theme Mode Toggle & Noticeable Collapse Pill */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
-          borderBottom: '1.5px solid rgba(244, 114, 182, 0.2)',
-          background: 'linear-gradient(180deg, #ffffff 0%, #fff7fb 100%)'
+          padding: '10px 14px',
+          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1.5px solid rgba(244, 114, 182, 0.2)',
+          background: isDarkTheme ? 'linear-gradient(180deg, #140f1f 0%, #0d0a14 100%)' : 'linear-gradient(180deg, #ffffff 0%, #fff7fb 100%)',
+          gap: '8px'
         }}
       >
-        <div style={{ display: 'flex', gap: '8px', background: 'rgba(244, 114, 182, 0.12)', padding: '3px', borderRadius: '9999px' }}>
+        <div style={{ display: 'flex', gap: '6px', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(244, 114, 182, 0.12)', padding: '3px', borderRadius: '9999px' }}>
           <button
             onClick={() => setActiveTab('chat')}
             style={{
-              padding: '6px 18px',
+              padding: '5px 14px',
               borderRadius: '9999px',
-              background: activeTab === 'chat' ? 'linear-gradient(135deg, #fbcfe8 0%, #f472b6 100%)' : 'transparent',
-              color: activeTab === 'chat' ? '#831843' : '#78345c',
+              background: activeTab === 'chat' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              color: activeTab === 'chat' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#78345c'),
               border: 'none',
               fontWeight: 800,
-              fontSize: '0.84rem',
+              fontSize: '0.80rem',
               cursor: 'pointer',
-              boxShadow: activeTab === 'chat' ? '0 2px 6px rgba(244, 114, 182, 0.3)' : 'none',
+              boxShadow: activeTab === 'chat' ? '0 2px 6px rgba(236, 72, 153, 0.4)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
@@ -130,15 +142,15 @@ export function ChatSidebar({
           <button
             onClick={() => setActiveTab('users')}
             style={{
-              padding: '6px 18px',
+              padding: '5px 14px',
               borderRadius: '9999px',
-              background: activeTab === 'users' ? 'linear-gradient(135deg, #fbcfe8 0%, #f472b6 100%)' : 'transparent',
-              color: activeTab === 'users' ? '#831843' : '#78345c',
+              background: activeTab === 'users' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              color: activeTab === 'users' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#78345c'),
               border: 'none',
               fontWeight: 800,
-              fontSize: '0.84rem',
+              fontSize: '0.80rem',
               cursor: 'pointer',
-              boxShadow: activeTab === 'users' ? '0 2px 6px rgba(244, 114, 182, 0.3)' : 'none',
+              boxShadow: activeTab === 'users' ? '0 2px 6px rgba(236, 72, 153, 0.4)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
@@ -146,23 +158,57 @@ export function ChatSidebar({
           </button>
         </div>
 
-        {isCollapsible && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Night Dark Mode / Light Mode Toggle ("Colour Change Mode") */}
           <button
-            onClick={onToggleCollapse}
+            type="button"
+            onClick={toggleTheme}
             style={{
-              background: 'none',
-              border: 'none',
-              color: '#9ca3af',
+              background: isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(244, 114, 182, 0.15)',
+              border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(244, 114, 182, 0.3)',
+              borderRadius: '9999px',
+              padding: '4px 8px',
+              color: isDarkTheme ? '#f472b6' : '#831843',
               cursor: 'pointer',
-              padding: '4px',
               display: 'flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              transition: 'all 0.2s ease'
             }}
-            title="Collapse Sidebar"
+            title={isDarkTheme ? 'Switch to Light Theme' : 'Switch to Dark Cinema Mode (Prevents eye flash)'}
           >
-            <ClayArrow direction="right" size={16} />
+            {isDarkTheme ? <Sun size={12} color="#f472b6" /> : <Moon size={12} color="#831843" />}
+            <span>{isDarkTheme ? 'Dark' : 'Light'}</span>
           </button>
-        )}
+
+          {/* Highly Noticeable Collapse Pill Button */}
+          {isCollapsible && (
+            <button
+              onClick={onToggleCollapse}
+              style={{
+                background: isDarkTheme ? 'rgba(236, 72, 153, 0.2)' : 'rgba(244, 114, 182, 0.25)',
+                border: isDarkTheme ? '1px solid rgba(236, 72, 153, 0.45)' : '1px solid rgba(244, 114, 182, 0.4)',
+                borderRadius: '9999px',
+                color: isDarkTheme ? '#f472b6' : '#831843',
+                cursor: 'pointer',
+                padding: '4px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                transition: 'all 0.2s ease'
+              }}
+              title="Collapse Sidebar"
+            >
+              <span>Hide</span>
+              <PanelRightClose size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 2. Chat Feed Tab */}
@@ -173,17 +219,17 @@ export function ChatSidebar({
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '16px',
+            padding: '14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '14px',
-            background: 'linear-gradient(180deg, #fff7fb 0%, #ffffff 100%)',
+            gap: '12px',
+            background: isDarkTheme ? '#0a0710' : 'linear-gradient(180deg, #fff7fb 0%, #ffffff 100%)',
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch'
           }}
         >
           {messages.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '4rem', fontSize: '0.86rem', fontWeight: 600 }}>
+            <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '4rem', fontSize: '0.84rem', fontWeight: 600 }}>
               No messages yet. Start the conversation!
             </div>
           ) : (
@@ -191,70 +237,70 @@ export function ChatSidebar({
               const isMe = (msg.username || msg.sender) === currentUsername;
               const senderName = msg.username || msg.sender || 'Anonymous';
               const timeStr = formatTime(msg.timestamp || Date.now());
-                const isSeen = isMe && (partnerSeenTimestamp >= (msg.timestamp || 0));
+              const isSeen = isMe && (partnerSeenTimestamp >= (msg.timestamp || 0));
 
-                return (
+              return (
+                <div
+                  key={msg.id || idx}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: isMe ? 'flex-end' : 'flex-start',
+                    width: '100%'
+                  }}
+                >
+                  {/* Sender Header */}
                   <div
-                    key={msg.id || idx}
                     style={{
                       display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: isMe ? 'flex-end' : 'flex-start',
-                      width: '100%'
+                      alignItems: 'center',
+                      gap: '6px',
+                      marginBottom: '3px',
+                      flexDirection: isMe ? 'row-reverse' : 'row'
                     }}
                   >
-                    {/* Sender Header */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginBottom: '4px',
-                        flexDirection: isMe ? 'row-reverse' : 'row'
-                      }}
-                    >
-                      <UserAvatar
-                        avatar={msg.avatar || (isMe ? currentProfile?.avatar : 'jojo-star')}
-                        size="24px"
-                      />
-                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: isMe ? '#831843' : '#1e1b4b' }}>
-                        {senderName}
-                      </span>
-                      <span style={{ fontSize: '0.72rem', color: '#9ca3af', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                        <span>{timeStr}</span>
-                        {isMe && (
-                          <span
-                            style={{
-                              color: isSeen ? '#38bdf8' : '#9ca3af',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              marginLeft: '2px'
-                            }}
-                            title={isSeen ? `Seen by ${partnerEntry?.[0] || 'partner'}` : 'Delivered'}
-                          >
-                            {isSeen ? <CheckCheck size={13} /> : <Check size={13} />}
-                          </span>
-                        )}
-                      </span>
-                    </div>
+                    <UserAvatar
+                      avatar={msg.avatar || (isMe ? currentProfile?.avatar : 'jojo-star')}
+                      size="22px"
+                    />
+                    <span style={{ fontSize: '0.76rem', fontWeight: 800, color: isMe ? '#f472b6' : (isDarkTheme ? '#e2e8f0' : '#1e1b4b') }}>
+                      {senderName}
+                    </span>
+                    <span style={{ fontSize: '0.70rem', color: isDarkTheme ? '#94a3b8' : '#9ca3af', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      <span>{timeStr}</span>
+                      {isMe && (
+                        <span
+                          style={{
+                            color: isSeen ? '#38bdf8' : (isDarkTheme ? '#64748b' : '#9ca3af'),
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            marginLeft: '2px'
+                          }}
+                          title={isSeen ? `Seen by ${partnerEntry?.[0] || 'partner'}` : 'Delivered'}
+                        >
+                          {isSeen ? <CheckCheck size={12} /> : <Check size={12} />}
+                        </span>
+                      )}
+                    </span>
+                  </div>
 
                   {/* Message Bubble */}
                   <div
                     style={{
-                      maxWidth: '82%',
-                      padding: '9px 14px',
-                      borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      maxWidth: '84%',
+                      padding: '8px 12px',
+                      borderRadius: isMe ? '14px 14px 3px 14px' : '14px 14px 14px 3px',
                       background: isMe
-                        ? 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)'
-                        : '#fdf2f8',
+                        ? (isDarkTheme ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.28) 0%, rgba(219, 39, 119, 0.38) 100%)' : 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)')
+                        : (isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : '#fdf2f8'),
                       border: isMe
-                        ? '1.5px solid rgba(244, 114, 182, 0.45)'
-                        : '1px solid rgba(244, 114, 182, 0.25)',
-                      color: isMe ? '#831843' : '#3b142d',
-                      fontSize: '0.88rem',
-                      fontWeight: 600,
+                        ? (isDarkTheme ? '1px solid rgba(244, 114, 182, 0.5)' : '1.5px solid rgba(244, 114, 182, 0.45)')
+                        : (isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(244, 114, 182, 0.25)'),
+                      color: isMe ? (isDarkTheme ? '#fce7f3' : '#831843') : (isDarkTheme ? '#f1f5f9' : '#3b142d'),
+                      fontSize: '0.86rem',
+                      fontWeight: 500,
                       lineHeight: 1.4,
-                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.04)',
+                      boxShadow: isDarkTheme ? '0 2px 8px rgba(0, 0, 0, 0.3)' : '0 2px 6px rgba(0, 0, 0, 0.04)',
                       wordBreak: 'break-word'
                     }}
                   >
@@ -270,9 +316,9 @@ export function ChatSidebar({
 
       {/* 3. Users List Tab */}
       {activeTab === 'users' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px', background: isDarkTheme ? '#0a0710' : '#ffffff' }}>
           {connectedUsers.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '3rem', fontSize: '0.86rem' }}>
+            <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '3rem', fontSize: '0.84rem' }}>
               Only you in the lounge right now
             </div>
           ) : (
@@ -288,17 +334,21 @@ export function ChatSidebar({
                     justifyContent: 'space-between',
                     padding: '8px 12px',
                     borderRadius: '12px',
-                    background: isMe ? 'rgba(244, 114, 182, 0.15)' : 'rgba(255, 255, 255, 0.6)',
-                    border: '1px solid rgba(244, 114, 182, 0.2)'
+                    background: isDarkTheme
+                      ? (isMe ? 'rgba(236, 72, 153, 0.18)' : 'rgba(255, 255, 255, 0.04)')
+                      : (isMe ? 'rgba(244, 114, 182, 0.15)' : 'rgba(255, 255, 255, 0.6)'),
+                    border: isDarkTheme
+                      ? '1px solid rgba(255, 255, 255, 0.08)'
+                      : '1px solid rgba(244, 114, 182, 0.2)'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <UserAvatar avatar={u.avatar || 'jojo-star'} size="30px" />
+                    <UserAvatar avatar={u.avatar || 'jojo-star'} size="28px" />
                     <div>
-                      <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#831843' }}>
+                      <div style={{ fontSize: '0.84rem', fontWeight: 800, color: isDarkTheme ? '#fce7f3' : '#831843' }}>
                         {uName} {isMe && '(You)'}
                       </div>
-                      <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
+                      <div style={{ fontSize: '0.70rem', color: '#10b981', fontWeight: 700 }}>
                         ● Online
                       </div>
                     </div>
@@ -310,13 +360,13 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* 4. Bottom Input Bar (Exact Match to User's Mockup) */}
+      {/* 4. Bottom Input Bar */}
       <form
         onSubmit={handleSubmit}
         style={{
-          padding: '12px 14px',
-          borderTop: '1.5px solid rgba(244, 114, 182, 0.2)',
-          background: '#ffffff',
+          padding: '10px 12px',
+          borderTop: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1.5px solid rgba(244, 114, 182, 0.2)',
+          background: isDarkTheme ? '#0d0a14' : '#ffffff',
           display: 'flex',
           alignItems: 'center',
           gap: '8px'
@@ -328,11 +378,11 @@ export function ChatSidebar({
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            background: '#fff9fc',
+            background: isDarkTheme ? '#150f1f' : '#fff9fc',
             borderRadius: '9999px',
-            padding: '6px 14px',
-            border: '1.5px solid rgba(244, 114, 182, 0.45)',
-            boxShadow: 'inset 0 1px 3px rgba(244, 114, 182, 0.1)'
+            padding: '6px 12px',
+            border: isDarkTheme ? '1px solid rgba(244, 114, 182, 0.35)' : '1.5px solid rgba(244, 114, 182, 0.45)',
+            boxShadow: isDarkTheme ? 'inset 0 1px 3px rgba(0, 0, 0, 0.5)' : 'inset 0 1px 3px rgba(244, 114, 182, 0.1)'
           }}
         >
           <input
@@ -346,18 +396,18 @@ export function ChatSidebar({
               border: 'none',
               outline: 'none',
               background: 'transparent',
-              fontSize: '0.86rem',
-              fontWeight: 600,
-              color: '#831843'
+              fontSize: '0.84rem',
+              fontWeight: 500,
+              color: isDarkTheme ? '#fdf2f8' : '#831843'
             }}
           />
           <button
             type="button"
-            onClick={() => setInputText(prev => prev + ' 🌸')}
+            onClick={() => setInputText((prev) => prev + ' 🌸')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
             title="Add emote"
           >
-            <Smile size={18} color="var(--pink-primary)" />
+            <Smile size={17} color="var(--pink-primary)" />
           </button>
         </div>
 
@@ -366,12 +416,12 @@ export function ChatSidebar({
           type="submit"
           disabled={!inputText.trim()}
           style={{
-            width: '38px',
-            height: '38px',
+            width: '36px',
+            height: '36px',
             borderRadius: '50%',
             background: inputText.trim()
               ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
-              : 'rgba(244, 114, 182, 0.35)',
+              : (isDarkTheme ? 'rgba(255, 255, 255, 0.1)' : 'rgba(244, 114, 182, 0.35)'),
             border: 'none',
             color: '#ffffff',
             boxShadow: inputText.trim() ? '0 4px 12px rgba(236, 72, 153, 0.4)' : 'none',
@@ -383,7 +433,7 @@ export function ChatSidebar({
           }}
           title="Send message"
         >
-          <Send size={15} color="#ffffff" style={{ transform: 'translateX(1px)' }} />
+          <Send size={14} color="#ffffff" style={{ transform: 'translateX(1px)' }} />
         </button>
       </form>
     </div>

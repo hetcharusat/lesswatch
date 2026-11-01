@@ -170,6 +170,24 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         )}
       </nav>
 
+      {/* Floating Cinema Pull Notch */}
+      {isRoomView && (
+        <div
+          className="theater-nav-notch-hint"
+          style={{
+            position: 'absolute',
+            bottom: '2px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '32px',
+            height: '3px',
+            borderRadius: '9999px',
+            background: 'rgba(244, 114, 182, 0.5)',
+            pointerEvents: 'none'
+          }}
+        />
+      )}
+
       {/* Right Controls (Hidden in theater room to eliminate clutter and blend with player) */}
       {!isRoomView && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

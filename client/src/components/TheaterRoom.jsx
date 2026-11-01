@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import Hls from 'hls.js';
 import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
-  Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, Users,
+  Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
   RotateCcw, Power, Sliders, ChevronDown, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward
 } from 'lucide-react';
@@ -244,6 +244,58 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [roomLastSeen, setRoomLastSeen] = useState({});
   const isChitChatModeRef = useRef(false);
   const isChatCollapsedRef = useRef(false);
+
+  // Discord-Style Voice Volume Controls & Boost
+  const [peerVolumes, setPeerVolumes] = useState(new Map()); // peerId -> volume (0 to 200)
+  const peerGainNodesRef = useRef(new Map()); // peerId -> { ctx, gainNode }
+  const [voiceSettingsTab, setVoiceSettingsTab] = useState('mic'); // 'mic' | 'peers'
+  const [isHoveringExitChitChat, setIsHoveringExitChitChat] = useState(false);
+
+  const handlePeerVolume = useCallback((peerId, vol) => {
+    const numericVol = Math.max(0, Math.min(200, Number(vol)));
+    setPeerVolumes((prev) => {
+      const next = new Map(prev);
+      next.set(peerId, numericVol);
+      return next;
+    });
+
+    const audioEl = remoteAudioElementsRef.current.get(peerId);
+    if (!audioEl) return;
+
+    if (numericVol <= 100) {
+      const gainEntry = peerGainNodesRef.current.get(peerId);
+      if (gainEntry && gainEntry.gainNode) {
+        gainEntry.gainNode.gain.value = numericVol / 100;
+      } else {
+        audioEl.volume = numericVol / 100;
+      }
+    } else {
+      try {
+        let gainEntry = peerGainNodesRef.current.get(peerId);
+        if (!gainEntry && audioEl.srcObject) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            const source = ctx.createMediaStreamSource(audioEl.srcObject);
+            const gainNode = ctx.createGain();
+            source.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            gainEntry = { ctx, gainNode };
+            peerGainNodesRef.current.set(peerId, gainEntry);
+            audioEl.volume = 0;
+          }
+        }
+        if (gainEntry && gainEntry.gainNode) {
+          gainEntry.gainNode.gain.value = numericVol / 100;
+        } else {
+          audioEl.volume = 1.0;
+        }
+      } catch (err) {
+        console.warn('Audio boost error:', err);
+        audioEl.volume = 1.0;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     isChitChatModeRef.current = isChitChatMode;
@@ -669,7 +721,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
 
     audioEl.srcObject = remoteStream;
-    audioEl.volume = 1.0;
+    const curVol = peerVolumes.get(peerId) ?? 100;
+    audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
     const playPromise = audioEl.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
@@ -3423,325 +3476,336 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     return popovers;
   }
 
-  // Voice & Mic Settings Popover (Obsidian Neon HUD Studio Panel)
+  // Voice & Mic Settings Popover (Compact YouTube/Obsidian Style + Discord Per-Peer Controls)
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
+
+    const otherPeers = connectedUsers.filter(
+      (u) => (u.username || u.name || '').toLowerCase() !== (currentUser?.name || '').toLowerCase()
+    );
 
     const popover = (
       <div
         className="pouf-popover-shell"
         style={{
           position: 'absolute',
-          bottom: '76px',
-          right: '80px',
-          width: '380px',
-          maxHeight: '82vh',
+          bottom: '72px',
+          right: '72px',
+          width: '276px',
+          maxHeight: '80vh',
           overflowY: 'auto',
-          background: 'rgba(14, 11, 20, 0.96)',
-          backdropFilter: 'blur(28px)',
+          background: 'rgba(12, 9, 18, 0.96)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
           border: '1px solid rgba(244, 114, 182, 0.28)',
-          borderRadius: '20px',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.85), 0 0 24px rgba(244, 114, 182, 0.12)',
-          padding: '1.2rem',
+          borderRadius: '16px',
+          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(244, 114, 182, 0.12)',
+          padding: '12px 14px',
           zIndex: 65,
           color: '#fff',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem'
+          gap: '10px'
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '0.65rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.95rem', color: '#fbcfe8' }}>
-            <Settings size={16} color="var(--pink-primary)" />
-            <span>Voice & Audio Studio</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 800, fontSize: '0.88rem', color: '#fbcfe8' }}>
+            <Headphones size={15} color="var(--pink-primary)" />
+            <span>Voice Controls</span>
           </div>
           <button
             onClick={() => setShowVoiceSettings(false)}
-            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '2px' }}
+            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '2px', display: 'flex' }}
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
 
-        {/* Bluetooth Headphone Notice (The exact fix for user's problem) */}
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05))',
-          border: '1px solid rgba(245, 158, 11, 0.4)',
-          borderRadius: '12px',
-          padding: '10px 12px',
-          fontSize: '0.78rem',
-          color: '#fef3c7'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, color: '#fbbf24', marginBottom: '4px' }}>
-            <Headphones size={15} color="#fbbf24" />
-            <span>Bluetooth Headphone Pro-Tip:</span>
-          </div>
-          <p style={{ margin: 0, lineHeight: 1.45, color: '#f3f4f6' }}>
-            To keep crystal-clear stereo movie sound, choose your <strong>Laptop or USB Mic</strong> below instead of your Bluetooth headset mic. This prevents Windows from switching your headphones to low-bitrate telephone audio!
-          </p>
+        {/* Mini Tab Switcher */}
+        <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '2px', gap: '3px' }}>
+          <button
+            type="button"
+            onClick={() => setVoiceSettingsTab('mic')}
+            style={{
+              flex: 1,
+              padding: '5px 0',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: voiceSettingsTab === 'mic' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              color: voiceSettingsTab === 'mic' ? '#ffffff' : '#9ca3af',
+              transition: 'all 0.18s ease'
+            }}
+          >
+            My Mic
+          </button>
+          <button
+            type="button"
+            onClick={() => setVoiceSettingsTab('peers')}
+            style={{
+              flex: 1,
+              padding: '5px 0',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: voiceSettingsTab === 'peers' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              color: voiceSettingsTab === 'peers' ? '#ffffff' : '#9ca3af',
+              transition: 'all 0.18s ease'
+            }}
+          >
+            Room Voice ({otherPeers.length})
+          </button>
         </div>
 
-        {/* Microphone Sourcing List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#fbcfe8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Select Active Microphone
-            </label>
-            <button
-              type="button"
-              onClick={refreshMediaDevices}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--pink-primary)',
-                fontSize: '0.72rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-              title="Rescan microphones"
-            >
-              <RotateCcw size={11} /> Rescan
-            </button>
-          </div>
+        {voiceSettingsTab === 'mic' ? (
+          <>
+            {/* Microphone Sourcing List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#fbcfe8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Active Mic
+                </span>
+                <button
+                  type="button"
+                  onClick={refreshMediaDevices}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--pink-primary)',
+                    fontSize: '0.68rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'
+                  }}
+                  title="Rescan microphones"
+                >
+                  <RotateCcw size={10} /> Rescan
+                </button>
+              </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
-            {audioInputDevices.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: '#9ca3af', padding: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
-                Default System Microphone
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '110px', overflowY: 'auto' }}>
+                {audioInputDevices.length === 0 ? (
+                  <div style={{ fontSize: '0.76rem', color: '#9ca3af', padding: '6px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px' }}>
+                    Default System Mic
+                  </div>
+                ) : (
+                  audioInputDevices.map((dev, idx) => {
+                    const isSelected = dev.deviceId === selectedAudioInput;
+                    const cleanLabel = dev.label || `Mic ${idx + 1}`;
+                    return (
+                      <div
+                        key={dev.deviceId || idx}
+                        onClick={() => switchAudioInput(dev.deviceId)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          background: isSelected ? 'rgba(236, 72, 153, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                          border: isSelected ? '1px solid rgba(236, 72, 153, 0.45)' : '1px solid transparent',
+                          fontSize: '0.76rem',
+                          color: isSelected ? '#ffffff' : '#d1d5db'
+                        }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }}>
+                          {cleanLabel}
+                        </span>
+                        {isSelected && <Check size={13} color="#f472b6" />}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Studio Noise Gate & Intensity */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(244, 114, 182, 0.18)',
+              borderRadius: '10px',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
+                  Noise Filter & Gate
+                </span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isNoiseGateOpen ? '#34d399' : '#f472b6' }}>
+                  {noiseIntensity === 0 ? 'Off' : isNoiseGateOpen ? 'Open' : 'Gated'}
+                </span>
+              </div>
+
+              {/* Live VU meter */}
+              <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '9999px', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, micLevel)}%`,
+                    background: isNoiseGateOpen ? '#34d399' : '#ec4899',
+                    transition: 'width 0.06s ease'
+                  }}
+                />
+              </div>
+
+              {/* Slider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={noiseIntensity}
+                  onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
+                  style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f472b6', minWidth: '32px', textAlign: 'right' }}>
+                  {noiseIntensity}%
+                </span>
+              </div>
+            </div>
+
+            {/* Mic Toggle Button */}
+            {isVoiceConnected ? (
+              <button
+                onClick={leaveVoiceChat}
+                style={{
+                  padding: '7px',
+                  borderRadius: '8px',
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#fca5a5',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '0.76rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <MicOff size={13} color="#fca5a5" />
+                <span>Disconnect Mic</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => startMicrophone()}
+                style={{
+                  padding: '7px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+                  border: 'none',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '0.76rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)'
+                }}
+              >
+                <Mic size={13} color="#ffffff" />
+                <span>Connect Mic</span>
+              </button>
+            )}
+          </>
+        ) : (
+          /* Tab 2: Discord-Style Per-Peer Volume Controls */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+            {otherPeers.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '0.78rem', padding: '16px 8px' }}>
+                No other members in room
               </div>
             ) : (
-              audioInputDevices.map((dev, idx) => {
-                const isSelected = dev.deviceId === selectedAudioInput;
-                const cleanLabel = dev.label || `Microphone ${idx + 1}`;
+              otherPeers.map((user) => {
+                const pId = user.id || user.peerId || user.socketId;
+                const peerVol = peerVolumes.get(pId) ?? 100;
+                const isMuted = peerVol === 0;
+
                 return (
                   <div
-                    key={dev.deviceId || idx}
-                    onClick={() => switchAudioInput(dev.deviceId)}
-                    className={`pouf-item-card ${isSelected ? 'active' : ''}`}
-                    style={{ cursor: 'pointer', padding: '8px 12px' }}
+                    key={pId || user.username}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '10px',
+                      padding: '8px 10px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px'
+                    }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                      <Mic size={14} color={isSelected ? 'var(--pink-primary)' : 'rgba(255,255,255,0.5)'} />
-                      <span style={{ fontSize: '0.82rem', fontWeight: isSelected ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {cleanLabel}
-                      </span>
+                    {/* User Info Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fce7f3' }}>
+                          {user.username || user.name || 'Friend'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span
+                          style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            color: peerVol > 100 ? '#f59e0b' : '#34d399',
+                            fontFamily: 'monospace'
+                          }}
+                        >
+                          {peerVol}% {peerVol > 100 ? '⚡' : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handlePeerVolume(pId, isMuted ? 100 : 0)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '2px',
+                            color: isMuted ? '#f87171' : '#f472b6',
+                            display: 'flex'
+                          }}
+                          title={isMuted ? 'Unmute' : 'Mute'}
+                        >
+                          {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                        </button>
+                      </div>
                     </div>
-                    {isSelected ? (
-                      <span className="pouf-badge-active">ACTIVE</span>
-                    ) : (
-                      <span className="pouf-badge-codec">SELECT</span>
-                    )}
+
+                    {/* Discord-Style Volume Slider (0% - 200% Boost) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="200"
+                        step="5"
+                        value={peerVol}
+                        onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                        style={{
+                          flex: 1,
+                          accentColor: peerVol > 100 ? '#f59e0b' : '#ec4899',
+                          height: '4px',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </div>
                   </div>
                 );
               })
             )}
           </div>
-        </div>
-
-        {/* Audio Output Dropdown (Headphones / Speakers) */}
-        {audioOutputDevices.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Voice Audio Output (Headphones / Speakers)
-            </label>
-            <select
-              value={selectedAudioOutput}
-              onChange={(e) => switchAudioOutput(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#fff',
-                border: '1px solid rgba(244, 114, 182, 0.3)',
-                fontSize: '0.82rem',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {audioOutputDevices.map((dev, idx) => (
-                <option key={dev.deviceId} value={dev.deviceId} style={{ background: '#170f20', color: '#fff' }}>
-                  {dev.label || `Speaker/Headphone ${idx + 1}`}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Studio Noise Gate & Filter (with Intensity Slider & VU Meter) */}
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid rgba(244, 114, 182, 0.2)',
-          borderRadius: '14px',
-          padding: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px'
-        }}>
-          {/* Noise Section Header & Dynamic Gate Status */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Sliders size={13} color="var(--pink-primary)" />
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
-                Noise Filter & Gate
-              </span>
-            </div>
-            <span className={noiseIntensity === 0 ? 'pouf-badge-codec' : isNoiseGateOpen ? 'pouf-badge-active' : 'pouf-badge-ready'}>
-              {noiseIntensity === 0 ? 'BYPASS (0%)' : isNoiseGateOpen ? 'GATE OPEN' : 'GATE MUTED'}
-            </span>
-          </div>
-
-          <div style={{ fontSize: '0.72rem', color: '#9ca3af', lineHeight: 1.35 }}>
-            Silences laptop fan roar, AC rumble, and room hiss when you are not speaking.
-          </div>
-
-          {/* Live VU Audio Level Meter with Threshold Marker */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.70rem', color: 'rgba(255,255,255,0.6)' }}>
-              <span>Live Mic Energy</span>
-              <span style={{ fontFamily: 'monospace', color: isNoiseGateOpen ? '#34d399' : '#94a3b8' }}>
-                {Math.round(micLevel)}%
-              </span>
-            </div>
-            <div className="pouf-vu-track" style={{ position: 'relative' }}>
-              <div
-                className="pouf-vu-fill"
-                style={{
-                  width: `${Math.min(100, micLevel)}%`,
-                  background: isNoiseGateOpen
-                    ? 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #f472b6 85%, #ec4899 100%)'
-                    : 'linear-gradient(90deg, #64748b 0%, #94a3b8 100%)'
-                }}
-              />
-              {noiseIntensity > 0 && (
-                <div
-                  className="pouf-vu-threshold"
-                  style={{ left: `${noiseIntensity}%` }}
-                  title={`Threshold: ${noiseIntensity}%`}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Intensity Slider */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.76rem' }}>
-              <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Filter Intensity:</span>
-              <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontFamily: 'monospace' }}>
-                {noiseIntensity === 0 ? '0% (Disabled)' : `${noiseIntensity}%`}
-              </span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={noiseIntensity}
-              onChange={(e) => handleNoiseIntensityChange(e.target.value)}
-              className="pouf-slider-pink"
-            />
-          </div>
-
-          {/* Quick Preset Buttons */}
-          <div className="pouf-tab-bar" style={{ display: 'flex', gap: '4px', width: '100%', marginTop: '2px' }}>
-            {[
-              { label: 'Off', val: 0 },
-              { label: 'Light', val: 25 },
-              { label: 'Standard', val: 50 },
-              { label: 'Max', val: 85 }
-            ].map((p) => (
-              <button
-                key={p.val}
-                type="button"
-                onClick={() => handleNoiseIntensityChange(p.val)}
-                className={`pouf-tab-item ${noiseIntensity === p.val ? 'active' : ''}`}
-                style={{ flex: 1, padding: '5px 0', fontSize: '0.72rem' }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Audio Quality Preset Toggles */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Voice Transmission Profile
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={studioAudioMode}
-              onChange={(e) => toggleStudioAudioMode(e.target.checked)}
-              style={{ accentColor: 'var(--pink-primary)', width: '16px', height: '16px' }}
-            />
-            <div>
-              <span style={{ fontWeight: 700, color: '#fff' }}>Studio Opus (128 kbps)</span>
-              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Broadcast-grade high bitrate voice codec for natural warmth.</div>
-            </div>
-          </label>
-        </div>
-
-        {/* Hotkeys Cheatsheet */}
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.04)',
-          borderRadius: '10px',
-          padding: '8px 12px',
-          fontSize: '0.75rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px'
-        }}>
-          <div style={{ fontWeight: 800, color: '#fbbf24', marginBottom: '2px' }}>Hotkeys:</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#d1d5db' }}>Hold Key <strong>'V'</strong>:</span>
-            <span style={{ color: '#34d399', fontWeight: 700 }}>Push-to-Talk</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#d1d5db' }}>Press Key <strong>'M'</strong>:</span>
-            <span style={{ color: '#fbcfe8', fontWeight: 700 }}>Toggle Mute</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#d1d5db' }}>Press Key <strong>'C'</strong>:</span>
-            <span style={{ color: '#fbcfe8', fontWeight: 700 }}>Lounge Chat</span>
-          </div>
-        </div>
-
-        {/* Connect / Disconnect Voice Button */}
-        {isVoiceConnected ? (
-          <button
-            onClick={leaveVoiceChat}
-            style={{
-              padding: '8px',
-              borderRadius: '8px',
-              background: 'rgba(239, 68, 68, 0.2)',
-              border: '1px solid rgba(239, 68, 68, 0.5)',
-              color: '#fca5a5',
-              cursor: 'pointer',
-              fontWeight: 700,
-              fontSize: '0.82rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px'
-            }}
-          >
-            <MicOff size={14} color="#fca5a5" />
-            <span>Turn Off Microphone</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => startMicrophone()}
-            className="btn-pink-primary"
-            style={{ padding: '8px', fontSize: '0.82rem', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Mic size={14} color="#ffffff" />
-            <span>Turn On Microphone</span>
-          </button>
         )}
       </div>
     );
@@ -3817,18 +3881,39 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </button>
         )}
 
-        {/* Floating Exit Chit Chat Mode Button */}
+        {/* Floating Exit Chit Chat Mode Button (Matches Lock Button Style) */}
         {isChitChatMode && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               handleExitChitChat();
             }}
-            className="chit-chat-exit-pill"
-            title="Exit Chit Chat Mode (or press Esc)"
+            onMouseEnter={() => setIsHoveringExitChitChat(true)}
+            onMouseLeave={() => setIsHoveringExitChitChat(false)}
+            title="Exit Chit Chat Mode (Esc)"
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              zIndex: 80,
+              width: '38px',
+              height: '38px',
+              borderRadius: '50%',
+              background: isHoveringExitChitChat ? 'rgba(236, 72, 153, 0.28)' : 'rgba(15, 10, 22, 0.65)',
+              backdropFilter: 'blur(16px)',
+              border: isHoveringExitChitChat ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.12)',
+              color: isHoveringExitChitChat ? '#ffffff' : '#9ca3af',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              opacity: isHoveringExitChitChat ? 1 : 0.35,
+              boxShadow: isHoveringExitChitChat ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
+              transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+              pointerEvents: 'auto'
+            }}
           >
-            <Minimize size={14} color="#f472b6" />
-            <span>Exit Chit Chat</span>
+            <X size={17} color={isHoveringExitChitChat ? '#f472b6' : '#9ca3af'} />
           </button>
         )}
 
@@ -4114,6 +4199,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             viewerCount={connectedUsers.length || 1}
             isHost={isHost}
             canControl={true}
+            isChitChatMode={isChitChatMode}
           />
         </div>
         )}
