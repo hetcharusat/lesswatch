@@ -72,6 +72,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
     <div
       ref={containerRef}
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       style={{
         width: '100%',
         height: '340px',
@@ -85,7 +87,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
         backdropFilter: 'blur(24px)',
         overflow: 'hidden',
         zIndex: 120,
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        pointerEvents: 'auto'
       }}
     >
       {/* Search Bar & Close */}
@@ -116,6 +119,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
             type="text"
             value={searchTerm}
             onChange={handleSearchChange}
+            onKeyDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             placeholder="Search GIPHY..."
             autoFocus
             style={{

@@ -217,7 +217,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [selectedAudioInput, setSelectedAudioInput] = useState(() => localStorage.getItem('wt_pref_mic') || '');
   const [selectedAudioOutput, setSelectedAudioOutput] = useState(() => localStorage.getItem('wt_pref_sink') || '');
   const [studioAudioMode, setStudioAudioMode] = useState(() => localStorage.getItem('wt_studio_mode') !== 'false');
-  const [noiseSuppression, setNoiseSuppression] = useState(() => localStorage.getItem('wt_noise_supp') === 'true');
+  const [noiseSuppressionMode, setNoiseSuppressionMode] = useState(() => {
+    return localStorage.getItem('wt_noise_supp_mode') || 'rnnoise';
+  });
+  const noiseSuppressionModeRef = useRef(noiseSuppressionMode);
+  const [micGain, setMicGain] = useState(() => {
+    const saved = localStorage.getItem('wt_mic_gain');
+    return saved !== null ? Math.max(50, Math.min(200, parseInt(saved, 10) || 100)) : 100;
+  });
+  const micGainRef = useRef(micGain);
   const [noiseIntensity, setNoiseIntensity] = useState(() => {
     const saved = localStorage.getItem('wt_noise_intensity');
     return saved !== null ? Math.max(0, Math.min(100, parseInt(saved, 10) || 0)) : 0;
@@ -290,8 +298,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             const ctx = new AudioContextClass();
             const source = ctx.createMediaStreamSource(audioEl.srcObject);
             const gainNode = ctx.createGain();
+            const merger = ctx.createChannelMerger(2);
             source.connect(gainNode);
-            gainNode.connect(ctx.destination);
+            gainNode.connect(merger, 0, 0); // Left channel
+            gainNode.connect(merger, 0, 1); // Right channel
+            merger.connect(ctx.destination);
             gainEntry = { ctx, gainNode };
             peerGainNodesRef.current.set(peerId, gainEntry);
             audioEl.volume = 0;
@@ -591,22 +602,36 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         return rawStream;
       }
 
-      // Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 80Hz)
+      // 1. Microphone Pre-amplifier / Input Sensitivity Gain Node
+      const inputGainNode = ctx.createGain();
+      inputGainNode.gain.value = (micGainRef.current || 100) / 100;
+
+      // 2. Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 80Hz)
       const highpass = ctx.createBiquadFilter();
       highpass.type = 'highpass';
       highpass.frequency.value = 80;
 
-      // Dynamic Noise Gate Gain Node
+      // 3. Dynamic Noise Gate Gain Node
       const gateGain = ctx.createGain();
       gateGain.gain.value = 1.0;
 
-      // Create destination for WebRTC output
-      const destination = ctx.createMediaStreamDestination();
+      // 4. Dual-Channel Stereo Merger: Fixes fatal Left-Ear-Only speech bug!
+      // Routes mono mic audio identically to BOTH Left (0) and Right (1) channels
+      const stereoMerger = ctx.createChannelMerger(2);
+      gateGain.connect(stereoMerger, 0, 0); // Pipe to Left channel
+      gateGain.connect(stereoMerger, 0, 1); // Duplicate identical audio to Right channel
 
-      // Immediate clean pipeline with 0ms latency
-      source.connect(highpass);
+      // 5. Destination for WebRTC output
+      const destination = ctx.createMediaStreamDestination();
+      destination.channelCount = 2;
+      destination.channelCountMode = 'explicit';
+      destination.channelInterpretation = 'speakers';
+      stereoMerger.connect(destination);
+
+      // Connect input chain
+      source.connect(inputGainNode);
+      inputGainNode.connect(highpass);
       highpass.connect(gateGain);
-      gateGain.connect(destination);
 
       // Analyser connected to filtered audio for speaking & level detection
       const analyser = ctx.createAnalyser();
@@ -614,24 +639,36 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       analyser.smoothingTimeConstant = 0.2;
       highpass.connect(analyser);
 
-      audioNodesRef.current = { source, highpass, gateGain, destination, analyser, speexNode: null };
+      audioNodesRef.current = {
+        source,
+        inputGainNode,
+        highpass,
+        gateGain,
+        stereoMerger,
+        destination,
+        analyser,
+        suppressorNode: null
+      };
 
-      // Asynchronously integrate AI/DSP Speex Noise Suppressor from @sapphi-red/web-noise-suppressor
-      createNoiseSuppressorNode(ctx).then((speexNode) => {
-        if (speexNode && audioNodesRef.current && audioNodesRef.current.highpass && audioNodesRef.current.gateGain) {
-          try {
-            audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
-            audioNodesRef.current.highpass.connect(speexNode);
-            speexNode.connect(audioNodesRef.current.gateGain);
-            audioNodesRef.current.speexNode = speexNode;
-            console.log('✅ @sapphi-red/web-noise-suppressor active in Web Audio pipeline');
-          } catch (e) {
-            console.warn('Error chaining speexNode:', e);
+      // Asynchronously integrate AI/DSP Noise Suppressor (@sapphi-red/web-noise-suppressor)
+      const initialMode = noiseSuppressionModeRef.current || 'rnnoise';
+      if (initialMode !== 'raw' && initialMode !== 'off') {
+        createNoiseSuppressorNode(ctx, initialMode).then((res) => {
+          if (res && res.node && audioNodesRef.current && audioNodesRef.current.highpass && audioNodesRef.current.gateGain) {
+            try {
+              audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
+              audioNodesRef.current.highpass.connect(res.node);
+              res.node.connect(audioNodesRef.current.gateGain);
+              audioNodesRef.current.suppressorNode = res.node;
+              console.log(`✅ @sapphi-red/web-noise-suppressor [${res.mode}] active in Web Audio pipeline`);
+            } catch (e) {
+              console.warn('Error chaining noise suppressor node:', e);
+            }
           }
-        }
-      }).catch((e) => {
-        console.warn('createNoiseSuppressorNode initialization error:', e);
-      });
+        }).catch((e) => {
+          console.warn('createNoiseSuppressorNode initialization error:', e);
+        });
+      }
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
@@ -700,6 +737,58 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     } catch (err) {
       console.warn('Audio processing setup error, falling back to raw stream:', err);
       return rawStream;
+    }
+  }
+
+  async function handleNoiseModeChange(newMode) {
+    setNoiseSuppressionMode(newMode);
+    noiseSuppressionModeRef.current = newMode;
+    localStorage.setItem('wt_noise_supp_mode', newMode);
+
+    const nodes = audioNodesRef.current;
+    const ctx = audioContextRef.current;
+    if (!nodes || !ctx || ctx.state === 'closed') return;
+
+    try {
+      if (nodes.suppressorNode) {
+        try {
+          nodes.highpass.disconnect(nodes.suppressorNode);
+          nodes.suppressorNode.disconnect(nodes.gateGain);
+          if (typeof nodes.suppressorNode.destroy === 'function') {
+            nodes.suppressorNode.destroy();
+          }
+        } catch {}
+        nodes.suppressorNode = null;
+      }
+
+      if (newMode === 'raw' || newMode === 'off') {
+        try { nodes.highpass.connect(nodes.gateGain); } catch {}
+        showToast('Mic Filter: Raw Studio (Pure Voice)', <Mic size={15} color="var(--pink-primary)" />);
+        return;
+      }
+
+      const res = await createNoiseSuppressorNode(ctx, newMode);
+      if (res && res.node && audioNodesRef.current) {
+        try {
+          audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
+        } catch {}
+        audioNodesRef.current.highpass.connect(res.node);
+        res.node.connect(audioNodesRef.current.gateGain);
+        audioNodesRef.current.suppressorNode = res.node;
+        showToast(`Mic Noise Filter: ${res.mode === 'rnnoise' ? 'Deep AI (RNNoise)' : 'Acoustic DSP (Speex)'}`, <ShieldCheck size={15} color="#34d399" />);
+      }
+    } catch (err) {
+      console.warn('Failed to switch noise suppressor mode:', err);
+    }
+  }
+
+  function handleMicGainChange(val) {
+    const num = Math.max(50, Math.min(200, parseInt(val, 10) || 100));
+    setMicGain(num);
+    micGainRef.current = num;
+    localStorage.setItem('wt_mic_gain', String(num));
+    if (audioNodesRef.current?.inputGainNode && audioContextRef.current) {
+      audioNodesRef.current.inputGainNode.gain.setValueAtTime(num / 100, audioContextRef.current.currentTime);
     }
   }
 
@@ -3182,43 +3271,62 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       >
         <div className="floating-chat-bubbles-stack">
           {recentMessages.map((m) => (
-            <div
-              key={m.id}
-              className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
-              onClick={() => {
-                setIsChatSidebarOpen(true);
-                setUnreadChatCount(0);
-              }}
-              title="Click to view full chat history in sidebar"
-              style={{ cursor: 'pointer' }}
-            >
-              <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
-              <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
-                {m.sender}:
-              </span>
-              {m.image ? (
+            m.image ? (
+              <div
+                key={m.id}
+                className={`floating-chat-media-card ${m.fading ? 'fading' : ''}`}
+                onClick={() => {
+                  setIsChatSidebarOpen(true);
+                  setUnreadChatCount(0);
+                }}
+                title="Click to view full chat history in sidebar"
+                style={{ cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
+                  <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontSize: '0.78rem' }}>
+                    {m.sender}
+                  </span>
+                </div>
                 <img
                   src={m.image}
                   alt="GIF"
-                  style={{
-                    maxHeight: '75px',
-                    borderRadius: '8px',
-                    display: 'block',
-                    marginTop: '2px'
-                  }}
+                  className="floating-chat-media-img"
                 />
-              ) : (
+              </div>
+            ) : (
+              <div
+                key={m.id}
+                className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
+                onClick={() => {
+                  setIsChatSidebarOpen(true);
+                  setUnreadChatCount(0);
+                }}
+                title="Click to view full chat history in sidebar"
+                style={{ cursor: 'pointer' }}
+              >
+                <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
+                <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
+                  {m.sender}:
+                </span>
                 <span>{m.text}</span>
-              )}
-            </div>
+              </div>
+            )
           ))}
         </div>
 
         {/* Floating In-Video GIPHY Picker popup */}
         {showFloatingGiphy && chatOpen && (
-          <div style={{ width: '310px', marginBottom: '8px' }}>
+          <div
+            style={{ width: '310px', marginBottom: '8px', pointerEvents: 'auto', zIndex: 1002 }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
             <GiphyPicker
-              onSelectGif={(gifUrl) => handleSendChat(null, gifUrl)}
+              onSelectGif={(gifUrl) => {
+                handleSendChat(null, gifUrl);
+                setShowFloatingGiphy(false);
+              }}
               onClose={() => setShowFloatingGiphy(false)}
               isDarkTheme={true}
             />
@@ -3891,6 +3999,67 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               </div>
             </div>
 
+            {/* Multi-Engine Noise Cancellation (Deep AI vs Speex DSP vs Raw) */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(244, 114, 182, 0.18)',
+              borderRadius: '10px',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
+                  Suppression Engine
+                </span>
+                <span style={{ fontSize: '0.64rem', color: '#f472b6', fontWeight: 700 }}>
+                  {noiseSuppressionMode === 'rnnoise' ? 'AI Neural' : noiseSuppressionMode === 'speex' ? 'DSP Filter' : 'Raw Bypass'}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                {[
+                  { id: 'rnnoise', label: 'AI Neural', desc: 'RNNoise' },
+                  { id: 'speex', label: 'Acoustic', desc: 'Speex DSP' },
+                  { id: 'raw', label: 'Studio Raw', desc: 'Bypass' }
+                ].map((mode) => {
+                  const isAct = noiseSuppressionMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => handleNoiseModeChange(mode.id)}
+                      style={{
+                        padding: '5px 2px',
+                        borderRadius: '7px',
+                        border: isAct ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.08)',
+                        background: isAct ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.35), rgba(219, 39, 119, 0.25))' : 'rgba(255, 255, 255, 0.04)',
+                        color: isAct ? '#ffffff' : '#9ca3af',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        lineHeight: 1.15,
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.68rem', fontWeight: isAct ? 800 : 600 }}>{mode.label}</span>
+                      <span style={{ fontSize: '0.58rem', opacity: 0.75 }}>{mode.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
+                {noiseSuppressionMode === 'rnnoise'
+                  ? 'Deep RNN suppresses background fans, keyboard clicks & TV noise.'
+                  : noiseSuppressionMode === 'speex'
+                  ? 'Fast acoustic DSP noise suppression with ultra-low latency.'
+                  : 'Bypasses AI/DSP noise suppression for uncolored studio audio.'}
+              </div>
+            </div>
+
             {/* Studio Noise Gate & Intensity */}
             <div style={{
               background: 'rgba(255, 255, 255, 0.03)',
@@ -3903,10 +4072,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
-                  Noise Filter & Gate
+                  Noise Gate
                 </span>
                 <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isNoiseGateOpen ? '#34d399' : '#f472b6' }}>
-                  {noiseIntensity === 0 ? 'Off (Pure Voice)' : isNoiseGateOpen ? 'Open' : 'Gated'}
+                  {noiseIntensity === 0 ? 'Off (Open)' : isNoiseGateOpen ? 'Open' : 'Gated'}
                 </span>
               </div>
 
@@ -3939,6 +4108,40 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               </div>
               <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
                 {noiseIntensity === 0 ? 'Gate is off: 100% full speech transmission' : 'Silences room rumble & fan noise between words'}
+              </div>
+            </div>
+
+            {/* Mic Input Gain / Sensitivity Boost */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(244, 114, 182, 0.18)',
+              borderRadius: '10px',
+              padding: '8px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
+                  Mic Sensitivity
+                </span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f472b6' }}>
+                  {micGain}%
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="range"
+                  min="50"
+                  max="200"
+                  step="5"
+                  value={micGain}
+                  onChange={(e) => handleMicGainChange(Number(e.target.value))}
+                  style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                />
+              </div>
+              <div style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
+                {micGain > 100 ? 'Boosts quiet microphones before WebRTC transmission' : 'Normal sensitivity level'}
               </div>
             </div>
 

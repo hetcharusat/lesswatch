@@ -1,40 +1,73 @@
-import { SpeexWorkletNode, loadSpeex } from '@sapphi-red/web-noise-suppressor';
+import {
+  SpeexWorkletNode,
+  loadSpeex,
+  RnnoiseWorkletNode,
+  loadRnnoise
+} from '@sapphi-red/web-noise-suppressor';
 import speexWorkletUrl from '@sapphi-red/web-noise-suppressor/speexWorklet.js?url';
 import speexWasmUrl from '@sapphi-red/web-noise-suppressor/speex.wasm?url';
+import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
+import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
+import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 
 let speexWasmBinaryPromise = null;
-const workletAddedContexts = new WeakSet();
+let rnnoiseWasmBinaryPromise = null;
+const addedWorkletsMap = new WeakMap(); // audioContext -> Set of loaded urls
 
 /**
- * Initializes and creates an AI/DSP Speex noise suppressor node using @sapphi-red/web-noise-suppressor.
- * Operates at any microphone sample rate (44.1kHz, 48kHz, etc.) with near-zero latency.
- * Falls back gracefully to null if AudioWorklet or WebAssembly is unsupported in the current browser.
+ * Initializes and creates an AI/DSP noise suppressor node using @sapphi-red/web-noise-suppressor.
+ * Supports:
+ * - 'rnnoise': Recurrent Neural Network voice isolation (removes background fans, typing, TV clatter).
+ * - 'speex': Low-latency acoustic DSP noise suppressor (robust at any sample rate: 44.1kHz, 48kHz, etc.).
+ * - 'off' / 'raw': Pure direct microphone signal.
  */
-export async function createNoiseSuppressorNode(audioContext) {
+export async function createNoiseSuppressorNode(audioContext, mode = 'speex') {
+  if (!audioContext || !audioContext.audioWorklet || mode === 'off' || mode === 'raw') {
+    return null;
+  }
+
   try {
-    if (!audioContext || !audioContext.audioWorklet) {
-      return null;
+    let contextLoaded = addedWorkletsMap.get(audioContext);
+    if (!contextLoaded) {
+      contextLoaded = new Set();
+      addedWorkletsMap.set(audioContext, contextLoaded);
     }
 
+    if (mode === 'rnnoise') {
+      if (!contextLoaded.has(rnnoiseWorkletUrl)) {
+        await audioContext.audioWorklet.addModule(rnnoiseWorkletUrl);
+        contextLoaded.add(rnnoiseWorkletUrl);
+      }
+      if (!rnnoiseWasmBinaryPromise) {
+        rnnoiseWasmBinaryPromise = loadRnnoise({
+          url: rnnoiseWasmUrl,
+          simdUrl: rnnoiseSimdWasmUrl
+        });
+      }
+      const wasmBinary = await rnnoiseWasmBinaryPromise;
+      const node = new RnnoiseWorkletNode(audioContext, {
+        wasmBinary,
+        maxChannels: 2
+      });
+      return { node, mode: 'rnnoise' };
+    }
+
+    // Default: Speex DSP (all sample rates)
+    if (!contextLoaded.has(speexWorkletUrl)) {
+      await audioContext.audioWorklet.addModule(speexWorkletUrl);
+      contextLoaded.add(speexWorkletUrl);
+    }
     if (!speexWasmBinaryPromise) {
       speexWasmBinaryPromise = loadSpeex({ url: speexWasmUrl });
     }
-
-    if (!workletAddedContexts.has(audioContext)) {
-      await audioContext.audioWorklet.addModule(speexWorkletUrl);
-      workletAddedContexts.add(audioContext);
-    }
-
     const wasmBinary = await speexWasmBinaryPromise;
-    const speexNode = new SpeexWorkletNode(audioContext, {
+    const node = new SpeexWorkletNode(audioContext, {
       wasmBinary,
-      maxChannels: 1
+      maxChannels: 2
     });
-
-    return speexNode;
+    return { node, mode: 'speex' };
   } catch (err) {
-    console.warn('WASM / AudioWorklet noise suppressor load failed, using DSP fallback:', err);
+    console.warn(`Noise suppressor mode [${mode}] load failed, falling back to bypass:`, err);
     return null;
   }
 }
-
