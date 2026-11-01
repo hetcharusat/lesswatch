@@ -4,7 +4,7 @@ import { UserAvatar } from './JojoAvatar';
 import { PinkPopcornLogo } from './PinkPopcornLogo';
 import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClaySparkle } from './ClayIcons';
 
-export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout }) {
+export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout, onOpenAvatarModal }) {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
   const isRoomView = activeView === 'room';
 
@@ -171,19 +171,25 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
       {/* Right Controls (Hidden in theater room to eliminate clutter and blend with player) */}
       {!isRoomView && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'var(--bg-surface)',
-            border: '1.5px solid var(--border-pink)',
-            borderRadius: '9999px',
-            padding: '4px 12px',
-            fontSize: '0.82rem',
-            color: '#3b142d',
-            fontWeight: 800,
-            boxShadow: '0 2px 8px rgba(244, 114, 182, 0.12)'
-          }}>
+          <div
+            onClick={onOpenAvatarModal}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: 'var(--bg-surface)',
+              border: '1.5px solid var(--border-pink)',
+              borderRadius: '9999px',
+              padding: '4px 12px',
+              fontSize: '0.82rem',
+              color: '#3b142d',
+              fontWeight: 800,
+              boxShadow: '0 2px 8px rgba(244, 114, 182, 0.12)',
+              cursor: 'pointer',
+              transition: 'transform 0.15s ease'
+            }}
+            title="Click to customize profile picture"
+          >
             <UserAvatar user={currentUser} size={22} showBorder={true} />
             <span>{currentUser?.name || 'User'}</span>
           </div>

@@ -167,8 +167,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
+if (!fs.existsSync(AVATARS_DIR)) {
+  fs.mkdirSync(AVATARS_DIR, { recursive: true });
+}
+app.use('/api/avatars', express.static(AVATARS_DIR, { maxAge: '1h' }));
 
 // Control API for Neko Virtual Browser
 app.post('/api/neko/control', async (req, res) => {
@@ -481,7 +487,7 @@ function createRoom(roomId) {
   let roomMedia = saved?.media || defaultMedia;
   if (roomMedia.url && roomMedia.url.startsWith('/api/media/stream/')) {
     const rawRel = decodeURIComponent(roomMedia.url.replace('/api/media/stream/', '').split('?')[0]);
-    const targetFile = getSafePath(rawRel);
+    const targetFile = resolveExistingMediaFile(rawRel);
     if (!fs.existsSync(targetFile)) {
       console.log(`⚠️ Saved media for room "${roomId}" no longer exists on disk (${rawRel}). Resetting to default.`);
       roomMedia = defaultMedia;
@@ -721,6 +727,61 @@ app.get('/api/users', (req, res) => {
     color: u.color
   }));
   res.json(safeUsers);
+});
+
+// Update or Reset Custom Web-Ready Profile Avatar
+app.post('/api/user/avatar', (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { avatarData, reset } = req.body;
+  const dbUser = usersData.users.find(u => u.id === user.id || u.name?.toLowerCase() === user.name?.toLowerCase());
+  if (!dbUser) return res.status(404).json({ error: 'User not found' });
+
+  if (reset) {
+    const isHet = dbUser.name?.toLowerCase() === 'het';
+    dbUser.avatar = isHet ? 'jotaro' : 'jolyne';
+    saveJSON(USERS_FILE, usersData);
+    io.emit('user:avatar_changed', { username: dbUser.name, avatar: dbUser.avatar });
+    return res.json({ success: true, avatar: dbUser.avatar, user: dbUser });
+  }
+
+  if (!avatarData || typeof avatarData !== 'string') {
+    return res.status(400).json({ error: 'Image data is required' });
+  }
+
+  const match = avatarData.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+  if (!match) {
+    return res.status(400).json({ error: 'Invalid image data' });
+  }
+
+  const ext = match[1] === 'jpeg' ? 'jpg' : (match[1] === 'png' ? 'png' : 'webp');
+  const buffer = Buffer.from(match[2], 'base64');
+  const fileName = `${dbUser.id || dbUser.name.toLowerCase()}.${ext}`;
+  const filePath = path.join(AVATARS_DIR, fileName);
+
+  try {
+    fs.writeFileSync(filePath, buffer);
+    const avatarUrl = `/api/avatars/${fileName}?t=${Date.now()}`;
+    dbUser.avatar = avatarUrl;
+    saveJSON(USERS_FILE, usersData);
+
+    // Broadcast to all connected sockets
+    io.emit('user:avatar_changed', { username: dbUser.name, avatar: avatarUrl });
+
+    // Update active sessions in memory
+    for (const [token, u] of activeSessions.entries()) {
+      if (u.id === dbUser.id || u.name?.toLowerCase() === dbUser.name?.toLowerCase()) {
+        u.avatar = avatarUrl;
+      }
+    }
+    persistSessions();
+
+    res.json({ success: true, avatar: avatarUrl, user: dbUser });
+  } catch (err) {
+    console.error('Failed to save avatar:', err);
+    res.status(500).json({ error: 'Failed to save avatar file' });
+  }
 });
 
 // 4.4 Downloads / Aria2 API (Restricted to Het / Admin)
@@ -1031,6 +1092,36 @@ function getSafePath(relativePath = '') {
   return resolved;
 }
 
+// Smart fallback file finder: if direct path is missing (e.g. moved in/out of subfolder), searches DOWNLOADS_DIR by filename
+function resolveExistingMediaFile(relativePath = '') {
+  const primary = getSafePath(relativePath);
+  if (fs.existsSync(primary) && !fs.statSync(primary).isDirectory()) {
+    return primary;
+  }
+  const clean = decodeURIComponent(relativePath).replace(/\\/g, '/');
+  const targetBase = path.basename(clean);
+  if (!targetBase) return primary;
+
+  function scanDir(dir) {
+    try {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          const found = scanDir(fullPath);
+          if (found) return found;
+        } else if (item.name === targetBase) {
+          return fullPath;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  const found = scanDir(DOWNLOADS_DIR);
+  return found || primary;
+}
+
 function getAllSubfolders(baseDir, currentRel = '') {
   const dir = path.join(baseDir, currentRel);
   const result = [{ name: '📁 / (Root)', path: '' }];
@@ -1228,7 +1319,7 @@ app.post(['/api/library/move', '/api/library/file/move'], requireAdmin, (req, re
 // Single file probe info endpoint (supporting nested paths)
 app.get(['/api/media/info/:filename', '/api/media/info/*'], async (req, res) => {
   const relPath = req.params[0] ? req.params[0] : req.params.filename;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
   const info = await probeMediaFile(filePath, relPath);
   res.json({ filename: path.basename(filePath), relativePath: relPath, ...info });
@@ -1295,7 +1386,7 @@ app.get(['/api/media/subtitles/:filename/:streamIndex.vtt', '/api/media/subtitle
     }
   }
 
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (!fs.existsSync(filePath)) {
     return res.status(404).send('Media file not found');
@@ -1564,7 +1655,7 @@ app.get('/api/media/subtitles/cache/:filename', (req, res) => {
 app.all(['/api/library/delete', '/api/library/delete/:filename', '/api/library/delete/*', '/api/library/file'], requireAdmin, (req, res) => {
   if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).send('Method not allowed');
   const relPath = req.query.path || req.params[0] || req.params.filename || req.body?.path;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (fs.existsSync(filePath)) {
     try {
@@ -1699,7 +1790,7 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
 // HTTP 206 Partial Content (Byte-Range) Streamer for Local Videos
 app.get(['/api/media/stream/:filename', '/api/media/stream/*'], async (req, res) => {
   const relPath = req.params[0] || req.params.filename;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return res.status(404).send('Media file not found');
@@ -1763,7 +1854,7 @@ app.get('/api/media/hls/*', async (req, res) => {
   if (wildcard.endsWith('/master.m3u8')) {
     const rawRelPath = wildcard.slice(0, -'/master.m3u8'.length);
     const relPath = decodeURIComponent(rawRelPath);
-    const filePath = getSafePath(relPath);
+    const filePath = resolveExistingMediaFile(relPath);
 
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return res.status(404).send('Media file not found');
@@ -1810,7 +1901,7 @@ app.get('/api/media/hls/*', async (req, res) => {
     const rawRelPath = segMatch[1];
     const segNum = parseInt(segMatch[2], 10);
     const relPath = decodeURIComponent(rawRelPath);
-    const filePath = getSafePath(relPath);
+    const filePath = resolveExistingMediaFile(relPath);
 
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       return res.status(404).send('Media file not found');
@@ -1895,7 +1986,7 @@ app.get('/api/media/subtitle/:filename', (req, res) => {
 // Serve Extracted Audio Tracks with HTTP 206 Byte-Range Streaming
 app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) => {
   const relPath = req.params[0] || req.params.filename;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return res.status(404).send('Media file not found');
@@ -1951,7 +2042,7 @@ app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) =
 // Check Extraction Status for All Audio Tracks (for UI Status Bar)
 app.get(['/api/media/audio-status/:filename', '/api/media/audio-status/*'], async (req, res) => {
   const relPath = req.params[0] || req.params.filename;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return res.status(404).json({ error: 'Media file not found' });
@@ -2014,7 +2105,7 @@ app.get(['/api/media/audio-status/:filename', '/api/media/audio-status/*'], asyn
 // Trigger One-Click Processing of All Audio Tracks
 app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], async (req, res) => {
   const relPath = req.params[0] || req.params.filename;
-  const filePath = getSafePath(relPath);
+  const filePath = resolveExistingMediaFile(relPath);
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return res.status(404).json({ error: 'Media file not found' });
@@ -2418,7 +2509,7 @@ io.on('connection', (socket) => {
     // Verify room media still exists before admitting user
     if (room.media?.url && room.media.url.startsWith('/api/media/stream/')) {
       const rawRel = decodeURIComponent(room.media.url.replace('/api/media/stream/', '').split('?')[0]);
-      const targetFile = getSafePath(rawRel);
+      const targetFile = resolveExistingMediaFile(rawRel);
       if (!fs.existsSync(targetFile)) {
         console.log(`⚠️ Room "${cleanRoomId}" active media missing on disk (${rawRel}). Falling back to idle.`);
         room.media = {
@@ -2841,6 +2932,20 @@ io.on('connection', (socket) => {
       username: u,
       timestamp: t
     });
+  });
+
+  // Realtime Live Profile Avatar Updates
+  socket.on('user:update_avatar', ({ avatar }) => {
+    if (currentUser) {
+      currentUser.avatar = avatar;
+    }
+    if (currentRoomId && rooms.has(currentRoomId)) {
+      const room = rooms.get(currentRoomId);
+      if (room.users[socket.id]) {
+        room.users[socket.id].avatar = avatar;
+        io.to(currentRoomId).emit('room:users', Object.values(room.users));
+      }
+    }
   });
 
   // Reaction Emoji Spam (popcorn, hearts, laugh, fire)

@@ -8,19 +8,30 @@ import React from 'react';
 
 export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', style = {}, showBorder = true }) {
   const cleanName = (name || '').trim().toLowerCase();
-  const cleanAvatar = (avatar || '').trim().toLowerCase();
+  const rawAvatar = (avatar || '').trim();
+  const cleanAvatar = rawAvatar.toLowerCase();
+
+  const isCustomImage = rawAvatar.startsWith('data:') ||
+    rawAvatar.startsWith('/api/avatars') ||
+    rawAvatar.startsWith('/') ||
+    rawAvatar.startsWith('http://') ||
+    rawAvatar.startsWith('https://');
 
   const isJotaro =
-    cleanAvatar === 'jotaro' ||
-    cleanAvatar === '👑' ||
-    cleanName.includes('het') ||
-    cleanName === 'jotaro';
+    !isCustomImage && (
+      cleanAvatar === 'jotaro' ||
+      cleanAvatar === '👑' ||
+      cleanName.includes('het') ||
+      cleanName === 'jotaro'
+    );
 
   const isJolyne =
-    cleanAvatar === 'jolyne' ||
-    cleanAvatar === '🌸' ||
-    cleanName.includes('ria') ||
-    cleanName === 'jolyne';
+    !isCustomImage && (
+      cleanAvatar === 'jolyne' ||
+      cleanAvatar === '🌸' ||
+      cleanName.includes('ria') ||
+      cleanName === 'jolyne'
+    );
 
   const s = typeof size === 'number' ? `${size}px` : size;
 
@@ -50,6 +61,18 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
       : 'radial-gradient(circle at 40% 30%, #4c1d95 0%, #3b0764 60%, #111827 100%)',
     ...style
   };
+
+  if (isCustomImage) {
+    return (
+      <div className={`jojo-avatar custom-user-avatar ${className}`} style={containerStyle} title={name}>
+        <img
+          src={rawAvatar}
+          alt={name}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }}
+        />
+      </div>
+    );
+  }
 
   if (isJotaro) {
     // Jotaro Kujo (Stardust Crusaders) - Iconic black cap with gold hand/star plate, high collar, gold chain, intense anime eyes

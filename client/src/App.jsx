@@ -8,6 +8,7 @@ import { MediaLibrary } from './components/MediaLibrary';
 import { MediaStudio } from './components/MediaStudio';
 import { DownloadsPage } from './components/DownloadsPage';
 import { AuthGate } from './components/AuthGate';
+import { AvatarUploadModal } from './components/AvatarUploadModal';
 import { io } from 'socket.io-client';
 import './styles/pink.css';
 
@@ -50,6 +51,34 @@ export default function App() {
   const [initialType, setInitialType] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [liveData, setLiveData] = useState(null);
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+
+  const handleAvatarUpdated = (newAvatar) => {
+    setCurrentUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, avatar: newAvatar };
+      localStorage.setItem('wt_user', JSON.stringify(updated));
+      localStorage.setItem('wt_avatar', newAvatar);
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    const socket = io({ path: '/api/v1/sync/' });
+    socket.on('user:avatar_changed', ({ username, avatar }) => {
+      setCurrentUser((prev) => {
+        if (!prev) return prev;
+        if (prev.name?.toLowerCase() === username?.toLowerCase()) {
+          const updated = { ...prev, avatar };
+          localStorage.setItem('wt_user', JSON.stringify(updated));
+          localStorage.setItem('wt_avatar', avatar);
+          return updated;
+        }
+        return prev;
+      });
+    });
+    return () => socket.disconnect();
+  }, []);
 
   // Sync browser back/forward buttons with active view
   useEffect(() => {
@@ -168,6 +197,7 @@ export default function App() {
         activeView={activeView}
         activeRoom={activeRoomId}
         onLogout={handleLogout}
+        onOpenAvatarModal={() => setAvatarModalOpen(true)}
       />
 
       {/* Secure HTTPS / Custom Domain Notice Banner */}
@@ -213,6 +243,7 @@ export default function App() {
             onNavigate={handleNavigate}
             onLaunchMedia={handleLaunchMedia}
             liveData={liveData}
+            onOpenAvatarModal={() => setAvatarModalOpen(true)}
           />
         </main>
       )}
@@ -258,8 +289,17 @@ export default function App() {
           initialType={initialType}
           onNavigate={handleNavigate}
           onConsumeInitialMedia={handleConsumeInitialMedia}
+          onOpenAvatarModal={() => setAvatarModalOpen(true)}
         />
       )}
+
+      {/* Custom Web-Ready Profile Picture Upload Modal */}
+      <AvatarUploadModal
+        isOpen={avatarModalOpen}
+        onClose={() => setAvatarModalOpen(false)}
+        currentUser={currentUser}
+        onAvatarUpdated={handleAvatarUpdated}
+      />
     </div>
   );
 }

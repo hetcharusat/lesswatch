@@ -11,7 +11,7 @@ import {
   ClayPopcorn
 } from './ClayIcons';
 
-export function HomeDashboard({ currentUser, onNavigate, onLaunchMedia, liveData: propLiveData }) {
+export function HomeDashboard({ currentUser, onNavigate, onLaunchMedia, liveData: propLiveData, onOpenAvatarModal }) {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [liveData, setLiveData] = useState(propLiveData || null);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
@@ -40,7 +40,22 @@ export function HomeDashboard({ currentUser, onNavigate, onLaunchMedia, liveData
       <div className="holographic-card" style={{ padding: '2rem 2.25rem', background: '#ffffff', border: '1.5px solid rgba(244, 114, 182, 0.35)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.85rem', borderRadius: '9999px', background: 'rgba(244,114,182,0.15)', border: '1.5px solid var(--border-pink)', marginBottom: '0.75rem' }}>
+            <div
+              onClick={onOpenAvatarModal}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.3rem 0.85rem',
+                borderRadius: '9999px',
+                background: 'rgba(244,114,182,0.15)',
+                border: '1.5px solid var(--border-pink)',
+                marginBottom: '0.75rem',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease'
+              }}
+              title="Click to customize profile picture"
+            >
               <UserAvatar user={currentUser} size={20} showBorder={true} />
               <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#be185d' }}>
                 {currentUser?.name || 'Friend'}

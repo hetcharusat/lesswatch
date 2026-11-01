@@ -24,7 +24,8 @@ export function ChatSidebar({
   onMarkSeen,
   isCollapsible = false,
   isCollapsed = false,
-  onToggleCollapse
+  onToggleCollapse,
+  onOpenAvatarModal
 }) {
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'users'
@@ -449,6 +450,25 @@ export function ChatSidebar({
                       </div>
                     </div>
                   </div>
+                  {isCurrent && onOpenAvatarModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenAvatarModal}
+                      style={{
+                        padding: '3px 10px',
+                        borderRadius: '9999px',
+                        background: 'rgba(236, 72, 153, 0.2)',
+                        border: '1px solid rgba(236, 72, 153, 0.45)',
+                        color: '#f472b6',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                      title="Change Profile Picture"
+                    >
+                      Change Photo
+                    </button>
+                  )}
                 </div>
               );
             })

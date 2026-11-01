@@ -115,7 +115,7 @@ function playAudioChirp(type = 'unmute') {
   } catch {}
 }
 
-export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia }) {
+export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia, onOpenAvatarModal }) {
   const [socket, setSocket] = useState(null);
   const [syncStatus, setSyncStatus] = useState('In Sync');
   const [isHost, setIsHost] = useState(false);
@@ -2965,11 +2965,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  const handleToggleSideChat = useCallback(() => {
+  const handleToggleSideChat = useCallback(async () => {
     if (isChitChatModeRef.current) {
-      setIsChatCollapsed((prev) => !prev);
+      if (isChatCollapsedRef.current) {
+        setIsChatCollapsed(false);
+        handleMarkChatSeen();
+      } else {
+        handleExitChitChat();
+      }
     } else {
-      setIsChatSidebarOpen((prev) => !prev);
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        try {
+          if (document.exitFullscreen) await document.exitFullscreen();
+          else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
+        } catch {}
+      }
+      handleEnterChitChat();
     }
   }, []);
 
@@ -4849,6 +4860,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             connectedUsers={connectedUsers}
             lastSeen={roomLastSeen}
             onMarkSeen={handleMarkChatSeen}
+            onOpenAvatarModal={onOpenAvatarModal}
           />
         </div>
       )}
@@ -4886,6 +4898,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           connectedUsers={connectedUsers}
           lastSeen={roomLastSeen}
           onMarkSeen={handleMarkChatSeen}
+          onOpenAvatarModal={onOpenAvatarModal}
         />
       )}
 
