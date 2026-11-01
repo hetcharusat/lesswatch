@@ -3480,8 +3480,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
 
+    const myName = (currentProfile?.name || currentProfile?.username || '').toLowerCase();
     const otherPeers = connectedUsers.filter(
-      (u) => (u.username || u.name || '').toLowerCase() !== (currentUser?.name || '').toLowerCase()
+      (u) => (u.username || u.name || '').toLowerCase() !== myName
     );
 
     const popover = (
@@ -4295,184 +4296,174 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
       {/* Glittering Pink Theater Control Deck (Bottom bar) */}
       <div className="theater-deck">
-        <div className="theater-deck-row" style={{ position: 'relative' }}>
-          {/* Main Force Sync Button */}
-          <button
-            onClick={handleForceSync}
-            className="btn-gold-shimmer"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              padding: '0.52rem 1.15rem',
-              fontSize: '0.84rem',
-              fontWeight: 800
-            }}
-            title="Snap both users to exact timestamp"
-          >
-            <ClaySparkle size={18} />
-            <span>Sync Both</span>
-          </button>
+        <div className="theater-deck-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Group 1: Media & Sync Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Main Force Sync Button */}
+            <button
+              onClick={handleForceSync}
+              className="btn-gold-shimmer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.48rem 1.05rem',
+                fontSize: '0.82rem',
+                fontWeight: 800
+              }}
+              title="Snap both users to exact timestamp"
+            >
+              <ClaySparkle size={17} />
+              <span>Sync Both</span>
+            </button>
 
-          {/* Choose / Change Media */}
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="btn-pink-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '0.52rem 1rem', fontSize: '0.82rem' }}
-          >
-            <ClayPopcorn size={18} />
-            <span>Change Media</span>
-          </button>
+            {/* Choose / Change Media */}
+            <button
+              onClick={() => setCreateModalOpen(true)}
+              className="btn-pink-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.92rem', fontSize: '0.80rem' }}
+            >
+              <ClayPopcorn size={16} />
+              <span>Change Media</span>
+            </button>
 
-          {/* Media Library */}
-          <button
-            onClick={openLibrary}
-            className="btn-pink-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '0.52rem 0.95rem', fontSize: '0.82rem' }}
-          >
-            <ClayFolder size={18} />
-            <span>Library</span>
-          </button>
+            {/* Media Library */}
+            <button
+              onClick={openLibrary}
+              className="btn-pink-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.90rem', fontSize: '0.80rem' }}
+            >
+              <ClayFolder size={16} />
+              <span>Library</span>
+            </button>
+          </div>
 
-          {/* Smart Voice / Microphone Button */}
-          <button
-            onClick={handleMicButtonClick}
-            className={`btn-pink-secondary ${isVoiceConnected && !isMuted ? 'active' : ''}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '0.52rem 0.95rem',
-              fontSize: '0.82rem',
-              fontWeight: 700,
-              borderRadius: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              background: !isVoiceConnected
-                ? 'rgba(244, 114, 182, 0.08)'
-                : isLocalSpeaking && !isMuted
-                  ? 'rgba(236, 72, 153, 0.35)'
-                  : isMuted
-                    ? 'rgba(239, 68, 68, 0.2)'
-                    : 'rgba(236, 72, 153, 0.2)',
-              borderColor: !isVoiceConnected
-                ? 'rgba(244, 114, 182, 0.25)'
-                : isLocalSpeaking && !isMuted
-                  ? 'var(--pink-primary)'
-                  : isMuted
-                    ? 'rgba(239, 68, 68, 0.5)'
-                    : 'var(--pink-primary)',
-              color: !isVoiceConnected
-                ? '#f472b6'
-                : isMuted
-                  ? '#fca5a5'
-                  : '#fff',
-              boxShadow: isLocalSpeaking && !isMuted
-                ? '0 0 16px rgba(236, 72, 153, 0.6)'
-                : (isVoiceConnected && !isMuted)
-                  ? '0 0 10px rgba(236, 72, 153, 0.3)'
-                  : undefined
-            }}
-            title={
-              !isVoiceConnected
-                ? "Turn Mic On (Press 'M')"
-                : isMuted
-                  ? "Microphone Muted - Click or Press 'M' to Speak (or hold 'V')"
-                  : "Microphone Live - Click or Press 'M' to Mute"
-            }
-          >
-            {!isVoiceConnected ? (
-              <>
-                <Mic size={14} color="#f472b6" />
-                <span>Mic Off (M)</span>
-              </>
-            ) : isMuted ? (
-              <>
-                <MicOff size={14} color="#ef4444" />
-                <span>Muted (M)</span>
-              </>
-            ) : (
-              <>
-                <Mic size={14} color="#ec4899" />
-                <span>{isLocalSpeaking ? 'Speaking' : 'Mic Live'}</span>
-              </>
-            )}
-          </button>
+          {/* Group 2: Unified Voice & Hardware Dock */}
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', border: '1px solid rgba(244, 114, 182, 0.22)', padding: '2px', backdropFilter: 'blur(12px)' }}>
+            <button
+              onClick={handleMicButtonClick}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.46rem 0.85rem',
+                fontSize: '0.80rem',
+                fontWeight: 700,
+                borderRadius: '10px',
+                cursor: 'pointer',
+                border: 'none',
+                background: !isVoiceConnected
+                  ? 'transparent'
+                  : isLocalSpeaking && !isMuted
+                    ? 'rgba(236, 72, 153, 0.35)'
+                    : isMuted
+                      ? 'rgba(239, 68, 68, 0.22)'
+                      : 'rgba(236, 72, 153, 0.2)',
+                color: !isVoiceConnected ? '#cbd5e1' : (isMuted ? '#fca5a5' : '#ffffff'),
+                transition: 'all 0.2s ease'
+              }}
+              title={!isVoiceConnected ? "Turn Mic On (Press 'M')" : (isMuted ? "Unmute Mic (M)" : "Mute Mic (M)")}
+            >
+              {!isVoiceConnected ? (
+                <>
+                  <Mic size={14} color="#f472b6" />
+                  <span>Mic Off</span>
+                </>
+              ) : isMuted ? (
+                <>
+                  <MicOff size={14} color="#ef4444" />
+                  <span>Muted</span>
+                </>
+              ) : (
+                <>
+                  <Mic size={14} color="#34d399" />
+                  <span>Live</span>
+                </>
+              )}
+            </button>
 
-          {/* Dedicated Mic Device Pill & Audio Settings */}
-          <button
-            onClick={() => {
-              setShowVoiceSettings((prev) => {
-                const next = !prev;
-                if (next) refreshMediaDevices();
-                return next;
-              });
-              setShowSubtitlePopover(false);
-              setShowAudioPopover(false);
-            }}
-            className={`btn-pink-secondary ${showVoiceSettings ? 'active' : ''}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '0.52rem 0.85rem',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              background: showVoiceSettings ? 'rgba(244, 114, 182, 0.25)' : undefined,
-              borderColor: showVoiceSettings ? 'var(--pink-primary)' : undefined,
-              maxWidth: '220px'
-            }}
-            title="Click to Choose / Switch Microphone (Audio Hardware & Bluetooth Quality)"
-          >
-            <Sliders size={13} color="var(--pink-primary)" />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
-            </span>
-            <ChevronDown size={12} color="var(--pink-primary)" />
-          </button>
+            <div style={{ width: '1px', height: '18px', background: 'rgba(255, 255, 255, 0.12)', margin: '0 2px' }} />
 
-          {/* Hidden File Input for External Subtitle Upload from Player Settings */}
-          <input
-            ref={subtitleFileInputRef}
-            type="file"
-            accept=".srt,.vtt,.ass"
-            style={{ display: 'none' }}
-            onChange={handleCustomSubtitleUpload}
-          />
-
-          {/* CHIT CHAT MODE TOGGLE BUTTON */}
-          <button
-            onClick={handleEnterChitChat}
-            className={isChitChatMode ? 'btn-pink-primary' : 'btn-pink-secondary'}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              padding: '0.52rem 1.05rem',
-              fontSize: '0.84rem',
-              position: 'relative'
-            }}
-            title="Toggle Chit Chat Split Screen (Video + Full Chat Sidebar)"
-          >
-            <ClayChat size={18} />
-            <span>Chit Chat Mode</span>
-            {unreadChatCount > 0 && (
-              <span className="clay-unread-badge" style={{ marginLeft: '4px' }}>
-                {unreadChatCount}
+            <button
+              onClick={() => {
+                setShowVoiceSettings((prev) => {
+                  const next = !prev;
+                  if (next) refreshMediaDevices();
+                  return next;
+                });
+                setShowSubtitlePopover(false);
+                setShowAudioPopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '0.46rem 0.75rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: '10px',
+                border: 'none',
+                background: showVoiceSettings ? 'rgba(244, 114, 182, 0.25)' : 'transparent',
+                color: '#fbcfe8',
+                cursor: 'pointer',
+                maxWidth: '180px',
+                transition: 'all 0.2s ease'
+              }}
+              title="Voice & Audio Settings"
+            >
+              <Sliders size={13} color="var(--pink-primary)" />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
               </span>
-            )}
-          </button>
+              <ChevronDown size={12} color="var(--pink-primary)" />
+            </button>
+          </div>
 
-          {/* SINGLE Theater Fullscreen Button (Clean & Aesthetic) */}
-          <button
-            onClick={toggleVideoFullscreen}
-            className="btn-pink-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.52rem 0.95rem', fontSize: '0.82rem' }}
-            title="Toggle Fullscreen (Shortcut: F)"
-          >
-            <Maximize size={14} color="var(--pink-primary)" />
-            <span>Fullscreen (F)</span>
-          </button>
+          {/* Group 3: Lounge Social & Viewport Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Hidden File Input for External Subtitle Upload from Player Settings */}
+            <input
+              ref={subtitleFileInputRef}
+              type="file"
+              accept=".srt,.vtt,.ass"
+              style={{ display: 'none' }}
+              onChange={handleCustomSubtitleUpload}
+            />
+
+            {/* CHIT CHAT MODE TOGGLE BUTTON */}
+            <button
+              onClick={handleEnterChitChat}
+              className={isChitChatMode ? 'btn-pink-primary' : 'btn-pink-secondary'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.48rem 0.95rem',
+                fontSize: '0.80rem',
+                position: 'relative'
+              }}
+              title="Toggle Chit Chat Split Screen (Video + Full Chat Sidebar)"
+            >
+              <ClayChat size={16} />
+              <span>Chit Chat Mode</span>
+              {unreadChatCount > 0 && (
+                <span className="clay-unread-badge" style={{ marginLeft: '4px' }}>
+                  {unreadChatCount}
+                </span>
+              )}
+            </button>
+
+            {/* SINGLE Theater Fullscreen Button (Clean & Aesthetic) */}
+            <button
+              onClick={toggleVideoFullscreen}
+              className="btn-pink-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.90rem', fontSize: '0.80rem' }}
+              title="Toggle Fullscreen (Shortcut: F)"
+            >
+              <Maximize size={14} color="var(--pink-primary)" />
+              <span>Fullscreen</span>
+            </button>
+          </div>
         </div>
 
         {/* Deck Bottom Status Bar - Voice Presence Only (Removed duplicate bottom title text) */}

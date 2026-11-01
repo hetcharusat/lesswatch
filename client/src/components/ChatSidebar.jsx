@@ -102,11 +102,11 @@ export function ChatSidebar({
         width: '100%',
         background: isDarkTheme ? '#0d0a14' : '#ffffff',
         borderRadius: '24px',
-        border: isDarkTheme ? '1.5px solid rgba(244, 114, 182, 0.22)' : '1.5px solid rgba(244, 114, 182, 0.35)',
-        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(244, 114, 182, 0.08)' : '0 12px 32px rgba(244, 114, 182, 0.16)',
+        border: 'none',
+        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.8)' : '0 12px 32px rgba(0, 0, 0, 0.08)',
         position: 'relative',
         overflow: 'hidden',
-        transition: 'background 0.25s ease, border-color 0.25s ease'
+        transition: 'background 0.25s ease'
       }}
     >
       {/* 1. Header Tabs: Chat, Users, Theme Mode Toggle & Noticeable Collapse Pill */}
@@ -116,45 +116,53 @@ export function ChatSidebar({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '10px 14px',
-          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1.5px solid rgba(244, 114, 182, 0.2)',
+          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.06)',
           background: isDarkTheme ? 'linear-gradient(180deg, #140f1f 0%, #0d0a14 100%)' : 'linear-gradient(180deg, #ffffff 0%, #fff7fb 100%)',
           gap: '8px'
         }}
       >
-        <div style={{ display: 'flex', gap: '6px', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(244, 114, 182, 0.12)', padding: '3px', borderRadius: '9999px' }}>
+        <div style={{ display: 'flex', gap: '5px', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)', padding: '3px', borderRadius: '9999px' }}>
           <button
             onClick={() => setActiveTab('chat')}
             style={{
-              padding: '5px 14px',
+              padding: '5px 13px',
               borderRadius: '9999px',
               background: activeTab === 'chat' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
-              color: activeTab === 'chat' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#78345c'),
+              color: activeTab === 'chat' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
               border: 'none',
               fontWeight: 800,
-              fontSize: '0.80rem',
+              fontSize: '0.78rem',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
               boxShadow: activeTab === 'chat' ? '0 2px 6px rgba(236, 72, 153, 0.4)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
-            Chat
+            <ClayChat size={13} />
+            <span>Chat</span>
           </button>
           <button
             onClick={() => setActiveTab('users')}
             style={{
-              padding: '5px 14px',
+              padding: '5px 13px',
               borderRadius: '9999px',
               background: activeTab === 'users' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
-              color: activeTab === 'users' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#78345c'),
+              color: activeTab === 'users' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
               border: 'none',
               fontWeight: 800,
-              fontSize: '0.80rem',
+              fontSize: '0.78rem',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
               boxShadow: activeTab === 'users' ? '0 2px 6px rgba(236, 72, 153, 0.4)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
-            Users ({connectedUsers.length || 1})
+            <Users size={13} />
+            <span>Users ({connectedUsers.length || 1})</span>
           </button>
         </div>
 
@@ -403,11 +411,11 @@ export function ChatSidebar({
           />
           <button
             type="button"
-            onClick={() => setInputText((prev) => prev + ' 🌸')}
+            onClick={() => setInputText((prev) => prev + ' ❤️')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-            title="Add emote"
+            title="Heart"
           >
-            <Smile size={17} color="var(--pink-primary)" />
+            <ClayHeart size={16} />
           </button>
         </div>
 

@@ -140,9 +140,28 @@ export function PoufPlayer({
     return { brightness: 100, contrast: 100, saturation: 100 };
   });
 
-  // Film Grain Effect ('off' | '35mm' | '16mm' | 'heavy')
-  const [filmGrain, setFilmGrain] = useState(() => {
-    return localStorage.getItem('wt_film_grain') || 'off';
+  // Live Film Grain Intensity (0% to 100%) and Texture Style ('35mm' | '16mm' | 'heavy')
+  const [filmGrainIntensity, setFilmGrainIntensity] = useState(() => {
+    const saved = localStorage.getItem('wt_grain_intensity');
+    if (saved !== null) return parseInt(saved, 10);
+    const legacy = localStorage.getItem('wt_film_grain');
+    return (legacy && legacy !== 'off') ? 45 : 0;
+  });
+  const [filmGrainPreset, setFilmGrainPreset] = useState(() => {
+    return localStorage.getItem('wt_grain_preset') || '35mm';
+  });
+
+  // Subtitle Background Styling (Opacity, Blur, Color)
+  const [subtitleBgOpacity, setSubtitleBgOpacity] = useState(() => {
+    const saved = localStorage.getItem('wt_sub_bg_opacity');
+    return saved !== null ? parseInt(saved, 10) : 55;
+  });
+  const [subtitleBgBlur, setSubtitleBgBlur] = useState(() => {
+    const saved = localStorage.getItem('wt_sub_bg_blur');
+    return saved !== null ? parseInt(saved, 10) : 6;
+  });
+  const [subtitleBgColor, setSubtitleBgColor] = useState(() => {
+    return localStorage.getItem('wt_sub_bg_color') || 'black'; // 'black' | 'pink' | 'purple' | 'charcoal'
   });
 
   // Audio Boost (100%, 125%, 150%, 200%)
@@ -1054,21 +1073,22 @@ export function PoufPlayer({
         }}
       />
 
-      {/* Film Grain Cinema Layer */}
-      {filmGrain !== 'off' && (
+      {/* Authentic Live Moving Film Grain Layer with Slider Control */}
+      {filmGrainIntensity > 0 && (
         <div
           style={{
             position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
+            top: '-20%',
+            left: '-20%',
+            width: '140%',
+            height: '140%',
             pointerEvents: 'none',
             zIndex: 8,
-            opacity: filmGrain === '35mm' ? 0.14 : (filmGrain === '16mm' ? 0.26 : 0.42),
+            opacity: (filmGrainIntensity / 100) * 0.42,
             mixBlendMode: 'overlay',
             backgroundRepeat: 'repeat',
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='${filmGrainPreset === 'heavy' ? '0.65' : (filmGrainPreset === '16mm' ? '0.80' : '0.95')}' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+            animation: 'liveFilmGrainShift 0.35s steps(3) infinite'
           }}
         />
       )}
@@ -1135,30 +1155,32 @@ export function PoufPlayer({
             <span>{viewerCount}</span>
           </div>
 
-          <button
-            onClick={() => {
-              setIsLocked(true);
-              setShowControls(false);
-              triggerLockHint();
-            }}
-            className="pouf-glass-btn"
-            style={{
-              width: '32px',
-              height: '32px',
-              color: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-            title="Lock Controls (L)"
-          >
-            <Lock size={14} />
-          </button>
+          {!isChitChatMode && (
+            <button
+              onClick={() => {
+                setIsLocked(true);
+                setShowControls(false);
+                triggerLockHint();
+              }}
+              className="pouf-glass-btn"
+              style={{
+                width: '32px',
+                height: '32px',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+              title="Lock Controls (L)"
+            >
+              <Lock size={14} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 4. Subtitle Display Layer with Special Pink Subtitle Mode */}
+      {/* 4. Subtitle Display Layer with Live Customization */}
       {currentCueText && (
         <div
           style={{
@@ -1173,32 +1195,37 @@ export function PoufPlayer({
             transition: 'bottom 0.15s ease'
           }}
         >
-          <span
-            style={{
-              display: 'inline-block',
-              color: subtitleColor || (subtitleStyle === 'pink' ? '#ff85c0' : '#ffffff'),
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-              fontSize: `${subtitleSize}px`,
-              fontWeight: 800,
-              lineHeight: 1.35,
-              padding: subtitleStyle === 'transparent' ? '4px 8px' : '6px 14px',
-              borderRadius: subtitleStyle === 'transparent' ? '0' : '10px',
-              background: subtitleStyle === 'pink'
-                ? 'rgba(35, 12, 28, 0.65)'
-                : (subtitleStyle === 'transparent' ? 'transparent' : (subtitleStyle === 'box' ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.45)')),
-              backdropFilter: (subtitleStyle === 'pink' || subtitleStyle === 'soft') ? 'blur(6px)' : 'none',
-              border: subtitleStyle === 'pink' ? '1px solid rgba(244, 114, 182, 0.4)' : 'none',
-              textShadow: subtitleStyle === 'pink'
-                ? '0 0 12px rgba(244, 114, 182, 0.9), 0 0 4px #ec4899, -1.5px -1.5px 0 #3b0724, 1.5px -1.5px 0 #3b0724, -1.5px 1.5px 0 #3b0724, 1.5px 1.5px 0 #3b0724'
-                : (subtitleStyle === 'transparent'
-                  ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
-                  : '0 1px 3px rgba(0,0,0,0.8)'),
-              whiteSpace: 'pre-wrap',
-              letterSpacing: '0.015em'
-            }}
-          >
-            {currentCueText}
-          </span>
+          {(() => {
+            const bgRgb = subtitleBgColor === 'pink' ? '45, 15, 36' : (subtitleBgColor === 'purple' ? '25, 14, 40' : (subtitleBgColor === 'charcoal' ? '28, 28, 35' : '0, 0, 0'));
+            const bgString = subtitleBgOpacity === 0 ? 'transparent' : `rgba(${bgRgb}, ${subtitleBgOpacity / 100})`;
+            const blurString = subtitleBgBlur > 0 && subtitleBgOpacity > 0 ? `blur(${subtitleBgBlur}px)` : 'none';
+
+            return (
+              <span
+                style={{
+                  display: 'inline-block',
+                  color: subtitleColor || '#ffffff',
+                  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                  fontSize: `${subtitleSize}px`,
+                  fontWeight: 800,
+                  lineHeight: 1.35,
+                  padding: subtitleBgOpacity === 0 ? '4px 8px' : '6px 14px',
+                  borderRadius: subtitleBgOpacity === 0 ? '0' : '10px',
+                  background: bgString,
+                  backdropFilter: blurString,
+                  WebkitBackdropFilter: blurString,
+                  border: subtitleBgColor === 'pink' && subtitleBgOpacity > 0 ? '1px solid rgba(244, 114, 182, 0.4)' : 'none',
+                  textShadow: subtitleBgOpacity < 40
+                    ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
+                    : '0 1px 3px rgba(0,0,0,0.8)',
+                  whiteSpace: 'pre-wrap',
+                  letterSpacing: '0.015em'
+                }}
+              >
+                {currentCueText}
+              </span>
+            );
+          })()}
         </div>
       )}
 
@@ -1708,37 +1735,124 @@ export function PoufPlayer({
                   className="pouf-yt-back-btn"
                 >
                   <ChevronLeft size={16} />
-                  <span>Subtitle Options</span>
+                  <span>Subtitle Customizer</span>
                 </button>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
-                  {/* Font Size */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', padding: '4px 2px', maxHeight: '310px', overflowY: 'auto' }}>
+                  {/* Font Size Slider */}
                   <div>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
-                      Font Size ({subtitleSize}px)
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      <span>Size</span>
+                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="14"
+                      max="48"
+                      step="1"
+                      value={subtitleSize}
+                      onChange={(e) => handleSizeChange(Number(e.target.value))}
+                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Position Height Slider */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      <span>Height from Bottom</span>
+                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBottom}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="16"
+                      max="240"
+                      step="4"
+                      value={subtitleBottom}
+                      onChange={(e) => handleBottomChange(Number(e.target.value))}
+                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Background Opacity Slider */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      <span>Background Opacity</span>
+                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgOpacity}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={subtitleBgOpacity}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setSubtitleBgOpacity(val);
+                        localStorage.setItem('wt_sub_bg_opacity', val);
+                      }}
+                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Background Blur Slider */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      <span>Background Blur</span>
+                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgBlur}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="20"
+                      step="1"
+                      value={subtitleBgBlur}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setSubtitleBgBlur(val);
+                        localStorage.setItem('wt_sub_bg_blur', val);
+                      }}
+                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Background Color Swatches */}
+                  <div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
+                      Background Color
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
                       {[
-                        { label: 'S', val: 18 },
-                        { label: 'M', val: 24 },
-                        { label: 'L', val: 32 },
-                        { label: 'XL', val: 40 }
-                      ].map((sz) => (
+                        { id: 'black', label: 'Black', bg: '#000000' },
+                        { id: 'charcoal', label: 'Charcoal', bg: '#1c1c23' },
+                        { id: 'pink', label: 'Pink', bg: '#2d0f24' },
+                        { id: 'purple', label: 'Purple', bg: '#190e28' }
+                      ].map((bg) => (
                         <button
-                          key={sz.val}
-                          onClick={() => handleSizeChange(sz.val)}
-                          className={`pouf-dock-pill-btn ${subtitleSize === sz.val ? 'active' : ''}`}
-                          style={{ padding: '3px 0', justifyContent: 'center', fontSize: '0.70rem' }}
+                          key={bg.id}
+                          onClick={() => {
+                            setSubtitleBgColor(bg.id);
+                            localStorage.setItem('wt_sub_bg_color', bg.id);
+                          }}
+                          style={{
+                            padding: '4px 0',
+                            borderRadius: '6px',
+                            background: bg.bg,
+                            border: subtitleBgColor === bg.id ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255,255,255,0.12)',
+                            color: '#fff',
+                            fontSize: '0.66rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
                         >
-                          {sz.label}
+                          {bg.label}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Subtitle Color Swatches */}
+                  {/* Subtitle Text Color Swatches */}
                   <div>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
                       Text Color
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -1746,7 +1860,8 @@ export function PoufPlayer({
                         { color: '#ffffff', label: 'White' },
                         { color: '#fde047', label: 'Yellow' },
                         { color: '#38bdf8', label: 'Cyan' },
-                        { color: '#f472b6', label: 'Pink' }
+                        { color: '#f472b6', label: 'Pink' },
+                        { color: '#34d399', label: 'Mint' }
                       ].map((c) => (
                         <button
                           key={c.color}
@@ -1756,7 +1871,7 @@ export function PoufPlayer({
                           }}
                           style={{
                             flex: 1,
-                            height: '24px',
+                            height: '22px',
                             borderRadius: '6px',
                             background: c.color,
                             border: subtitleColor === c.color ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)',
@@ -1769,32 +1884,9 @@ export function PoufPlayer({
                     </div>
                   </div>
 
-                  {/* Position */}
-                  <div>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
-                      Position
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                      {[
-                        { label: 'Bottom', val: 36 },
-                        { label: 'Raised', val: 80 },
-                        { label: 'High', val: 140 }
-                      ].map((p) => (
-                        <button
-                          key={p.val}
-                          onClick={() => handleBottomChange(p.val)}
-                          className={`pouf-dock-pill-btn ${subtitleBottom === p.val ? 'active' : ''}`}
-                          style={{ padding: '3px 0', justifyContent: 'center', fontSize: '0.68rem' }}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Delay Offset */}
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
                       <span>Sync Delay</span>
                       <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>
                         {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
@@ -2171,32 +2263,62 @@ export function PoufPlayer({
                   })}
                 </div>
 
-                {/* Film Grain Presets */}
-                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 8px 6px 8px' }}>
-                    Film Grain Texture
+                {/* Live Film Grain Controls */}
+                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Live Film Grain
+                    </span>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: filmGrainIntensity > 0 ? '#34d399' : '#9ca3af', fontFamily: 'monospace' }}>
+                      {filmGrainIntensity === 0 ? 'Off (0%)' : `${filmGrainIntensity}%`}
+                    </span>
                   </div>
-                  {[
-                    { id: 'off', label: 'Grain Off' },
-                    { id: '35mm', label: '35mm Fine Cinema Grain' },
-                    { id: '16mm', label: '16mm Indie Grain' },
-                    { id: 'heavy', label: 'Vintage Heavy Grit' }
-                  ].map((g) => {
-                    const isActive = filmGrain === g.id;
-                    return (
-                      <div
-                        key={g.id}
-                        onClick={() => {
-                          setFilmGrain(g.id);
-                          localStorage.setItem('wt_film_grain', g.id);
-                        }}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span>{g.label}</span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                      </div>
-                    );
-                  })}
+
+                  {/* Live Grain Slider */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={filmGrainIntensity}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setFilmGrainIntensity(val);
+                        localStorage.setItem('wt_grain_intensity', val);
+                      }}
+                      style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Grain Grain Texture Styles */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                    {[
+                      { id: '35mm', label: '35mm Fine' },
+                      { id: '16mm', label: '16mm Indie' },
+                      { id: 'heavy', label: 'Vintage Grit' }
+                    ].map((g) => {
+                      const isActive = filmGrainPreset === g.id && filmGrainIntensity > 0;
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => {
+                            setFilmGrainPreset(g.id);
+                            localStorage.setItem('wt_grain_preset', g.id);
+                            if (filmGrainIntensity === 0) {
+                              setFilmGrainIntensity(40);
+                              localStorage.setItem('wt_grain_intensity', 40);
+                            }
+                          }}
+                          className={`pouf-dock-pill-btn ${isActive ? 'active' : ''}`}
+                          style={{ padding: '4px 0', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700 }}
+                        >
+                          {g.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}
