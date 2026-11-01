@@ -168,7 +168,6 @@ export default function App() {
         activeView={activeView}
         activeRoom={activeRoomId}
         onLogout={handleLogout}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
 
       {/* Secure HTTPS / Custom Domain Notice Banner */}
@@ -205,17 +204,6 @@ export default function App() {
           </a>
         </div>
       )}
-
-      {/* Side Menu Drawer */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        activeView={activeView}
-        onNavigate={handleNavigate}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        liveData={liveData}
-      />
 
       {/* Home Dashboard */}
       {activeView === 'home' && (

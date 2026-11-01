@@ -1790,15 +1790,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         });
       }
 
-      // In-video floating chat pills (for non-system user messages)
-      if (!msg.isSystem && msg.sender !== 'System' && msg.text) {
+      // In-video floating chat pills (for non-system user messages, supports text and GIFs)
+      if (!msg.isSystem && msg.sender !== 'System' && (msg.text || msg.image)) {
         const messageId = msg.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const item = { ...msg, id: messageId, fading: false };
         setRecentMessages((prev) => [...prev.slice(-3), item]);
 
         const charCount = (msg.text || '').length;
-        // Dynamic reading delay: short messages fade promptly, longer sentences stay long enough to read
-        const fadeDelay = Math.min(12000, Math.max(2200, 1800 + (charCount * 95)));
+        // Dynamic reading delay: GIFs stay visible longer for reaction appreciation
+        const fadeDelay = msg.image ? 6500 : Math.min(12000, Math.max(2600, 2000 + (charCount * 95)));
         const removeDelay = fadeDelay + 600;
 
         setTimeout(() => {
@@ -2955,6 +2955,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
+  const handleToggleSideChat = useCallback(() => {
+    if (isChitChatModeRef.current) {
+      setIsChatCollapsed((prev) => !prev);
+    } else {
+      setIsChatSidebarOpen((prev) => !prev);
+    }
+  }, []);
+
   useEffect(() => {
     function handleGlobalKeyDown(e) {
       const activeEl = document.activeElement;
@@ -2962,16 +2970,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable
       );
 
-      if (isInInput) {
-        resetChatInactivityTimer();
-        if (e.key === 'Escape') {
+      // ESCAPE key logic: closes modals, GIF picker, floating chat, or exits chitchat FIRST before browser exits fullscreen!
+      if (e.key === 'Escape') {
+        if (showFloatingGiphy) {
           e.preventDefault();
+          e.stopPropagation();
+          setShowFloatingGiphy(false);
+          return;
+        }
+        if (chatOpen) {
+          e.preventDefault();
+          e.stopPropagation();
           setChatOpen(false);
           setChatInputText('');
+          if (activeEl && isInInput) activeEl.blur();
+          return;
+        }
+        if (showAudioPopover || showSubtitlePopover || showVoiceSettings) {
+          e.preventDefault();
+          e.stopPropagation();
           setShowAudioPopover(false);
           setShowSubtitlePopover(false);
-          activeEl.blur();
+          setShowVoiceSettings(false);
+          return;
         }
+        if (isChitChatModeRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleExitChitChat();
+          return;
+        }
+      }
+
+      if (isInInput) {
+        resetChatInactivityTimer();
+        return;
+      }
+
+      // 'c' or 'C' toggles sidechat (c to open, c to close)
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        handleToggleSideChat();
         return;
       }
 
@@ -3005,8 +3044,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setChatOpen(true);
           resetChatInactivityTimer();
           setTimeout(() => {
-            if (chatInputRef.current) chatInputRef.current.focus();
-          }, 40);
+            if (chatInputRef.current) {
+              chatInputRef.current.focus();
+            }
+          }, 30);
         }
         return;
       }
@@ -3017,7 +3058,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       window.removeEventListener('keydown', handleGlobalKeyDown);
       if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     };
-  }, [activePlayerType]);
+  }, [activePlayerType, handleToggleSideChat, showFloatingGiphy, chatOpen, showAudioPopover, showSubtitlePopover, showVoiceSettings]);
 
   function handleSendChat(e, gifUrl = null) {
     if (e && e.preventDefault) e.preventDefault();
@@ -3141,7 +3182,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
         {/* Floating In-Video GIPHY Picker popup */}
         {showFloatingGiphy && chatOpen && (
-          <div style={{ width: '280px', marginBottom: '8px' }}>
+          <div style={{ width: '310px', marginBottom: '8px' }}>
             <GiphyPicker
               onSelectGif={(gifUrl) => handleSendChat(null, gifUrl)}
               onClose={() => setShowFloatingGiphy(false)}
@@ -4423,6 +4464,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             isHost={isHost}
             canControl={true}
             isChitChatMode={isChitChatMode}
+            onToggleChat={handleToggleSideChat}
+            onEnterChat={() => {
+              const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
+              if (!isSidebarActive) {
+                setChatOpen(true);
+                resetChatInactivityTimer();
+                setTimeout(() => {
+                  if (chatInputRef.current) chatInputRef.current.focus();
+                }, 30);
+              }
+            }}
           />
         </div>
         )}

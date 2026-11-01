@@ -81,6 +81,7 @@ export function PoufPlayer({
   onSeek,
   onForceSyncAll,
   onToggleChat,
+  onEnterChat,
   viewerCount = 1,
   isHost = false,
   canControl = true,
@@ -995,6 +996,26 @@ export function PoufPlayer({
         return;
       }
 
+      // Escape closes player popover menus first
+      if (e.key === 'Escape') {
+        if (showSubMenu || showSettingsMenu) {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowSubMenu(false);
+          setShowSettingsMenu(false);
+          return;
+        }
+      }
+
+      // Enter triggers floating quick chat if available
+      if (e.key === 'Enter') {
+        if (onEnterChat) {
+          e.preventDefault();
+          onEnterChat();
+          return;
+        }
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlayPause();
@@ -1012,7 +1033,7 @@ export function PoufPlayer({
         setIsMuted(prev => !prev);
       } else if (e.key === 'c' || e.key === 'C') {
         e.preventDefault();
-        handleToggleCC();
+        onToggleChat?.();
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         handleTogglePiP();
@@ -1570,7 +1591,7 @@ export function PoufPlayer({
                 setShowSettingsMenu(false);
               }}
               className={showSubMenu ? 'pouf-dock-pill-btn active' : 'pouf-dock-pill-btn'}
-              title="Subtitles (CC)"
+              title="Subtitles"
             >
               <ClaySubtitles size={14} />
               <span>Subs</span>

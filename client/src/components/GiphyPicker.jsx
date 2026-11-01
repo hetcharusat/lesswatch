@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Loader2, Sparkles } from 'lucide-react';
+import { Search, X, Loader2 } from 'lucide-react';
 
 const GIPHY_API_KEY = 'OfSdj93n17Z8eODuSQMenefVnOput8Wi';
 
@@ -29,8 +29,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
     setIsLoading(true);
     try {
       const endpoint = query.trim()
-        ? `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query.trim())}&limit=28&rating=g`
-        : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=28&rating=g`;
+        ? `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query.trim())}&limit=30&rating=g`
+        : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=30&rating=g`;
 
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -43,12 +43,10 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
     }
   };
 
-  // Initial load
   useEffect(() => {
     fetchGifs();
   }, []);
 
-  // Handle typing search with debounce
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchTerm(val);
@@ -57,10 +55,9 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       fetchGifs(val);
-    }, 380);
+    }, 350);
   };
 
-  // Handle Tag click
   const handleTagClick = (tag) => {
     setActiveTag(tag);
     setSearchTerm('');
@@ -77,27 +74,29 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
       onClick={(e) => e.stopPropagation()}
       style={{
         width: '100%',
-        maxHeight: '360px',
+        height: '340px',
+        maxHeight: '340px',
         display: 'flex',
         flexDirection: 'column',
-        background: isDarkTheme ? 'rgba(18, 12, 26, 0.98)' : '#ffffff',
-        border: isDarkTheme ? '1.5px solid rgba(244, 114, 182, 0.35)' : '1px solid rgba(244, 114, 182, 0.3)',
+        background: isDarkTheme ? 'rgba(14, 10, 20, 0.98)' : '#ffffff',
+        border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
         borderRadius: '16px',
-        boxShadow: isDarkTheme ? '0 12px 36px rgba(0, 0, 0, 0.7), 0 0 20px rgba(236, 72, 153, 0.25)' : '0 12px 30px rgba(0, 0, 0, 0.1)',
-        backdropFilter: 'blur(20px)',
+        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.85)' : '0 12px 32px rgba(0, 0, 0, 0.12)',
+        backdropFilter: 'blur(24px)',
         overflow: 'hidden',
-        zIndex: 100,
-        animation: 'poufPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both'
+        zIndex: 120,
+        boxSizing: 'border-box'
       }}
     >
-      {/* Header with Search and Close */}
+      {/* Search Bar & Close */}
       <div
         style={{
-          padding: '10px 12px 8px 12px',
+          padding: '10px 12px 6px 12px',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)'
+          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)',
+          flexShrink: 0
         }}
       >
         <div
@@ -108,7 +107,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
             gap: '6px',
             background: isDarkTheme ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.04)',
             borderRadius: '9999px',
-            padding: '5px 12px',
+            padding: '6px 12px',
             border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.08)'
           }}
         >
@@ -131,6 +130,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
           />
           {searchTerm && (
             <button
+              type="button"
               onClick={() => {
                 setSearchTerm('');
                 fetchGifs('');
@@ -145,6 +145,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
 
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
@@ -157,7 +158,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
               justifyContent: 'center',
               cursor: 'pointer',
               color: isDarkTheme ? '#e2e8f0' : '#475569',
-              transition: 'background 0.15s ease'
+              transition: 'background 0.15s ease',
+              flexShrink: 0
             }}
             title="Close GIF Picker"
           >
@@ -175,7 +177,8 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
           overflowX: 'auto',
           scrollbarWidth: 'none',
           whiteSpace: 'nowrap',
-          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.04)'
+          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.04)',
+          flexShrink: 0
         }}
       >
         {QUICK_TAGS.map((tag) => {
@@ -183,6 +186,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
           return (
             <button
               key={tag}
+              type="button"
               onClick={() => handleTagClick(tag)}
               style={{
                 background: isActive
@@ -205,7 +209,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
         })}
       </div>
 
-      {/* GIFs Grid */}
+      {/* GIFs Grid with Fixed Row Track Height to prevent CSS grid overlap */}
       <div
         style={{
           flex: 1,
@@ -213,8 +217,9 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
           padding: '8px 10px',
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '6px',
-          minHeight: '180px'
+          gridAutoRows: '115px',
+          gap: '8px',
+          minHeight: '140px'
         }}
       >
         {isLoading ? (
@@ -257,21 +262,27 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
                 onClick={() => onSelectGif(fullUrl, g.title)}
                 style={{
                   position: 'relative',
+                  width: '100%',
+                  height: '115px',
+                  maxHeight: '115px',
                   borderRadius: '10px',
                   overflow: 'hidden',
                   cursor: 'pointer',
-                  aspectRatio: '16/10',
                   background: isDarkTheme ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                  boxSizing: 'border-box',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'scale(1.03)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(236, 72, 153, 0.4)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(236, 72, 153, 0.45)';
+                  e.currentTarget.style.borderColor = 'rgba(236, 72, 153, 0.6)';
                   e.currentTarget.style.zIndex = '5';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'scale(1)';
                   e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
                   e.currentTarget.style.zIndex = '1';
                 }}
               >
@@ -296,11 +307,12 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
       <div
         style={{
           padding: '4px 10px',
-          background: isDarkTheme ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.02)',
+          background: isDarkTheme ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.02)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          borderTop: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.04)' : '1px solid rgba(0, 0, 0, 0.04)'
+          borderTop: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.04)' : '1px solid rgba(0, 0, 0, 0.04)',
+          flexShrink: 0
         }}
       >
         <span style={{ fontSize: '0.60rem', color: '#9ca3af', fontWeight: 600, letterSpacing: '0.04em' }}>

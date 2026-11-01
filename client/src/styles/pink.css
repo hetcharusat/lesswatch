@@ -422,16 +422,7 @@ body {
 }
 
 .holographic-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #ff85c8, #fef08a, #f43f5e, #c084fc, #ff65b2);
-  background-size: 200% 200%;
-  animation: holoShift 4s ease infinite;
-  z-index: 2;
+  display: none !important;
 }
 
 .holographic-card:hover {
@@ -546,14 +537,7 @@ body {
 }
 
 .pink-modal-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #fbcfe8, #fef08a, #d8b4fe, #fbbf24, #f472b6);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  display: none !important;
 }
 
 /* ------------------------------------------------------------- */
@@ -628,7 +612,9 @@ body {
 
 /* Remove glitter/pink accent line to prevent border artifacts */
 .chat-sidebar-drawer::before,
-.chat-sidebar-drawer::after {
+.chat-sidebar-drawer::after,
+.theater-chat-sidebar-container::before,
+.theater-chat-sidebar-container::after {
   display: none !important;
   content: none !important;
 }

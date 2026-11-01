@@ -1,38 +1,18 @@
 import React from 'react';
-import { Menu, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { UserAvatar } from './JojoAvatar';
 import { PinkPopcornLogo } from './PinkPopcornLogo';
 import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClaySparkle } from './ClayIcons';
 
-export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout, onToggleSidebar }) {
+export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout }) {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
   const isRoomView = activeView === 'room';
 
   return (
     <header className={`pink-navbar ${isRoomView ? 'theater-navbar-cinema' : ''}`}>
-      {/* Brand & Drawer Toggle (Hidden in theater room to eliminate clutter and blend with player) */}
+      {/* Brand (Hidden in theater room to blend seamlessly with player) */}
       {!isRoomView && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <button
-            onClick={onToggleSidebar}
-            className="pink-btn-icon"
-            title="Open Menu Drawer"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1.5px solid var(--border-pink)',
-              borderRadius: '12px',
-              width: '38px',
-              height: '38px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              boxShadow: '0 2px 6px rgba(244,114,182,0.15)'
-            }}
-          >
-            <Menu size={18} color="var(--pink-primary)" />
-          </button>
-
           <a
             href="#"
             onClick={(e) => {

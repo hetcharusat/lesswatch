@@ -141,7 +141,7 @@ export function ChatSidebar({
           justifyContent: 'space-between',
           padding: '10px 14px',
           borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.06)',
-          background: isDarkTheme ? 'linear-gradient(180deg, #140f1f 0%, #0d0a14 100%)' : 'linear-gradient(180deg, #ffffff 0%, #fff7fb 100%)',
+          background: isDarkTheme ? '#120d1c' : '#ffffff',
           gap: '8px'
         }}
       >
@@ -456,9 +456,17 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* 4. GIPHY Picker Popover */}
+      {/* 4. GIPHY Picker Floating Popover */}
       {showGiphy && (
-        <div style={{ padding: '0 12px 6px 12px' }}>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '72px',
+            left: '10px',
+            right: '10px',
+            zIndex: 150
+          }}
+        >
           <GiphyPicker
             onSelectGif={handleSelectGif}
             onClose={() => setShowGiphy(false)}
@@ -467,18 +475,22 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* 5. Extended Emoji Picker Popover */}
+      {/* 5. Extended Emoji Picker Floating Popover */}
       {showEmojiPicker && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
-            margin: '0 12px 6px 12px',
+            position: 'absolute',
+            bottom: '72px',
+            left: '10px',
+            right: '10px',
             padding: '10px',
-            background: isDarkTheme ? 'rgba(18, 12, 26, 0.98)' : '#ffffff',
-            border: isDarkTheme ? '1.5px solid rgba(244, 114, 182, 0.35)' : '1px solid rgba(244, 114, 182, 0.3)',
+            background: isDarkTheme ? 'rgba(16, 12, 22, 0.98)' : '#ffffff',
+            border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.14)' : '1px solid rgba(0, 0, 0, 0.1)',
             borderRadius: '16px',
-            boxShadow: isDarkTheme ? '0 12px 36px rgba(0, 0, 0, 0.7), 0 0 20px rgba(236, 72, 153, 0.25)' : '0 12px 30px rgba(0, 0, 0, 0.1)',
+            boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.85)' : '0 12px 32px rgba(0, 0, 0, 0.12)',
             backdropFilter: 'blur(20px)',
+            zIndex: 150,
             animation: 'poufPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both'
           }}
         >
