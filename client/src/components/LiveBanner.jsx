@@ -75,7 +75,7 @@ export function LiveBanner({ onJoinRoom }) {
             {liveData.activeTitle || 'Movie Watch Party'}
           </h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--pink-blush)' }}>
-            {liveData.watchers.map((w) => `${w.avatar === 'jotaro' ? '★' : w.avatar === 'jolyne' ? '🦋' : (w.avatar || '🌸')} ${w.name}`).join(', ')} currently watching in room "{liveData.activeRoom}"
+            {liveData.watchers.map((w) => w.name).join(', ')} currently watching in room "{liveData.activeRoom}"
           </p>
         </div>
       </div>

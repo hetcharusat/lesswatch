@@ -31,7 +31,7 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het' || currentUser?.name?.toLowerCase() === 'riaa';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het' || currentUser?.name?.toLowerCase() === 'ria' || currentUser?.name?.toLowerCase() === 'riaa';
 
   // 1. Fetch library media files & active transcode jobs
   const fetchStudioData = useCallback(async () => {
@@ -300,7 +300,7 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
             </span>
           </div>
           <p style={{ margin: 0, fontSize: '0.82rem', color: '#78345c', lineHeight: 1.4 }}>
-            Direct download of official Microsoft HEVC Extension for Riaa’s laptop. Double-click to install on Windows, restart Chrome, and enjoy native hardware HEVC playback!
+            Direct download of official Microsoft HEVC Extension for Ria’s laptop. Double-click to install on Windows, restart Chrome, and enjoy native hardware HEVC playback!
           </p>
         </div>
         <a

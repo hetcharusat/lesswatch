@@ -6,7 +6,7 @@ import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
-  RotateCcw, Power
+  RotateCcw, Power, Sliders, ChevronDown, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward
 } from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';
@@ -109,7 +109,7 @@ function playAudioChirp(type = 'unmute') {
 
 export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia }) {
   const [socket, setSocket] = useState(null);
-  const [syncStatus, setSyncStatus] = useState('In Sync ✨');
+  const [syncStatus, setSyncStatus] = useState('In Sync');
   const [isHost, setIsHost] = useState(false);
   const [connectedUsers, setConnectedUsers] = useState([]);
   const connectedUsersRef = useRef([]);
@@ -210,6 +210,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [selectedAudioOutput, setSelectedAudioOutput] = useState(() => localStorage.getItem('wt_pref_sink') || '');
   const [studioAudioMode, setStudioAudioMode] = useState(() => localStorage.getItem('wt_studio_mode') !== 'false');
   const [noiseSuppression, setNoiseSuppression] = useState(() => localStorage.getItem('wt_noise_supp') === 'true');
+  const [noiseIntensity, setNoiseIntensity] = useState(() => {
+    const saved = localStorage.getItem('wt_noise_intensity');
+    return saved !== null ? parseInt(saved, 10) : 40;
+  });
+  const [micLevel, setMicLevel] = useState(0);
+  const [isNoiseGateOpen, setIsNoiseGateOpen] = useState(false);
+  const noiseIntensityRef = useRef(noiseIntensity);
+  const rawHardwareStreamRef = useRef(null);
+  const audioNodesRef = useRef(null);
 
   // WebRTC Hardware Refs (Native WebRTC Mesh + Anti-Bluetooth Degradation Guard)
   const socketRef = useRef(null);
@@ -299,8 +308,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   // Toast & Autoplay prompt
   const [isToastActive, setIsToastActive] = useState(false);
-  const [toastContent, setToastContent] = useState({ text: '', icon: '✨' });
+  const [toastContent, setToastContent] = useState({ text: '', icon: null });
   const [needsUserClickToPlay, setNeedsUserClickToPlay] = useState(false);
+  const [needsVoiceAudioUnlock, setNeedsVoiceAudioUnlock] = useState(false);
 
   // In-Video Floating Chat Overlay (auto-fades with smooth transition)
   const [artPlayerDomEl, setArtPlayerDomEl] = useState(null);
@@ -342,8 +352,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }, duration);
   }
 
-  function showToast(text, icon = '✨') {
-    setToastContent({ text, icon });
+  function showToast(text, icon = null) {
+    const resolvedIcon = icon || <Sparkles size={15} color="var(--pink-primary)" />;
+    setToastContent({ text, icon: resolvedIcon });
     setIsToastActive(true);
     setTimeout(() => setIsToastActive(false), 2400);
   }
@@ -383,29 +394,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       setAudioInputDevices(aInputs);
       setAudioOutputDevices(aOutputs);
 
-      // Smart Anti-Bluetooth Profile Guard:
-      // If user is wearing Bluetooth headphones, selecting the Bluetooth headset mic commands
-      // Windows to switch to low-bitrate 8kHz telephone mode!
-      // By prioritizing the Laptop/Built-in/USB mic, Windows keeps Bluetooth in full 48kHz A2DP Stereo!
+      // Microphone Selection:
+      // Respect saved preference if present. Otherwise default to user's primary/first device.
+      // NEVER force or lock the laptop mic — user has full freedom to select ANY mic!
       const savedInput = localStorage.getItem('wt_pref_mic');
       if (savedInput && aInputs.some((d) => d.deviceId === savedInput)) {
         setSelectedAudioInput(savedInput);
       } else if (aInputs.length > 0) {
-        const btKeywords = ['bluetooth', 'hands-free', 'handsfree', 'headset', 'airpods', 'buds', 'wh-', 'wf-', 'tune', 'wireless', 'bbt', 'freebuds', 'earphone'];
-        const nonBtMics = aInputs.filter((d) => {
-          const l = (d.label || '').toLowerCase();
-          return !btKeywords.some((k) => l.includes(k)) && l.length > 0;
-        });
-
-        const safeMic = nonBtMics.length > 0
-          ? (nonBtMics.find((d) => {
-              const l = d.label.toLowerCase();
-              return l.includes('array') || l.includes('realtek') || l.includes('internal') || l.includes('integrated') || l.includes('built-in');
-            }) || nonBtMics[0])
-          : aInputs[0];
-
-        setSelectedAudioInput(safeMic.deviceId);
-        localStorage.setItem('wt_pref_mic', safeMic.deviceId);
+        setSelectedAudioInput(aInputs[0].deviceId);
       }
 
       if (!selectedAudioOutput && aOutputs.length > 0) {
@@ -444,11 +440,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       };
     }
 
-    return await navigator.mediaDevices.getUserMedia(constraints);
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      if (isMobile) {
+        console.warn('High-spec mobile constraints failed, using basic audio fallback:', err);
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      }
+      throw err;
+    }
   }
 
-  // Lightweight Web Audio Analyser for Speaking Detection
-  function setupAudioAnalyser(stream) {
+  // Web Audio Noise Gate & DSP Filter Pipeline
+  function setupAudioProcessing(rawStream) {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
     try {
       if (audioAnalyserIntervalRef.current) {
         clearInterval(audioAnalyserIntervalRef.current);
@@ -458,20 +464,103 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         audioContextRef.current.close().catch(() => {});
         audioContextRef.current = null;
       }
+      audioNodesRef.current = null;
 
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return;
+      if (!AudioContextClass) return rawStream;
+
       const ctx = new AudioContextClass();
       audioContextRef.current = ctx;
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
 
-      const source = ctx.createMediaStreamSource(stream);
+      const source = ctx.createMediaStreamSource(rawStream);
+
+      // On mobile devices (iOS Safari and Android):
+      // Mobile OS hardware chips handle echo cancellation & noise suppression.
+      // Passing through createMediaStreamDestination() triggers WebKit bug #216460 (silence on WebRTC).
+      // We connect the analyser purely for UI VU-meter & speaking state, and stream rawStream directly!
+      if (isMobile) {
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.25;
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let speakingTicks = 0;
+
+        audioAnalyserIntervalRef.current = setInterval(() => {
+          if (!isVoiceConnectedRef.current || !localAudioTrackRef.current || isMutedRef.current) {
+            if (isLocalSpeakingRef.current) {
+              isLocalSpeakingRef.current = false;
+              setIsLocalSpeaking(false);
+              socketRef.current?.emit('voice:speaking', { isSpeaking: false });
+            }
+            setMicLevel(0);
+            setIsNoiseGateOpen(false);
+            return;
+          }
+
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const levelPct = Math.min(100, Math.round((avg / 120) * 100));
+          setMicLevel(levelPct);
+          setIsNoiseGateOpen(levelPct > 8);
+
+          const isSpeakingNow = avg > 14;
+          if (isSpeakingNow) {
+            speakingTicks = Math.min(speakingTicks + 1, 6);
+          } else {
+            speakingTicks = Math.max(speakingTicks - 1, 0);
+          }
+
+          const active = speakingTicks >= 2;
+          if (active !== isLocalSpeakingRef.current) {
+            isLocalSpeakingRef.current = active;
+            setIsLocalSpeaking(active);
+            socketRef.current?.emit('voice:speaking', { isSpeaking: active });
+          }
+        }, 60);
+
+        return rawStream;
+      }
+
+      // Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 90Hz)
+      const highpass = ctx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = 90;
+
+      // Gentle high cut (Removes harsh RF hiss and sharp sibilance above 8.5kHz)
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 8500;
+
+      // Dynamic Noise Gate Gain Node
+      const gateGain = ctx.createGain();
+      gateGain.gain.value = 1.0;
+
+      // Create destination for WebRTC output
+      const destination = ctx.createMediaStreamDestination();
+
+      source.connect(highpass);
+      highpass.connect(lowpass);
+      lowpass.connect(gateGain);
+      gateGain.connect(destination);
+
+      // Analyser connected to filtered audio for speaking & level detection
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
-      source.connect(analyser);
+      analyser.smoothingTimeConstant = 0.25;
+      highpass.connect(analyser);
+
+      audioNodesRef.current = { source, highpass, lowpass, gateGain, destination, analyser };
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
+      let gateHoldTicks = 0;
 
       audioAnalyserIntervalRef.current = setInterval(() => {
         if (!isVoiceConnectedRef.current || !localAudioTrackRef.current || isMutedRef.current) {
@@ -480,6 +569,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             setIsLocalSpeaking(false);
             socketRef.current?.emit('voice:speaking', { isSpeaking: false });
           }
+          setMicLevel(0);
+          setIsNoiseGateOpen(false);
           return;
         }
 
@@ -487,6 +578,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
         const avg = sum / dataArray.length;
+        const levelPct = Math.min(100, Math.round((avg / 120) * 100));
+        setMicLevel(levelPct);
+
+        const intensity = noiseIntensityRef.current;
+        if (intensity === 0) {
+          // Filter disabled: wide open
+          gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
+          setIsNoiseGateOpen(true);
+        } else {
+          // Threshold scale: at intensity 50%, threshold is ~19
+          const gateThreshold = 3 + (intensity * 0.32);
+          if (avg > gateThreshold) {
+            gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.015);
+            gateHoldTicks = 5; // ~300ms hold time prevents chopped words
+            setIsNoiseGateOpen(true);
+          } else {
+            if (gateHoldTicks > 0) {
+              gateHoldTicks--;
+              gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
+              setIsNoiseGateOpen(true);
+            } else {
+              gateGain.gain.setTargetAtTime(0.001, ctx.currentTime, 0.04);
+              setIsNoiseGateOpen(false);
+            }
+          }
+        }
 
         const isSpeakingNow = avg > 14;
         if (isSpeakingNow) {
@@ -501,9 +618,25 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setIsLocalSpeaking(active);
           socketRef.current?.emit('voice:speaking', { isSpeaking: active });
         }
-      }, 120);
+      }, 60);
+
+      return destination.stream;
     } catch (err) {
-      console.warn('Audio analyser setup error:', err);
+      console.warn('Audio processing setup error, falling back to raw stream:', err);
+      return rawStream;
+    }
+  }
+
+  function handleNoiseIntensityChange(val) {
+    const num = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
+    setNoiseIntensity(num);
+    noiseIntensityRef.current = num;
+    localStorage.setItem('wt_noise_intensity', String(num));
+    if (audioNodesRef.current?.gateGain && audioContextRef.current) {
+      if (num === 0) {
+        audioNodesRef.current.gateGain.gain.setTargetAtTime(1.0, audioContextRef.current.currentTime, 0.02);
+        setIsNoiseGateOpen(true);
+      }
     }
   }
 
@@ -516,11 +649,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       audioEl.autoplay = true;
       audioEl.playsInline = true;
       audioEl.setAttribute('playsinline', '');
+      audioEl.setAttribute('webkit-playsinline', '');
       audioEl.setAttribute('autoplay', '');
 
-      const hub = document.getElementById('wt-remote-audio-hub');
-      if (hub) hub.appendChild(audioEl);
-      else document.body.appendChild(audioEl);
+      let hub = document.getElementById('wt-remote-audio-hub');
+      if (!hub) {
+        hub = document.createElement('div');
+        hub.id = 'wt-remote-audio-hub';
+        hub.style.display = 'none';
+        hub.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(hub);
+      }
+      hub.appendChild(audioEl);
 
       if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
         audioEl.setSinkId(selectedAudioOutput).catch(() => {});
@@ -530,14 +670,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     audioEl.srcObject = remoteStream;
     audioEl.volume = 1.0;
-    audioEl.play().catch((err) => console.warn('Remote audio waiting for interaction:', err));
+    const playPromise = audioEl.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn('Remote audio waiting for interaction on mobile:', err);
+        setNeedsVoiceAudioUnlock(true);
+      });
+    }
 
     setRemotePeers((prev) => {
       const next = new Map(prev);
       const user = connectedUsersRef.current.find((u) => u.id === peerId);
       next.set(peerId, {
         username: user?.username || 'Partner',
-        avatar: user?.avatar || '🌸',
+        avatar: user?.avatar || 'jojo-star',
         color: user?.color || '#f472b6',
         isSpeaking: false,
         isMuted: false,
@@ -634,11 +780,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   // 4. Voice Chat Handlers (Direct, High Quality, Non-Blocking)
   async function startMicrophone() {
     try {
-      showToast('Turning microphone on... 🎙️', '⏳');
-      const stream = await acquireMicStream();
-      localStreamRef.current = stream;
+      showToast('Connecting microphone...', <Mic size={15} color="var(--pink-primary)" />);
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume().catch(() => {});
+      }
 
-      const audioTrack = stream.getAudioTracks()[0];
+      const rawStream = await acquireMicStream();
+      rawHardwareStreamRef.current = rawStream;
+
+      const processedStream = setupAudioProcessing(rawStream);
+      localStreamRef.current = processedStream;
+
+      const audioTrack = processedStream.getAudioTracks()[0] || rawStream.getAudioTracks()[0];
       if (audioTrack) {
         localAudioTrackRef.current = audioTrack;
         audioTrack.enabled = true;
@@ -654,20 +807,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
 
       // Initiate WebRTC connections to all other connected peers
-      connectedUsers.forEach((u) => {
+      const targets = connectedUsersRef.current && connectedUsersRef.current.length > 0
+        ? connectedUsersRef.current
+        : connectedUsers;
+      targets.forEach((u) => {
         if (u.id && u.id !== socketRef.current?.id) {
           getOrCreatePeerConnection(u.id, true);
         }
       });
 
-      setupAudioAnalyser(stream);
       refreshMediaDevices();
 
       playAudioChirp('unmute');
-      showToast('Microphone Live 🎙️', '✨');
+      showToast('Microphone live', <Mic size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Microphone start error:', err);
-      showToast('Microphone access denied: ' + err.message, '⚠️');
+      showToast('Microphone access denied: ' + (err.message || err.name || 'Check permissions'), <AlertCircle size={15} color="#ef4444" />);
     }
   }
 
@@ -686,6 +841,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     // 3. Completely stop hardware microphone tracks so Windows releases mic
     // (This guarantees Bluetooth earphones stay in 48kHz A2DP stereo!)
+    if (rawHardwareStreamRef.current) {
+      rawHardwareStreamRef.current.getTracks().forEach((track) => track.stop());
+      rawHardwareStreamRef.current = null;
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -696,6 +855,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
+    audioNodesRef.current = null;
 
     // 4. Clean up remote audio elements
     remoteAudioElementsRef.current.forEach((el) => {
@@ -712,11 +872,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setIsVoiceConnected(false);
     setIsLocalSpeaking(false);
     isLocalSpeakingRef.current = false;
+    setMicLevel(0);
+    setIsNoiseGateOpen(false);
 
     socketRef.current?.emit('voice:leave');
     socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
     playAudioChirp('mute');
-    showToast('Microphone Off 🔇', '👋');
+    showToast('Microphone off', <MicOff size={15} color="#9ca3af" />);
   }
 
   const joinVoiceChat = startMicrophone;
@@ -730,10 +892,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     const nextMuted = !isMutedRef.current;
     isMutedRef.current = nextMuted;
     setIsMuted(nextMuted);
-    localAudioTrackRef.current.enabled = !nextMuted;
+    if (localAudioTrackRef.current) {
+      localAudioTrackRef.current.enabled = !nextMuted;
+    }
+    if (rawHardwareStreamRef.current) {
+      rawHardwareStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !nextMuted; });
+    }
 
     playAudioChirp(nextMuted ? 'mute' : 'unmute');
-    showToast(nextMuted ? 'Microphone Muted 🔇' : 'Microphone Live 🎙️', nextMuted ? '🔇' : '🎙️');
+    showToast(
+      nextMuted ? 'Microphone muted' : 'Microphone live',
+      nextMuted ? <MicOff size={15} color="#ef4444" /> : <Mic size={15} color="var(--pink-primary)" />
+    );
 
     socketRef.current?.emit('voice:track_state', {
       isMuted: nextMuted,
@@ -753,7 +923,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setSelectedAudioInput(deviceId);
     localStorage.setItem('wt_pref_mic', deviceId);
 
-    if (!isVoiceConnectedRef.current || !localStreamRef.current) return;
+    if (!isVoiceConnectedRef.current) return;
 
     try {
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -768,28 +938,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             },
         video: false
       });
-      const newAudioTrack = newStream.getAudioTracks()[0];
-      newAudioTrack.enabled = !isMutedRef.current;
 
-      const oldTrack = localAudioTrackRef.current;
-      if (oldTrack) {
-        localStreamRef.current.removeTrack(oldTrack);
-        oldTrack.stop();
+      if (rawHardwareStreamRef.current) {
+        rawHardwareStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      rawHardwareStreamRef.current = newStream;
 
+      const processedStream = setupAudioProcessing(newStream);
+      localStreamRef.current = processedStream;
+
+      const newAudioTrack = processedStream.getAudioTracks()[0] || newStream.getAudioTracks()[0];
+      newAudioTrack.enabled = !isMutedRef.current;
       localAudioTrackRef.current = newAudioTrack;
-      localStreamRef.current.addTrack(newAudioTrack);
 
       peerConnectionsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-        if (sender) sender.replaceTrack(newAudioTrack);
+        if (sender) {
+          sender.replaceTrack(newAudioTrack).catch(() => {});
+        } else {
+          try { pc.addTrack(newAudioTrack, processedStream); } catch {}
+        }
       });
 
-      setupAudioAnalyser(localStreamRef.current);
-      showToast('Switched microphone source 🎙️', '✨');
+      showToast('Switched microphone source', <Sliders size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Failed to switch audio input:', err);
-      showToast('Failed to switch mic: ' + err.message, '⚠️');
+      showToast('Failed to switch mic: ' + err.message, <AlertCircle size={15} color="#ef4444" />);
     }
   }
 
@@ -802,14 +976,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         el.setSinkId(sinkId).catch((err) => console.warn('setSinkId failed:', err));
       }
     });
-    showToast('Switched audio output 🎧', '✨');
+    showToast('Switched audio output', <Headphones size={15} color="var(--pink-primary)" />);
   }
 
   function toggleStudioAudioMode(enabled) {
     setStudioAudioMode(enabled);
     localStorage.setItem('wt_studio_mode', String(enabled));
     if (isVoiceConnectedRef.current) {
-      showToast(enabled ? 'Studio Mode Enabled (Uncompressed 128kbps) 🎙️' : 'Standard Audio Mode 🛡️', '✨');
+      showToast(enabled ? 'Studio Mode Enabled (128kbps)' : 'Standard Audio Mode', <Radio size={15} color="var(--pink-primary)" />);
       switchAudioInput(selectedAudioInput);
     }
   }
@@ -818,7 +992,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setNoiseSuppression(enabled);
     localStorage.setItem('wt_noise_supp', String(enabled));
     if (isVoiceConnectedRef.current) {
-      showToast(enabled ? 'Noise Suppression Active 🛡️' : 'Noise Suppression Off 🎙️', '✨');
+      showToast(enabled ? 'Noise Suppression Active' : 'Noise Suppression Off', <ShieldCheck size={15} color="var(--pink-primary)" />);
       switchAudioInput(selectedAudioInput);
     }
   }
@@ -876,18 +1050,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }, [socket]);
 
   // Autoplay Unlocker: Unmutes & resumes remote audio on first user gesture
-  useEffect(() => {
-    function unlockAudio() {
-      remoteAudioElementsRef.current.forEach((el) => {
-        if (el && el.paused && el.srcObject) {
-          el.play().catch(() => {});
-        }
-      });
-      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume().catch(() => {});
+  function unlockAudio() {
+    remoteAudioElementsRef.current.forEach((el) => {
+      if (el && el.srcObject) {
+        el.play().catch(() => {});
       }
+    });
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
     }
+    setNeedsVoiceAudioUnlock(false);
+  }
 
+  useEffect(() => {
     window.addEventListener('click', unlockAudio, { passive: true });
     window.addEventListener('touchstart', unlockAudio, { passive: true });
     window.addEventListener('keydown', unlockAudio, { passive: true });
@@ -981,41 +1156,53 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   function evaluateSyncDrift() {
     if (isRemoteActionRef.current || isBufferingRef.current || isSeekingRef.current) return;
-    if (!serverSyncStateRef.current.isPlaying) return;
     if (activePlayerType === 'neko') return;
-    // Solo viewer: local playback is master, never seek or adjust rate!
-    if (!connectedUsers || connectedUsers.length <= 1) return;
 
     const authTime = getAuthoritativeTime();
     const clientTime = UnifiedPlayer.getTime();
     if (typeof clientTime !== 'number' || isNaN(clientTime) || clientTime < 0) return;
 
-    const drift = clientTime - authTime;
+    // Solo viewer with no remote sync activity: local playback is master
+    const currentUsers = connectedUsersRef.current && connectedUsersRef.current.length > 0
+      ? connectedUsersRef.current
+      : connectedUsers;
+    if (currentUsers.length <= 1 && !serverSyncStateRef.current.receivedAt) return;
 
-    // Sub-second precision threshold matrix
-    if (Math.abs(drift) <= 0.4) {
-      if (UnifiedPlayer.getRate() !== 1.0) {
-        UnifiedPlayer.setRate(1.0);
+    // If server state is paused but local is playing, pause to align
+    if (!serverSyncStateRef.current.isPlaying) {
+      const v = document.querySelector('.pouf-player-container video');
+      if (v && !v.paused) {
+        UnifiedPlayer.pause();
       }
-      setSyncStatus('In Sync ✨');
       return;
     }
 
-    if (Math.abs(drift) <= 3.5) {
-      // Gentle micro rate nudging (3% speed difference) - smooth, imperceptible, zero frame skips!
+    const drift = clientTime - authTime;
+
+    // Sub-second precision threshold matrix
+    if (Math.abs(drift) <= 0.35) {
+      if (UnifiedPlayer.getRate() !== 1.0) {
+        UnifiedPlayer.setRate(1.0);
+      }
+      setSyncStatus('In Sync');
+      return;
+    }
+
+    if (Math.abs(drift) <= 1.8) {
+      // Gentle micro rate nudging (4% speed difference) - smooth, imperceptible, zero frame skips!
       if (drift < 0) {
-        UnifiedPlayer.setRate(1.03);
-        setSyncStatus('Catching Up 🚀');
+        UnifiedPlayer.setRate(1.04);
+        setSyncStatus('Catching Up');
       } else {
-        UnifiedPlayer.setRate(0.97);
-        setSyncStatus('Aligning ⏳');
+        UnifiedPlayer.setRate(0.96);
+        setSyncStatus('Aligning');
       }
     } else {
-      // Significant drift (> 3.5s): Re-align to authoritative timestamp
+      // Significant drift (> 1.8s): Re-align to authoritative timestamp
       setRemoteLock(800);
       UnifiedPlayer.seek(authTime);
       UnifiedPlayer.setRate(1.0);
-      setSyncStatus('In Sync ✨');
+      setSyncStatus('In Sync');
     }
   }
 
@@ -1023,7 +1210,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   useEffect(() => {
     const driftTimer = setInterval(() => {
       evaluateSyncDrift();
-    }, 1500);
+    }, 1200);
     return () => clearInterval(driftTimer);
   }, [activePlayerType]);
 
@@ -1090,7 +1277,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           html: t.title || `Track ${idx + 1}`,
           index: idx
         })),
-        { html: '📁 Upload External (.srt / .vtt)', upload: true }
+        { html: 'Upload External (.srt / .vtt)', upload: true }
       ];
 
       const sizeLabels = { 18: 'Small (18px)', 24: 'Medium (24px)', 30: 'Large (30px)', 38: 'Extra Large (38px)' };
@@ -1196,8 +1383,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       } else {
         if (res.status === 404) {
           console.warn('Media file does not exist on server storage (404):', filename);
-          showToast('Media file not found on server storage ⚠️', '⚠️');
-          setSyncStatus('File Missing ❌');
+          showToast('Media file not found on server storage', <AlertCircle size={15} color="#ef4444" />);
+          setSyncStatus('File Missing');
           isBufferingRef.current = false;
           isSeekingRef.current = false;
         }
@@ -1255,9 +1442,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setSocket(s);
     socketRef.current = s;
 
+    const cleanName = (currentProfile.name || 'Het')
+      .replace(/^(jotaro|jolyne|joyeline)\s+/i, '')
+      .replace(/^riaa$/i, 'Ria')
+      .trim();
+
     s.emit('room:join', {
       roomId,
-      username: currentProfile.name,
+      username: cleanName,
       color: currentProfile.color,
       avatar: currentProfile.avatar
     });
@@ -1298,7 +1490,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         s.emit('media:change', { url: initialMedia, title: initialTitle || 'Media', type: initialType });
         onConsumeInitialMedia?.();
       }
-      showToast('Connected to Lounge 🍿', '✨');
+      showToast('Connected to Lounge', <Sparkles size={15} color="var(--pink-primary)" />);
     });
 
     s.on('user:joined', ({ user, users }) => {
@@ -1309,7 +1501,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (isVoiceConnectedRef.current && localStreamRef.current && user && user.id !== s.id) {
         getOrCreatePeerConnection(user.id, true);
       }
-      showToast(`${user.avatar || '🌸'} ${user.username} joined`, '👋');
+      showToast(`${user.username} joined`, <Users size={15} color="var(--pink-primary)" />);
     });
 
     s.on('user:left', ({ userId, username, users }) => {
@@ -1320,7 +1512,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (userId) {
         cleanupPeer(userId);
       }
-      showToast(`${username || 'User'} left the lounge`, '🚪');
+      showToast(`${username || 'User'} left the lounge`, <LogOut size={15} color="#9ca3af" />);
     });
 
     s.on('player:sync_heartbeat', ({ currentTime, isPlaying, playbackRate }) => {
@@ -1330,12 +1522,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         playbackRate: playbackRate || 1.0,
         receivedAt: Date.now()
       };
+
+      const clientTime = UnifiedPlayer.getTime();
+      const authTime = getAuthoritativeTime();
+      const drift = Math.abs(clientTime - authTime);
+
       setRoomPlaybackState((prev) => {
-        if (prev.isPlaying !== Boolean(isPlaying)) {
-          return { ...prev, isPlaying: Boolean(isPlaying) };
+        if (prev.isPlaying !== Boolean(isPlaying) || drift > 1.5) {
+          return { currentTime: authTime, isPlaying: Boolean(isPlaying) };
         }
         return prev;
       });
+
+      // If remote room is actively playing and local direct video is paused, resume smoothly
+      if (isPlaying && activePlayerType !== 'neko') {
+        const v = document.querySelector('.pouf-player-container video');
+        if (v && v.paused && drift < 30) {
+          UnifiedPlayer.play();
+        }
+      }
+
       evaluateSyncDrift();
     });
 
@@ -1347,7 +1553,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       serverSyncStateRef.current = { currentTime, isPlaying: true, playbackRate: 1.0, receivedAt: Date.now() };
       setRoomPlaybackState({ currentTime, isPlaying: true });
       setRemoteLock();
-      showToast(`${sender} resumed`, '▶️');
+      showToast(`${sender} resumed`, <Play size={14} color="var(--pink-primary)" fill="currentColor" />);
       UnifiedPlayer.seek(currentTime);
       UnifiedPlayer.play();
     });
@@ -1356,7 +1562,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       serverSyncStateRef.current = { currentTime, isPlaying: false, playbackRate: 1.0, receivedAt: Date.now() };
       setRoomPlaybackState({ currentTime, isPlaying: false });
       setRemoteLock();
-      showToast(`${sender} paused`, '⏸️');
+      showToast(`${sender} paused`, <Pause size={14} color="var(--pink-primary)" fill="currentColor" />);
       UnifiedPlayer.seek(currentTime);
       UnifiedPlayer.pause();
     });
@@ -1365,7 +1571,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       serverSyncStateRef.current = { currentTime, isPlaying: Boolean(isPlaying), playbackRate: 1.0, receivedAt: Date.now() };
       setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
       setRemoteLock();
-      showToast(`${sender} scrubbed to ${formatTime(currentTime)}`, '⏩');
+      showToast(`${sender} scrubbed to ${formatTime(currentTime)}`, <FastForward size={14} color="var(--pink-primary)" />);
       UnifiedPlayer.seek(currentTime);
       if (isPlaying) UnifiedPlayer.play();
       else UnifiedPlayer.pause();
@@ -1387,7 +1593,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         receivedAt: Date.now()
       };
       setRemoteLock(800);
-      showToast(`Switched Audio: Track #${audioTrack + 1} (${changedBy})`, '🔊');
+      showToast(`Switched Audio: Track #${audioTrack + 1} (${changedBy})`, <Volume2 size={15} color="var(--pink-primary)" />);
     });
 
     s.on('media:changed', ({ media, playback, changedBy }) => {
@@ -1399,7 +1605,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           receivedAt: Date.now()
         };
       }
-      showToast(`${changedBy} loaded "${media.title}"`, '🎬');
+      showToast(`${changedBy} loaded "${media.title}"`, <Film size={15} color="var(--pink-primary)" />);
       applyMedia(media, playback);
     });
 
@@ -1410,8 +1616,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       UnifiedPlayer.seek(currentTime);
       if (isPlaying) UnifiedPlayer.play();
       else UnifiedPlayer.pause();
-      showToast(`Synced both to ${formatTime(currentTime)} ⚡`, '✨');
-      setSyncStatus('In Sync ✨');
+      showToast(`Synced both to ${formatTime(currentTime)}`, <Sparkles size={15} color="#fbbf24" />);
+      setSyncStatus('In Sync');
     });
 
     // Chat System: update full history + in-video dynamic fade + seen tracking
@@ -1540,9 +1746,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
 
     s.on('voice:peer_left', ({ peerId, username }) => {
-      console.log(`🎙️ Peer left voice: ${peerId}`);
+      console.log(`Peer left voice: ${peerId}`);
       cleanupPeer(peerId);
-      if (username) showToast(`${username} left Voice Chat`, '🔇');
+      if (username) showToast(`${username} left Voice Chat`, <MicOff size={15} color="#9ca3af" />);
     });
 
     return () => {
@@ -1623,14 +1829,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         }, 500);
       } else if (resolvedType !== 'neko') {
         isBufferingRef.current = true;
-        setSyncStatus('Buffering ⏳...');
+        setSyncStatus('Buffering...');
 
         const syncDirect = () => {
           const v = document.querySelector('.pouf-player-container video');
           const currentAuth = getAuthoritativeTime() || targetTime;
           if (v) {
-            if (Math.abs(v.currentTime - currentAuth) > 0.4) {
-              v.currentTime = currentAuth;
+            if (v.readyState >= 1) {
+              if (Math.abs(v.currentTime - currentAuth) > 0.35) {
+                v.currentTime = currentAuth;
+              }
             }
             if (shouldPlay && v.paused) {
               v.play().catch(() => setNeedsUserClickToPlay(true));
@@ -1639,7 +1847,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             }
           }
           isBufferingRef.current = false;
-          setSyncStatus('In Sync ✨');
+          setSyncStatus('In Sync');
         };
 
         // Attempt immediate sync and check at intervals as the media element buffers
@@ -1805,7 +2013,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           name: 'audio-tracks',
           width: 280,
-          html: 'Audio Track 🔊',
+          html: 'Audio Track',
           tooltip: audioTracks[activeAudioIndex]?.title || 'Default Audio',
           selector: audioTracks.length > 0 ? audioTracks.map((t, idx) => ({
             default: activeAudioIndex === (t.index ?? idx),
@@ -1824,7 +2032,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           name: 'subtitles',
           width: 290,
-          html: 'Subtitles 🔤',
+          html: 'Subtitles',
           tooltip: activeSubtitleIndex === -1 ? 'Off' : (subtitleTracks[activeSubtitleIndex]?.title || 'Off'),
           selector: [
             { default: activeSubtitleIndex === -1, html: 'Off (No Subtitles)', index: -1 },
@@ -1833,7 +2041,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               html: t.title || `Track ${idx + 1}`,
               index: idx
             })),
-            { html: '📁 Upload External (.srt / .vtt)', upload: true }
+            { html: 'Upload External (.srt / .vtt)', upload: true }
           ],
           onSelect: function (item) {
             if (item.upload) {
@@ -1847,7 +2055,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           name: 'subtitle-size',
           width: 240,
-          html: 'Subtitle Size 📏',
+          html: 'Subtitle Size',
           tooltip: `${subtitleSize}px`,
           selector: [
             { html: 'Small (18px)', size: 18, default: subtitleSize === 18 },
@@ -1865,7 +2073,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           name: 'subtitle-position',
           width: 240,
-          html: 'Subtitle Position 📍',
+          html: 'Subtitle Position',
           tooltip: subtitlePos === 'top' ? 'Top' : (subtitlePos === 'raised' ? 'Raised' : 'Bottom'),
           selector: [
             { html: 'Bottom (Default)', pos: 'bottom', default: subtitlePos === 'bottom' },
@@ -1949,7 +2157,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           position: 'right',
           index: 4,
-          html: '<button id="art-sub-btn" style="background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border:1px solid rgba(244,114,182,0.3);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;margin-right:4px;">💬 Subs</button>',
+          html: '<button id="art-sub-btn" style="background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border:1px solid rgba(244,114,182,0.3);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;margin-right:4px;">Subs</button>',
           tooltip: 'Subtitle Tracks (List & Settings)',
           click: function () {
             window.__wt_toggle_subs?.();
@@ -1958,7 +2166,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {
           position: 'right',
           index: 5,
-          html: '<button id="art-sync-btn" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#170f20;font-weight:800;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;box-shadow:0 0 10px rgba(245,158,11,0.5);margin-right:6px;">⚡ Sync</button>',
+          html: '<button id="art-sync-btn" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#170f20;font-weight:800;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;box-shadow:0 0 10px rgba(245,158,11,0.5);margin-right:6px;">Sync</button>',
           tooltip: 'Force Sync Room',
           click: function () {
             handleForceSync();
@@ -1972,7 +2180,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     art.on('video:waiting', () => {
       if (art.video?.error) return;
       isBufferingRef.current = true;
-      setSyncStatus('Buffering ⏳...');
+      setSyncStatus('Buffering...');
     });
 
     art.on('video:seeking', () => {
@@ -1994,23 +2202,23 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     art.on('video:playing', () => {
       isBufferingRef.current = false;
       isSeekingRef.current = false;
-      setSyncStatus('In Sync ✨');
+      setSyncStatus('In Sync');
     });
 
     art.on('video:error', (err) => {
       console.warn('Artplayer video error:', err);
       isBufferingRef.current = false;
       isSeekingRef.current = false;
-      setSyncStatus('File Missing / Error ❌');
-      showToast('Media failed to load (file not found or unsupported) ⚠️', '⚠️');
+      setSyncStatus('File Missing');
+      showToast('Media failed to load (file not found or unsupported)', <AlertCircle size={15} />);
     });
 
     art.on('error', (err) => {
       console.warn('Artplayer error:', err);
       isBufferingRef.current = false;
       isSeekingRef.current = false;
-      setSyncStatus('Playback Error ⚠️');
-      showToast('Playback error encountered ⚠️', '⚠️');
+      setSyncStatus('Playback Error');
+      showToast('Playback error encountered', <AlertCircle size={15} />);
     });
 
     art.on('ready', () => {
@@ -2033,7 +2241,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const shouldPlay = pb.isPlaying;
 
         isBufferingRef.current = true;
-        setSyncStatus('Buffering ⏳...');
+        setSyncStatus('Buffering...');
         art.currentTime = targetTime;
 
         const onBuffered = () => {
@@ -2042,7 +2250,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           isBufferingRef.current = false;
           isSeekingRef.current = false;
           initialBufferDoneRef.current = true;
-          setSyncStatus('In Sync ✨');
+          setSyncStatus('In Sync');
           if (shouldPlay) {
             art.play().catch(() => setNeedsUserClickToPlay(true));
           } else {
@@ -2139,7 +2347,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       });
     }
 
-    showToast(`Switched Audio: ${audioTracks[trackIndex]?.title || `Track ${trackIndex + 1}`}`, '🔊');
+    showToast(`Switched Audio: ${audioTracks[trackIndex]?.title || `Track ${trackIndex + 1}`}`, <Volume2 size={15} />);
   }
 
 
@@ -2149,13 +2357,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     const art = artInstanceRef.current;
 
     if (index === -1) {
-      showToast('Subtitles Off', '🔤');
+      showToast('Subtitles Off', <Type size={15} />);
       if (art?.subtitle) {
         art.subtitle.show = false;
       }
     } else {
       const track = subtitleTracks[index];
-      showToast(`Subtitles: ${track?.title || `Track ${index + 1}`}`, '🔤');
+      showToast(`Subtitles: ${track?.title || `Track ${index + 1}`}`, <Type size={15} />);
       if (art?.subtitle && track?.url) {
         art.subtitle.switch(track.url, { name: track.title }).then(() => {
           art.subtitle.show = true;
@@ -2176,7 +2384,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setSubtitleSize(newSize);
     localStorage.setItem('wt_sub_size', String(newSize));
     applySubtitleStyle(newSize, subtitlePos);
-    showToast(`Subtitle Size: ${newSize}px`, '🔤');
+    showToast(`Subtitle Size: ${newSize}px`, <Type size={15} />);
     if (artInstanceRef.current) {
       updateArtplayerSettings(artInstanceRef.current, audioTracks, subtitleTracks, activeAudioIndex, activeSubtitleIndex, newSize, subtitlePos, subtitleOffset);
     }
@@ -2188,7 +2396,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localStorage.setItem('wt_sub_pos', newPos);
     applySubtitleStyle(subtitleSize, newPos);
     const label = newPos === 'top' ? 'Top' : (newPos === 'raised' ? 'Raised' : 'Bottom');
-    showToast(`Subtitle Position: ${label}`, '📍');
+    showToast(`Subtitle Position: ${label}`, <Sliders size={15} />);
     if (artInstanceRef.current) {
       updateArtplayerSettings(artInstanceRef.current, audioTracks, subtitleTracks, activeAudioIndex, activeSubtitleIndex, subtitleSize, newPos, subtitleOffset);
     }
@@ -2222,7 +2430,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       const updatedTracks = [newTrack, ...subtitleTracks];
       setSubtitleTracks(updatedTracks);
       setActiveSubtitleIndex(0);
-      showToast(`Loaded Subtitle: ${file.name} 🔤`, '✨');
+      showToast(`Loaded Subtitle: ${file.name}`, <Type size={15} />);
 
       const art = artInstanceRef.current;
       if (art?.subtitle) {
@@ -2245,7 +2453,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (art?.subtitle) {
       art.subtitle.offset = newOffset;
     }
-    showToast(`Subtitle Offset: ${newOffset > 0 ? `+${newOffset}` : newOffset}s`, '⏱️');
+    showToast(`Subtitle Offset: ${newOffset > 0 ? `+${newOffset}` : newOffset}s`, <Zap size={15} />);
     if (art) {
       updateArtplayerSettings(art, audioTracks, subtitleTracks, activeAudioIndex, activeSubtitleIndex, subtitleSize, subtitlePos, newOffset);
     }
@@ -2264,7 +2472,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
 
     socket.emit('player:force_sync_all', { currentTime, isPlaying });
-    showToast(`Syncing both to ${formatTime(currentTime)} ⚡`, '✨');
+    showToast(`Syncing both to ${formatTime(currentTime)}`, <Sparkles size={15} />);
   }
 
   function resetChatInactivityTimer() {
@@ -2482,13 +2690,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }, [activePlayerType]);
 
   const handleReloadNeko = () => {
-    showToast('Reloading browser frame...', '🔄');
+    showToast('Reloading browser frame...', <RotateCcw size={15} />);
     setNekoIframeKey(k => k + 1);
   };
 
   const handleStopNeko = async () => {
     try {
-      showToast('Stopping Shared Browser & freeing server CPU...', '🛑');
+      showToast('Stopping Shared Browser & freeing server CPU...', <Power size={15} />);
       await fetch('/api/neko/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2501,7 +2709,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       setCurrentUrl('');
       setCurrentTitle('');
       setIsNekoReady(false);
-      showToast('Shared Browser stopped. Server CPU freed! ✨', '✅');
+      showToast('Shared Browser stopped. Server CPU freed.', <Check size={15} />);
     } catch (err) {
       console.warn('Error stopping neko:', err);
     }
@@ -2509,14 +2717,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   const handleResetNeko = async () => {
     try {
-      showToast('Resetting browser tabs...', '🔄');
+      showToast('Resetting browser tabs...', <RotateCcw size={15} />);
       await fetch('/api/neko/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reset' })
       });
       setNekoIframeKey(k => k + 1);
-      showToast('Browser tabs reset to blank state ✨', '✅');
+      showToast('Browser tabs reset to blank state.', <Check size={15} />);
     } catch (err) {
       console.warn('Error resetting neko:', err);
     }
@@ -2751,7 +2959,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 setChatInputText(e.target.value);
                 resetChatInactivityTimer();
               }}
-              placeholder={`Chat with ${currentProfile.name === 'Het' ? 'Riaa' : 'Het'}... (Enter to send, Esc to close)`}
+              placeholder={`Chat with ${currentProfile.name === 'Het' ? 'Ria' : 'Het'}... (Enter to send, Esc to close)`}
               className="floating-chat-input"
               autoFocus
             />
@@ -3117,12 +3325,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                         {isReady ? (
-                          <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700 }}>
-                            ✓ Ready
+                          <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <Check size={10} /> Ready
                           </span>
                         ) : isProcessing ? (
                           <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(251, 191, 36, 0.18)', color: '#fbbf24', fontWeight: 700 }}>
-                            ⏳ Extracting...
+                            Extracting...
                           </span>
                         ) : (
                           <span style={{ fontSize: '0.66rem', padding: '2px 6px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
@@ -3188,11 +3396,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                     }}
                   >
                     <ClaySparkle size={13} />
-                    {isProcessingAudio ? 'Processing in Background...' : '⚡ Process All Audio Tracks'}
+                    {isProcessingAudio ? 'Processing in Background...' : 'Process All Audio Tracks'}
                   </button>
                 ) : (
-                  <div style={{ fontSize: '0.70rem', color: '#34d399', textAlign: 'center', fontWeight: 600 }}>
-                    ✨ All tracks cached for 0ms instant zero-lag switching!
+                  <div style={{ fontSize: '0.70rem', color: '#34d399', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                    <Check size={12} color="#34d399" />
+                    <span>All tracks cached for 0ms instant zero-lag switching!</span>
                   </div>
                 )}
               </div>
@@ -3212,25 +3421,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     return popovers;
   }
 
-  // Voice & Mic Settings Popover (Solves Google Meet / Bluetooth Compression Issue)
+  // Voice & Mic Settings Popover (Obsidian Neon HUD Studio Panel)
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
 
     const popover = (
       <div
+        className="pouf-popover-shell"
         style={{
           position: 'absolute',
-          bottom: '72px',
+          bottom: '76px',
           right: '80px',
-          width: '360px',
-          maxHeight: '80vh',
+          width: '380px',
+          maxHeight: '82vh',
           overflowY: 'auto',
-          background: 'rgba(23, 15, 32, 0.96)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(244, 114, 182, 0.35)',
-          borderRadius: '16px',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.75)',
-          padding: '1.1rem',
+          background: 'rgba(14, 11, 20, 0.96)',
+          backdropFilter: 'blur(28px)',
+          border: '1px solid rgba(244, 114, 182, 0.28)',
+          borderRadius: '20px',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.85), 0 0 24px rgba(244, 114, 182, 0.12)',
+          padding: '1.2rem',
           zIndex: 65,
           color: '#fff',
           display: 'flex',
@@ -3243,7 +3453,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '0.65rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.95rem', color: '#fbcfe8' }}>
             <Settings size={16} color="var(--pink-primary)" />
-            <span>Voice & Audio Settings</span>
+            <span>Voice & Audio Studio</span>
           </div>
           <button
             onClick={() => setShowVoiceSettings(false)}
@@ -3263,7 +3473,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           color: '#fef3c7'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, color: '#fbbf24', marginBottom: '4px' }}>
-            <span>🎧</span>
+            <Headphones size={15} color="#fbbf24" />
             <span>Bluetooth Headphone Pro-Tip:</span>
           </div>
           <p style={{ margin: 0, lineHeight: 1.45, color: '#f3f4f6' }}>
@@ -3271,43 +3481,70 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </p>
         </div>
 
-        {/* Microphone Sourcing Dropdown */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Input Microphone 🎙️
-          </label>
-          <select
-            value={selectedAudioInput}
-            onChange={(e) => switchAudioInput(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              background: 'rgba(255, 255, 255, 0.08)',
-              color: '#fff',
-              border: '1px solid rgba(244, 114, 182, 0.3)',
-              fontSize: '0.82rem',
-              outline: 'none',
-              cursor: 'pointer'
-            }}
-          >
+        {/* Microphone Sourcing List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#fbcfe8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Select Active Microphone
+            </label>
+            <button
+              type="button"
+              onClick={refreshMediaDevices}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--pink-primary)',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Rescan microphones"
+            >
+              <RotateCcw size={11} /> Rescan
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
             {audioInputDevices.length === 0 ? (
-              <option value="">Default Microphone</option>
+              <div style={{ fontSize: '0.8rem', color: '#9ca3af', padding: '8px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                Default System Microphone
+              </div>
             ) : (
-              audioInputDevices.map((dev, idx) => (
-                <option key={dev.deviceId} value={dev.deviceId} style={{ background: '#170f20', color: '#fff' }}>
-                  {dev.label || `Microphone ${idx + 1}`}
-                </option>
-              ))
+              audioInputDevices.map((dev, idx) => {
+                const isSelected = dev.deviceId === selectedAudioInput;
+                const cleanLabel = dev.label || `Microphone ${idx + 1}`;
+                return (
+                  <div
+                    key={dev.deviceId || idx}
+                    onClick={() => switchAudioInput(dev.deviceId)}
+                    className={`pouf-item-card ${isSelected ? 'active' : ''}`}
+                    style={{ cursor: 'pointer', padding: '8px 12px' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                      <Mic size={14} color={isSelected ? 'var(--pink-primary)' : 'rgba(255,255,255,0.5)'} />
+                      <span style={{ fontSize: '0.82rem', fontWeight: isSelected ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {cleanLabel}
+                      </span>
+                    </div>
+                    {isSelected ? (
+                      <span className="pouf-badge-active">ACTIVE</span>
+                    ) : (
+                      <span className="pouf-badge-codec">SELECT</span>
+                    )}
+                  </div>
+                );
+              })
             )}
-          </select>
+          </div>
         </div>
 
         {/* Audio Output Dropdown (Headphones / Speakers) */}
         {audioOutputDevices.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Voice Audio Output (Headphones / Speakers) 🎧
+              Voice Audio Output (Headphones / Speakers)
             </label>
             <select
               value={selectedAudioOutput}
@@ -3333,10 +3570,105 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </div>
         )}
 
+        {/* Studio Noise Gate & Filter (with Intensity Slider & VU Meter) */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid rgba(244, 114, 182, 0.2)',
+          borderRadius: '14px',
+          padding: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          {/* Noise Section Header & Dynamic Gate Status */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sliders size={13} color="var(--pink-primary)" />
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
+                Noise Filter & Gate
+              </span>
+            </div>
+            <span className={noiseIntensity === 0 ? 'pouf-badge-codec' : isNoiseGateOpen ? 'pouf-badge-active' : 'pouf-badge-ready'}>
+              {noiseIntensity === 0 ? 'BYPASS (0%)' : isNoiseGateOpen ? 'GATE OPEN' : 'GATE MUTED'}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '0.72rem', color: '#9ca3af', lineHeight: 1.35 }}>
+            Silences laptop fan roar, AC rumble, and room hiss when you are not speaking.
+          </div>
+
+          {/* Live VU Audio Level Meter with Threshold Marker */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.70rem', color: 'rgba(255,255,255,0.6)' }}>
+              <span>Live Mic Energy</span>
+              <span style={{ fontFamily: 'monospace', color: isNoiseGateOpen ? '#34d399' : '#94a3b8' }}>
+                {Math.round(micLevel)}%
+              </span>
+            </div>
+            <div className="pouf-vu-track" style={{ position: 'relative' }}>
+              <div
+                className="pouf-vu-fill"
+                style={{
+                  width: `${Math.min(100, micLevel)}%`,
+                  background: isNoiseGateOpen
+                    ? 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #f472b6 85%, #ec4899 100%)'
+                    : 'linear-gradient(90deg, #64748b 0%, #94a3b8 100%)'
+                }}
+              />
+              {noiseIntensity > 0 && (
+                <div
+                  className="pouf-vu-threshold"
+                  style={{ left: `${noiseIntensity}%` }}
+                  title={`Threshold: ${noiseIntensity}%`}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Intensity Slider */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.76rem' }}>
+              <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Filter Intensity:</span>
+              <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontFamily: 'monospace' }}>
+                {noiseIntensity === 0 ? '0% (Disabled)' : `${noiseIntensity}%`}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={noiseIntensity}
+              onChange={(e) => handleNoiseIntensityChange(e.target.value)}
+              className="pouf-slider-pink"
+            />
+          </div>
+
+          {/* Quick Preset Buttons */}
+          <div className="pouf-tab-bar" style={{ display: 'flex', gap: '4px', width: '100%', marginTop: '2px' }}>
+            {[
+              { label: 'Off', val: 0 },
+              { label: 'Light', val: 25 },
+              { label: 'Standard', val: 50 },
+              { label: 'Max', val: 85 }
+            ].map((p) => (
+              <button
+                key={p.val}
+                type="button"
+                onClick={() => handleNoiseIntensityChange(p.val)}
+                className={`pouf-tab-item ${noiseIntensity === p.val ? 'active' : ''}`}
+                style={{ flex: 1, padding: '5px 0', fontSize: '0.72rem' }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Audio Quality Preset Toggles */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <label style={{ fontSize: '0.76rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Audio Quality Preset ✨
+            Voice Transmission Profile
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', cursor: 'pointer' }}>
             <input
@@ -3346,20 +3678,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               style={{ accentColor: 'var(--pink-primary)', width: '16px', height: '16px' }}
             />
             <div>
-              <span style={{ fontWeight: 700, color: '#fff' }}>Studio Mode (128 kbps Opus)</span>
-              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Disables robotic noise gates for rich, natural vocal clarity.</div>
-            </div>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={noiseSuppression}
-              onChange={(e) => toggleNoiseSuppression(e.target.checked)}
-              style={{ accentColor: 'var(--pink-primary)', width: '16px', height: '16px' }}
-            />
-            <div>
-              <span style={{ fontWeight: 700, color: '#fff' }}>Noise Filter</span>
-              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Enable if you have loud background fan or room noise.</div>
+              <span style={{ fontWeight: 700, color: '#fff' }}>Studio Opus (128 kbps)</span>
+              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Broadcast-grade high bitrate voice codec for natural warmth.</div>
             </div>
           </label>
         </div>
@@ -3401,18 +3721,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               color: '#fca5a5',
               cursor: 'pointer',
               fontWeight: 700,
-              fontSize: '0.82rem'
+              fontSize: '0.82rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
             }}
           >
-            Turn Off Microphone 🔇
+            <MicOff size={14} color="#fca5a5" />
+            <span>Turn Off Microphone</span>
           </button>
         ) : (
           <button
             onClick={() => startMicrophone()}
             className="btn-pink-primary"
-            style={{ padding: '8px', fontSize: '0.82rem', justifyContent: 'center' }}
+            style={{ padding: '8px', fontSize: '0.82rem', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            Turn On Microphone 🎙️
+            <Mic size={14} color="#ffffff" />
+            <span>Turn On Microphone</span>
           </button>
         )}
       </div>
@@ -3448,9 +3774,46 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         
         {/* Video Toast Notification */}
         <div className={`player-toast ${isToastActive ? 'active' : ''}`}>
-          <span>{toastContent.icon}</span>
+          {toastContent.icon && (
+            <span className="toast-icon-wrap" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              {toastContent.icon}
+            </span>
+          )}
           <span>{toastContent.text}</span>
         </div>
+
+        {/* Mobile Voice Audio Unlock Pill */}
+        {needsVoiceAudioUnlock && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              unlockAudio();
+            }}
+            style={{
+              position: 'absolute',
+              top: '18px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 90,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 18px',
+              borderRadius: '9999px',
+              background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+              color: '#ffffff',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              border: 'none',
+              boxShadow: '0 4px 16px rgba(236, 72, 153, 0.5)',
+              cursor: 'pointer'
+            }}
+            title="Tap to listen to voice chat"
+          >
+            <Volume2 size={15} color="#ffffff" />
+            <span>Tap to enable voice audio</span>
+          </button>
+        )}
 
         {/* Floating Exit Chit Chat Mode Button */}
         {isChitChatMode && (
@@ -3470,10 +3833,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {/* Browser Autoplay Block Overlay */}
         {needsUserClickToPlay && (
           <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+            }}
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               setNeedsUserClickToPlay(false);
+              setRemoteLock(3000);
+              const targetTime = getAuthoritativeTime();
+              UnifiedPlayer.seek(targetTime);
               UnifiedPlayer.play();
+              if (socket) {
+                socket.emit('sync:request');
+              }
             }}
             style={{
               position: 'absolute',
@@ -3493,7 +3870,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           >
             <div className="btn-gold-shimmer" style={{ padding: '1rem 2.25rem', fontSize: '1.05rem', borderRadius: '9999px', gap: '10px' }}>
               <Play size={22} fill="currentColor" />
-              <span>Tap to start watching in sync with {currentProfile.name === 'Het' ? 'Riaa' : 'Het'} 🍿🌸</span>
+              <span>Tap to start watching in sync with {currentProfile.name === 'Het' ? 'Ria' : 'Het'}</span>
             </div>
           </div>
         )}
@@ -3545,7 +3922,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🌐 Virtual Shared Browser (Neko)
+                    <Globe size={14} color="var(--gold-primary)" />
+                    <span>Virtual Shared Browser (Neko)</span>
                   </span>
                   <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
                     Active • Synchronized
@@ -3619,14 +3997,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#0e0813' }}>
                   <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '4px solid rgba(244,114,182,0.2)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite' }} />
                   <div style={{ color: '#f472b6', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '0.3px' }}>{nekoStatusMsg}</div>
-                  <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Warming up Chromium engine & WebRTC audio/video feeds 🌸</div>
+                  <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Warming up Chromium engine & WebRTC audio/video feeds</div>
                 </div>
               ) : (
                 <iframe
                   ref={nekoIframeRef}
                   onLoad={handleNekoIframeLoad}
                   key={nekoIframeKey}
-                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=${(currentProfile?.role === 'admin' || currentProfile?.name?.toLowerCase() === 'het' || currentProfile?.name?.toLowerCase() === 'riaa') ? 'admin' : 'neko'}&embed=1`}
+                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=${(currentProfile?.role === 'admin' || currentProfile?.name?.toLowerCase() === 'het' || currentProfile?.name?.toLowerCase() === 'ria' || currentProfile?.name?.toLowerCase() === 'riaa') ? 'admin' : 'neko'}&embed=1`}
                   title="Shared Virtual Browser (Neko)"
                   allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
                   style={{
@@ -3662,7 +4040,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             onAddSubtitleTrack={(newTrack) => {
               setSubtitleTracks((prev) => [newTrack, ...prev]);
               setActiveSubtitleIndex(0);
-              showToast(`Loaded Subtitle: ${newTrack.title} 🔤`, '✨');
+              showToast(`Loaded Subtitle: ${newTrack.title}`, <Type size={15} />);
             }}
             subtitleSize={subtitleSize}
             subtitlePos={subtitlePos}
@@ -3671,21 +4049,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             isPlaying={roomPlaybackState.isPlaying}
             currentTime={roomPlaybackState.currentTime}
             onPlay={() => {
-              if (!isRemoteActionRef.current && socket) {
+              if (isRemoteActionRef.current) return;
+              if (socket) {
                 const video = document.querySelector('.pouf-player-container video');
                 const t = video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0);
                 socket.emit('player:play', { currentTime: t });
               }
             }}
             onPause={() => {
-              if (!isRemoteActionRef.current && socket) {
+              if (isRemoteActionRef.current) return;
+              if (socket) {
                 const video = document.querySelector('.pouf-player-container video');
                 const t = video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0);
                 socket.emit('player:pause', { currentTime: t });
               }
             }}
             onSeek={(t) => {
-              if (!isRemoteActionRef.current && socket) {
+              if (isRemoteActionRef.current) return;
+              if (socket) {
                 socket.emit('player:seek', { currentTime: t });
               }
             }}
@@ -3944,12 +4325,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             ) : (
               <>
                 <Mic size={14} color="#ec4899" />
-                <span>{isLocalSpeaking ? 'Speaking... 🎙️' : 'Mic Live 🎙️'}</span>
+                <span>{isLocalSpeaking ? 'Speaking' : 'Mic Live'}</span>
               </>
             )}
           </button>
 
-          {/* Voice Settings Gear Button (Bluetooth & Mic Source) */}
+          {/* Dedicated Mic Device Pill & Audio Settings */}
           <button
             onClick={() => {
               setShowVoiceSettings((prev) => {
@@ -3964,15 +4345,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '5px',
-              padding: '0.52rem 0.75rem',
+              gap: '6px',
+              padding: '0.52rem 0.85rem',
               fontSize: '0.82rem',
+              fontWeight: 600,
               background: showVoiceSettings ? 'rgba(244, 114, 182, 0.25)' : undefined,
-              borderColor: showVoiceSettings ? 'var(--pink-primary)' : undefined
+              borderColor: showVoiceSettings ? 'var(--pink-primary)' : undefined,
+              maxWidth: '220px'
             }}
-            title="Audio Hardware & Bluetooth Quality Settings"
+            title="Click to Choose / Switch Microphone (Audio Hardware & Bluetooth Quality)"
           >
-            <Settings size={14} color="var(--pink-primary)" />
+            <Sliders size={13} color="var(--pink-primary)" />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
+            </span>
+            <ChevronDown size={12} color="var(--pink-primary)" />
           </button>
 
           {/* Hidden File Input for External Subtitle Upload from Player Settings */}
@@ -4161,13 +4548,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         <div className="pink-modal-backdrop" onClick={() => setLibraryModalOpen(false)}>
           <div className="pink-modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>📁 Select from Server Storage</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Folder size={18} color="var(--pink-primary)" />
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Select from Server Storage</h3>
+              </div>
               <button onClick={() => setLibraryModalOpen(false)} className="pink-btn-icon"><X size={16} /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '360px', overflowY: 'auto' }}>
               {libraryFiles.length === 0 ? (
                 <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.85rem' }}>
-                  No media files in server storage. Het can download MKVs or episodes via Server Downloader! 🍿
+                  No media files in server storage. Het can download MKVs or episodes via Server Downloader!
                 </div>
               ) : (
                 libraryFiles.map((f) => (
@@ -4187,7 +4577,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                     <div>
                       <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.86rem' }}>{f.filename}</div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        📦 {f.sizeFormatted} • {f.subtitles?.length ? `${f.subtitles.length} Subs` : 'Native'}
+                        {f.sizeFormatted} • {f.subtitles?.length ? `${f.subtitles.length} Subs` : 'Native'}
                       </div>
                     </div>
                     <Play size={14} fill="currentColor" color="var(--gold-primary)" />

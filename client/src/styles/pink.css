@@ -2086,6 +2086,260 @@ body.in-chit-chat-mode header {
   background: rgba(255, 255, 255, 0.09) !important;
 }
 
+/* ==========================================================================
+   OBSIDIAN NEON HUD DESIGN SYSTEM (STITCH SPEC) - LUXURY ANIME PLAYER MENUS
+   ========================================================================== */
+
+/* 1. Floating Popover Shell */
+.pouf-popover-shell {
+  background: rgba(14, 11, 20, 0.92) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-top: 1px solid rgba(244, 114, 182, 0.35) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85),
+              0 0 35px rgba(236, 72, 153, 0.12),
+              inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  animation: poufPopoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes poufPopoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 2. Recessed Capsule Tab Bar */
+.pouf-tab-bar {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 4px !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  padding: 3px !important;
+  border-radius: 9999px !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+}
+
+.pouf-tab-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  padding: 6px 4px !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  border-radius: 9999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #a1a1aa !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  user-select: none !important;
+}
+
+.pouf-tab-item:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.pouf-tab-item.active {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.3) 0%, rgba(219, 39, 119, 0.4) 100%) !important;
+  border: 1px solid rgba(244, 114, 182, 0.55) !important;
+  box-shadow: 0 2px 10px rgba(236, 72, 153, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  color: #ffffff !important;
+}
+
+/* 3. High-End List Item Cards (Audio Tracks, Subs, Ratios) */
+.pouf-item-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 12px !important;
+  border-radius: 11px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  color: #e4e4e7 !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+  width: 100% !important;
+}
+
+.pouf-item-card:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(244, 114, 182, 0.3) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px) !important;
+}
+
+.pouf-item-card.active {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.16) 0%, rgba(236, 72, 153, 0.08) 100%) !important;
+  border: 1.5px solid var(--pink-primary) !important;
+  box-shadow: 0 0 18px rgba(236, 72, 153, 0.22),
+              inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* 4. Telemetry Badges */
+.pouf-badge-active {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.62rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  background: var(--pink-primary) !important;
+  color: #120512 !important;
+  padding: 2px 7px !important;
+  border-radius: 5px !important;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.5) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+}
+
+.pouf-badge-codec {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.62rem !important;
+  font-weight: 700 !important;
+  padding: 1px 5px !important;
+  border-radius: 4px !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #d1d5db !important;
+}
+
+.pouf-badge-ready {
+  font-size: 0.64rem !important;
+  font-weight: 700 !important;
+  padding: 2px 6px !important;
+  border-radius: 5px !important;
+  background: rgba(16, 185, 129, 0.18) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+}
+
+/* 5. Custom Range Sliders */
+.pouf-slider-pink {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 100% !important;
+  height: 6px !important;
+  border-radius: 9999px !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  outline: none !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.pouf-slider-pink::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 2px solid var(--pink-primary) !important;
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.8) !important;
+  cursor: pointer !important;
+  transition: transform 0.15s ease !important;
+}
+
+.pouf-slider-pink::-webkit-slider-thumb:hover {
+  transform: scale(1.2) !important;
+}
+
+/* 6. Live VU Audio Level Meter */
+.pouf-vu-track {
+  width: 100% !important;
+  height: 6px !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 9999px !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+
+.pouf-vu-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, #10b981 0%, #34d399 50%, #f472b6 85%, #ec4899 100%) !important;
+  border-radius: 9999px !important;
+  transition: width 0.06s ease-out !important;
+}
+
+.pouf-vu-threshold {
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 2px !important;
+  background: #fbbf24 !important;
+  box-shadow: 0 0 4px #fbbf24 !important;
+  z-index: 2 !important;
+}
+
+/* Pouf Player Range Slider for Visual & Gain */
+.pouf-range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.pouf-range-slider:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+.pouf-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ff2e93;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 10px rgba(255, 46, 147, 0.8);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.pouf-range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+@keyframes poufSkipPulse {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.85);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.05);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.95);
+  }
+}
+
+
 
 
 

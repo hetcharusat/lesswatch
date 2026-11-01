@@ -69,7 +69,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
   };
 
-  // Full management permissions always enabled for Het & Riaa private lounge
+  // Full management permissions always enabled for Het & Ria private lounge
   const isAdmin = true;
 
   async function fetchLibrary(folder = currentFolder) {

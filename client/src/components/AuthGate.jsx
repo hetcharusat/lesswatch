@@ -11,7 +11,7 @@ export function AuthGate({ onAuthenticated }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Quick select helper for Het & Riaa
+  // Quick select helper for Het & Ria
   function handleQuickSelect(selectedEmail, selectedPass) {
     setEmail(selectedEmail);
     setPassword(selectedPass);
@@ -153,12 +153,12 @@ export function AuthGate({ onAuthenticated }) {
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickSelect('riaa@watchtogether.local', '1234')}
-                className={`auth-profile-card profile-riaa ${email === 'riaa@watchtogether.local' ? 'selected' : ''}`}
+                onClick={() => handleQuickSelect('ria@watchtogether.local', '1234')}
+                className={`auth-profile-card profile-riaa ${email === 'ria@watchtogether.local' || email === 'riaa@watchtogether.local' ? 'selected' : ''}`}
               >
-                <UserAvatar user={{ name: 'Riaa', avatar: 'jolyne' }} size={40} showBorder={true} />
+                <UserAvatar user={{ name: 'Ria', avatar: 'jolyne' }} size={40} showBorder={true} />
                 <div className="auth-profile-info">
-                  <span className="auth-profile-name">Riaa</span>
+                  <span className="auth-profile-name">Ria</span>
                 </div>
               </button>
             </div>
@@ -177,7 +177,7 @@ export function AuthGate({ onAuthenticated }) {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Het or Riaa"
+                  placeholder="e.g. Het or Ria"
                   className="auth-input"
                 />
               </div>

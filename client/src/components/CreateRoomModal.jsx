@@ -392,7 +392,7 @@ export function CreateRoomModal({ isOpen, onClose, onLaunchMedia, defaultRoom = 
                 <ClayTv size={18} />
                 Shared Virtual Browser (Neko on EC2):
               </strong>
-              Streams a live Chromium session with built-in adblock. Both Het and Riaa share mouse and keyboard controls on the exact same browser page with ultra-low latency WebRTC.
+              Streams a live Chromium session with built-in adblock. Both Het and Ria share mouse and keyboard controls on the exact same browser page with ultra-low latency WebRTC.
             </div>
 
             <div>

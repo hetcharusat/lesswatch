@@ -5,6 +5,7 @@ client/dist/
 public/assets/
 .gitnexus/
 *.pem
+*.tar.gz
 update.tar.gz
 downloads/
 media/

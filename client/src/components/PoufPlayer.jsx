@@ -35,7 +35,13 @@ import {
   Globe,
   Search,
   Download,
-  Heart
+  Heart,
+  Users,
+  Folder,
+  Lock,
+  Unlock,
+  PictureInPicture,
+  Sun
 } from 'lucide-react';
 
 /**
@@ -101,7 +107,97 @@ export function PoufPlayer({
   // Separate Menus for Subtitles and Settings
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState('audio'); // 'audio' | 'aspect' | 'speed'
+  const [activeSettingsTab, setActiveSettingsTab] = useState('audio'); // 'audio' | 'visual' | 'aspect' | 'speed'
+
+  // Controls Lock Mode
+  const [isLocked, setIsLocked] = useState(false);
+  const [showLockHint, setShowLockHint] = useState(false);
+  const lockHintTimerRef = useRef(null);
+
+  // Skip Ripple Feedback (+10s / -10s)
+  const [skipFeedback, setSkipFeedback] = useState(null);
+  const skipFeedbackTimerRef = useRef(null);
+
+  // Visual Customizer & Presets
+  const [visualPreset, setVisualPreset] = useState(() => {
+    return localStorage.getItem('wt_visual_preset') || 'standard';
+  });
+  const [visualFilter, setVisualFilter] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wt_visual_filter');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { brightness: 100, contrast: 100, saturation: 100 };
+  });
+
+  // Audio Boost (100%, 125%, 150%, 200%)
+  const [audioBoost, setAudioBoost] = useState(() => {
+    return parseInt(localStorage.getItem('wt_audio_boost'), 10) || 100;
+  });
+  const audioContextRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+
+  const triggerLockHint = useCallback(() => {
+    setShowLockHint(true);
+    if (lockHintTimerRef.current) clearTimeout(lockHintTimerRef.current);
+    lockHintTimerRef.current = setTimeout(() => {
+      setShowLockHint(false);
+    }, 2200);
+  }, []);
+
+  const handleAudioBoostChange = useCallback((newBoost) => {
+    setAudioBoost(newBoost);
+    localStorage.setItem('wt_audio_boost', String(newBoost));
+    try {
+      const video = videoRef.current;
+      if (!video) return;
+      if (!audioContextRef.current) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          audioContextRef.current = ctx;
+          const gain = ctx.createGain();
+          gainNodeRef.current = gain;
+          const src = ctx.createMediaElementSource(video);
+          sourceNodeRef.current = src;
+          src.connect(gain);
+          gain.connect(ctx.destination);
+        }
+      }
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      if (gainNodeRef.current && audioContextRef.current) {
+        gainNodeRef.current.gain.setValueAtTime(newBoost / 100, audioContextRef.current.currentTime);
+      }
+    } catch (e) {
+      console.warn('Audio boost setup notice:', e.message);
+    }
+  }, []);
+
+  const handleVisualFilterChange = (key, val) => {
+    setVisualFilter(prev => {
+      const next = { ...prev, [key]: val };
+      localStorage.setItem('wt_visual_filter', JSON.stringify(next));
+      return next;
+    });
+    setVisualPreset('custom');
+  };
+
+  const handleTogglePiP = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled) {
+        await video.requestPictureInPicture();
+      }
+    } catch (e) {
+      console.warn('PiP error:', e);
+    }
+  };
 
   // Subtitle Customization (with Special Pink Subtitle Mode & Pixel Controllers)
   const [subtitleSize, setSubtitleSize] = useState(() => {
@@ -340,7 +436,7 @@ export function PoufPlayer({
     if (isDraggingScrubberRef.current) return;
 
     const diff = Math.abs(video.currentTime - currentTime);
-    const threshold = video.paused ? 0.4 : 2.0;
+    const threshold = video.paused ? 0.35 : 1.5;
     if (diff > threshold) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
@@ -470,7 +566,7 @@ export function PoufPlayer({
       const blobUrl = URL.createObjectURL(blob);
       const newTrack = {
         id: `custom-${Date.now()}`,
-        title: `📁 ${file.name.replace(/\.[^/.]+$/, '')}`,
+        title: file.name.replace(/\.[^/.]+$/, ''),
         url: blobUrl,
         cues: parsedCues,
         isCustom: true
@@ -539,7 +635,7 @@ export function PoufPlayer({
           const parsedCues = parseSubtitlesText(data.vttContent);
           const newTrack = {
             id: `subdl-${Date.now()}`,
-            title: `🌸 ${sub.fileName || 'SubDL'}`,
+            title: sub.fileName || 'SubDL Subtitle',
             url: data.url,
             cues: parsedCues,
             isCustom: true
@@ -646,6 +742,10 @@ export function PoufPlayer({
   }
 
   function togglePlayPause() {
+    if (isLocked) {
+      triggerLockHint();
+      return;
+    }
     const video = videoRef.current;
     if (!video) return;
 
@@ -666,6 +766,10 @@ export function PoufPlayer({
   }
 
   function handleSeekRelative(deltaSeconds) {
+    if (isLocked) {
+      triggerLockHint();
+      return;
+    }
     const video = videoRef.current;
     if (!video) return;
 
@@ -675,6 +779,16 @@ export function PoufPlayer({
       audioRef.current.currentTime = newTime;
     }
     if (onSeek) onSeek(newTime);
+
+    setSkipFeedback({
+      direction: deltaSeconds > 0 ? 'forward' : 'backward',
+      delta: Math.abs(deltaSeconds),
+      key: Date.now()
+    });
+    if (skipFeedbackTimerRef.current) clearTimeout(skipFeedbackTimerRef.current);
+    skipFeedbackTimerRef.current = setTimeout(() => {
+      setSkipFeedback(null);
+    }, 650);
   }
 
   // Scrubber scrubber drag & hover
@@ -808,6 +922,21 @@ export function PoufPlayer({
         return;
       }
 
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setIsLocked(prev => {
+          const next = !prev;
+          if (next) triggerLockHint();
+          return next;
+        });
+        return;
+      }
+
+      if (isLocked) {
+        triggerLockHint();
+        return;
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlayPause();
@@ -826,6 +955,9 @@ export function PoufPlayer({
       } else if (e.key === 'c' || e.key === 'C') {
         e.preventDefault();
         handleToggleCC();
+      } else if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        handleTogglePiP();
       }
     }
 
@@ -873,8 +1005,9 @@ export function PoufPlayer({
           width: '100%',
           height: '100%',
           objectFit: aspectRatio,
+          filter: `brightness(${visualFilter.brightness}%) contrast(${visualFilter.contrast}%) saturate(${visualFilter.saturation}%)`,
           background: '#000000',
-          cursor: 'pointer'
+          cursor: isLocked ? 'default' : 'pointer'
         }}
       />
 
@@ -896,10 +1029,10 @@ export function PoufPlayer({
           justifyContent: 'space-between',
           alignItems: 'center',
           zIndex: 40,
-          opacity: showControls ? 1 : 0,
-          transform: showControls ? 'translateY(0)' : 'translateY(-12px)',
+          opacity: !isLocked && showControls ? 1 : 0,
+          transform: !isLocked && showControls ? 'translateY(0)' : 'translateY(-12px)',
           transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
-          pointerEvents: showControls ? 'auto' : 'none'
+          pointerEvents: !isLocked && showControls ? 'auto' : 'none'
         }}
       >
         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
@@ -909,15 +1042,19 @@ export function PoufPlayer({
           <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center' }}>
             <span style={{ background: 'rgba(244, 114, 182, 0.22)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#f472b6', fontWeight: 700 }}>Direct Stream</span>
             {audioTracks.length > 1 && (
-              <span style={{ color: '#fbcfe8', fontWeight: 700 }}>• 🎵 Multi-Audio ({audioTracks.length})</span>
+              <span style={{ color: '#fbcfe8', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                • <Volume2 size={11} color="#f472b6" /> Multi-Audio ({audioTracks.length})
+              </span>
             )}
             {allSubtitles.length > 0 && (
-              <span style={{ color: '#a7f3d0', fontWeight: 700 }}>• 💬 Subs ({allSubtitles.length})</span>
+              <span style={{ color: '#a7f3d0', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                • <Type size={11} color="#34d399" /> Subs ({allSubtitles.length})
+              </span>
             )}
           </div>
         </div>
 
-        {/* Top-Right Badges */}
+        {/* Top-Right Badges & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <div
             className="pouf-glass-card"
@@ -932,9 +1069,30 @@ export function PoufPlayer({
               gap: '5px'
             }}
           >
-            <span>👥</span>
+            <Users size={12} color="#f472b6" />
             <span>{viewerCount}</span>
           </div>
+
+          <button
+            onClick={() => {
+              setIsLocked(true);
+              setShowControls(false);
+              triggerLockHint();
+            }}
+            className="pouf-glass-btn"
+            style={{
+              width: '32px',
+              height: '32px',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer'
+            }}
+            title="Lock Controls (L)"
+          >
+            <Lock size={14} />
+          </button>
 
           <button
             onClick={toggleFullscreen}
@@ -1022,6 +1180,94 @@ export function PoufPlayer({
         </div>
       )}
 
+      {/* 5.1. Skip Ripple HUD Feedback (+10s / -10s) */}
+      {skipFeedback && (
+        <div
+          key={skipFeedback.key}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            [skipFeedback.direction === 'forward' ? 'right' : 'left']: '14%',
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
+            zIndex: 36,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'rgba(20, 8, 28, 0.82)',
+            backdropFilter: 'blur(20px)',
+            padding: '12px 20px',
+            borderRadius: '24px',
+            border: '1px solid rgba(244, 114, 182, 0.45)',
+            boxShadow: '0 12px 36px rgba(0, 0, 0, 0.7), 0 0 22px rgba(244, 114, 182, 0.35)',
+            animation: 'poufSkipPulse 0.65s cubic-bezier(0.16, 1, 0.3, 1) both'
+          }}
+        >
+          {skipFeedback.direction === 'forward' ? (
+            <RotateCw size={24} color="#f472b6" />
+          ) : (
+            <RotateCcw size={24} color="#f472b6" />
+          )}
+          <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#ffffff', letterSpacing: '0.04em', fontVariantNumeric: 'tabular-nums' }}>
+            {skipFeedback.direction === 'forward' ? `+${skipFeedback.delta}s` : `-${skipFeedback.delta}s`}
+          </span>
+        </div>
+      )}
+
+      {/* 5.2. Screen Controls Locked HUD */}
+      {isLocked && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 18px',
+            borderRadius: '9999px',
+            background: 'rgba(18, 8, 26, 0.88)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(244, 114, 182, 0.4)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(244, 114, 182, 0.28)',
+            opacity: showControls || showLockHint ? 1 : 0.28,
+            transition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}
+        >
+          <Lock size={14} color="#f472b6" />
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fce7f3' }}>
+            Controls Locked
+          </span>
+          <button
+            onClick={() => {
+              setIsLocked(false);
+              setShowControls(true);
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 10px',
+              borderRadius: '9999px',
+              background: 'linear-gradient(135deg, #ec4899, #db2777)',
+              border: 'none',
+              color: '#ffffff',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 0 10px rgba(236, 72, 153, 0.45)'
+            }}
+          >
+            <Unlock size={12} />
+            <span>Unlock</span>
+          </button>
+        </div>
+      )}
+
       {/* 6. Minimalist Obsidian Cinema HUD Glass Controls Overlay */}
       <div
         className="pouf-hud-overlay"
@@ -1037,10 +1283,10 @@ export function PoufPlayer({
           flexDirection: 'column',
           alignItems: 'center',
           gap: '10px',
-          opacity: showControls ? 1 : 0,
-          transform: showControls ? 'translateY(0)' : 'translateY(16px)',
+          opacity: !isLocked && showControls ? 1 : 0,
+          transform: !isLocked && showControls ? 'translateY(0)' : 'translateY(16px)',
           transition: 'all 0.28s cubic-bezier(0.16,1,0.3,1)',
-          pointerEvents: showControls ? 'auto' : 'none'
+          pointerEvents: !isLocked && showControls ? 'auto' : 'none'
         }}
       >
         {/* Floating Precision Scrubber Bar */}
@@ -1296,6 +1542,15 @@ export function PoufPlayer({
               />
             </button>
 
+            {/* Picture-in-Picture */}
+            <button
+              onClick={handleTogglePiP}
+              className="pouf-dock-icon-btn"
+              title="Picture-in-Picture (P)"
+            >
+              <PictureInPicture size={15} color="#ffe4e6" />
+            </button>
+
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
@@ -1313,7 +1568,7 @@ export function PoufPlayer({
         {showSubMenu && (
           <div
             onClick={(e) => e.stopPropagation()}
-            className="pouf-glass-popover"
+            className="pouf-popover-shell"
             style={{
               position: 'absolute',
               bottom: '76px',
@@ -1329,43 +1584,48 @@ export function PoufPlayer({
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(244, 114, 182, 0.2)', paddingBottom: '7px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <ClaySubtitles size={17} />
-                <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fce7f3' }}>
-                  Subtitles & Customization
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ClaySubtitles size={15} />
+                </div>
+                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3', letterSpacing: '0.02em' }}>
+                  Subtitles & Styling
                 </span>
               </div>
               <button
                 onClick={() => setShowSubMenu(false)}
-                className="pouf-glass-btn"
-                style={{ width: '24px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '50%',
+                  color: '#9ca3af',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
 
             {/* Subtitle Track Selector */}
             <div>
-              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '0.04em' }}>
+              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.05em' }}>
                 Active Subtitle Track
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '120px', overflowY: 'auto' }}>
                 <button
                   onClick={() => onSubtitleChange?.(-1)}
-                  className={activeSubtitleIndex === -1 ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                  style={{
-                    padding: '6px 9px',
-                    fontWeight: activeSubtitleIndex === -1 ? 800 : 600,
-                    fontSize: '0.76rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer'
-                  }}
+                  className={`pouf-item-card ${activeSubtitleIndex === -1 ? 'active' : ''}`}
                 >
-                  <span>Off (No Subtitles)</span>
-                  {activeSubtitleIndex === -1 && <Check size={13} />}
+                  <span style={{ fontWeight: activeSubtitleIndex === -1 ? 700 : 500 }}>Off (No Subtitles)</span>
+                  {activeSubtitleIndex === -1 ? <span className="pouf-badge-active">ACTIVE</span> : <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>}
                 </button>
 
                 {allSubtitles.map((t, idx) => {
@@ -1374,21 +1634,12 @@ export function PoufPlayer({
                     <button
                       key={idx}
                       onClick={() => onSubtitleChange?.(idx)}
-                      className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                      style={{
-                        padding: '6px 9px',
-                        fontWeight: isActive ? 800 : 600,
-                        fontSize: '0.76rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer'
-                      }}
+                      className={`pouf-item-card ${isActive ? 'active' : ''}`}
                     >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 700 : 500 }}>
                         {t.title || `Track ${idx + 1}`}
                       </span>
-                      {isActive && <Check size={13} />}
+                      {isActive ? <span className="pouf-badge-active">ACTIVE</span> : <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>}
                     </button>
                   );
                 })}
@@ -1453,10 +1704,11 @@ export function PoufPlayer({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    🌸 SubDL Online Subtitles
+                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Search size={12} color="#f472b6" />
+                    <span>SubDL Online Subtitles</span>
                   </span>
-                  <span style={{ fontSize: '0.62rem', color: '#9ca3af' }}>API Active ✨</span>
+                  <span style={{ fontSize: '0.62rem', color: '#9ca3af' }}>API Ready</span>
                 </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
@@ -1490,7 +1742,7 @@ export function PoufPlayer({
 
                 {isSearchingOnline ? (
                   <div style={{ padding: '12px 0', textAlign: 'center', color: '#f472b6', fontSize: '0.70rem', fontWeight: 700 }}>
-                    ✨ Searching SubDL releases...
+                    Searching SubDL releases...
                   </div>
                 ) : onlineSearchResults.length > 0 ? (
                   <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
@@ -1566,20 +1818,20 @@ export function PoufPlayer({
                   </div>
                 ) : (
                   <div style={{ padding: '8px 0', textAlign: 'center', color: '#9ca3af', fontSize: '0.66rem' }}>
-                    Type a title or episode and tap Search 🌸
+                    Type a title or episode and tap Search
                   </div>
                 )}
               </div>
             )}
 
-            {/* Special Pink Aesthetic Subtitle Mode & Appearance */}
+            {/* Subtitle Appearance & Style */}
             <div>
               <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '0.04em' }}>
-                Appearance & Aesthetic Mode
+                Appearance & Style
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
                 {[
-                  { id: 'pink', label: '💖 Pink', desc: 'Cute Pink Glow' },
+                  { id: 'pink', label: 'Pink Glow', desc: 'Aesthetic Pink' },
                   { id: 'transparent', label: 'Outline', desc: 'Drop Shadow' },
                   { id: 'soft', label: 'Soft Glass', desc: 'Translucent' },
                   { id: 'box', label: 'Solid Box', desc: 'Dark Box' }
@@ -1725,18 +1977,18 @@ export function PoufPlayer({
         )}
 
         {/* ------------------------------------------------------------------ */}
-        {/* 8. COMPACT SETTINGS MENU (Audio, Aspect Ratio, Speed, Sync)        */}
+        {/* 8. OBSIDIAN NEON HUD SETTINGS POPOVER (Audio, Ratio, Speed, Sync)  */}
         {/* ------------------------------------------------------------------ */}
         {showSettingsMenu && (
           <div
             onClick={(e) => e.stopPropagation()}
-            className="pouf-glass-popover"
+            className="pouf-popover-shell"
             style={{
               position: 'absolute',
               bottom: '76px',
               right: '32px',
               padding: '16px',
-              width: '320px',
+              width: '330px',
               maxHeight: '460px',
               zIndex: 70,
               display: 'flex',
@@ -1746,41 +1998,50 @@ export function PoufPlayer({
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(244, 114, 182, 0.2)', paddingBottom: '7px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Settings size={15} color="#f472b6" />
-                <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fce7f3' }}>
-                  Settings
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Settings size={14} color="var(--pink-primary)" />
+                </div>
+                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3', letterSpacing: '0.02em' }}>
+                  Player Settings
                 </span>
               </div>
               <button
                 onClick={() => setShowSettingsMenu(false)}
-                className="pouf-glass-btn"
-                style={{ width: '24px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '50%',
+                  color: '#9ca3af',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
 
-            {/* Compact Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', background: 'rgba(255, 255, 255, 0.05)', padding: '3px', borderRadius: '10px' }}>
+            {/* Recessed Obsidian Capsule Tabs */}
+            <div className="pouf-tab-bar">
               {[
-                { id: 'audio', label: '🎵 Audio' },
-                { id: 'aspect', label: '📐 Ratio' },
-                { id: 'speed', label: '⚡ Speed' }
+                { id: 'audio', label: 'Audio' },
+                { id: 'visual', label: 'Visual' },
+                { id: 'aspect', label: 'Ratio' },
+                { id: 'speed', label: 'Speed' }
               ].map(tab => {
                 const isActive = activeSettingsTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveSettingsTab(tab.id)}
-                    className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                    style={{
-                      padding: '5px 2px',
-                      fontSize: '0.70rem',
-                      fontWeight: 800,
-                      cursor: 'pointer'
-                    }}
+                    className={`pouf-tab-item ${isActive ? 'active' : ''}`}
                   >
                     {tab.label}
                   </button>
@@ -1791,14 +2052,20 @@ export function PoufPlayer({
             {/* TAB: AUDIO TRACKS */}
             {activeSettingsTab === 'audio' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Audio Stream
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Available Audio Streams
+                  </span>
+                  <span style={{ fontSize: '0.64rem', color: '#71717a', fontFamily: 'JetBrains Mono, monospace' }}>
+                    {audioTracks.length} Detected
+                  </span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
                   {audioTracks.length === 0 ? (
-                    <div style={{ padding: '6px 10px', borderRadius: '6px', background: 'rgba(244, 114, 182, 0.15)', color: '#f472b6', fontSize: '0.76rem', fontWeight: 700 }}>
-                      Default Audio (Stereo AAC)
+                    <div className="pouf-item-card active" style={{ cursor: 'default' }}>
+                      <span style={{ fontWeight: 700 }}>Default Audio (Stereo AAC)</span>
+                      <span className="pouf-badge-active">ACTIVE</span>
                     </div>
                   ) : (
                     audioTracks.map((t, idx) => {
@@ -1812,42 +2079,37 @@ export function PoufPlayer({
                         <button
                           key={trackIdx}
                           onClick={() => onAudioTrackChange?.(trackIdx)}
-                          className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                          style={{
-                            padding: '6px 10px',
-                            fontWeight: isActive ? 800 : 600,
-                            fontSize: '0.76rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            cursor: 'pointer'
-                          }}
+                          className={`pouf-item-card ${isActive ? 'active' : ''}`}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', overflow: 'hidden' }}>
                             <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                              {t.title || `Track ${idx + 1}`}
+                              {t.title || `Audio Track #${idx + 1}`}
                             </span>
                             {t.codec && (
-                              <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', color: '#a1a1aa', fontWeight: 700 }}>
+                              <span className="pouf-badge-codec">
                                 {t.codec.toUpperCase()}
                               </span>
                             )}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                             {isReady ? (
-                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.22)', color: '#34d399', fontWeight: 700 }}>
-                                ✓ Ready
+                              <span className="pouf-badge-ready" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Check size={10} /> Ready
                               </span>
                             ) : isProcessing ? (
                               <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(251, 191, 36, 0.22)', color: '#fbbf24', fontWeight: 700 }}>
-                                ⏳ Extracting
+                                Extracting
                               </span>
                             ) : (
                               <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
                                 Pending
                               </span>
                             )}
-                            {isActive && <Check size={13} />}
+                            {isActive ? (
+                              <span className="pouf-badge-active">ACTIVE</span>
+                            ) : (
+                              <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>
+                            )}
                           </div>
                         </button>
                       );
@@ -1856,20 +2118,23 @@ export function PoufPlayer({
                 </div>
 
                 {audioTracks.length > 1 && (
-                  <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
+                  <div style={{ marginTop: '2px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                     {audioStatusData?.allReady ? (
-                      <div style={{ fontSize: '0.68rem', color: '#34d399', textAlign: 'center', fontWeight: 700 }}>
-                        ✨ All audio tracks cached for 0ms instant zero-lag switching!
+                      <div style={{ fontSize: '0.68rem', color: '#34d399', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                        <Check size={12} color="#34d399" />
+                        <span>Dual-Track Audio Cache Active</span>
                       </div>
                     ) : (
                       <button
                         onClick={handleProcessAllAudio}
                         disabled={isProcessingAudio}
-                        className="pouf-glass-btn-primary"
                         style={{
                           width: '100%',
                           padding: '7px 10px',
                           borderRadius: '8px',
+                          background: 'rgba(244, 114, 182, 0.15)',
+                          border: '1px solid rgba(244, 114, 182, 0.35)',
+                          color: '#fbcfe8',
                           fontWeight: 700,
                           fontSize: '0.72rem',
                           cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
@@ -1879,47 +2144,174 @@ export function PoufPlayer({
                           gap: '5px'
                         }}
                       >
-                        <Sparkles size={12} />
-                        <span>{isProcessingAudio ? 'Extracting in Background...' : '⚡ Pre-extract All Tracks to AAC'}</span>
+                        <Sparkles size={12} color="var(--pink-primary)" />
+                        <span>{isProcessingAudio ? 'Extracting in Background...' : 'Pre-extract All Tracks to AAC'}</span>
                       </button>
                     )}
                   </div>
                 )}
+
+                {/* Audio Gain Boost Section */}
+                <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Volume Boost (Gain)
+                    </span>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: audioBoost > 100 ? '#fbbf24' : '#9ca3af', fontFamily: 'JetBrains Mono, monospace' }}>
+                      {audioBoost}%
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                    {[100, 125, 150, 200].map((b) => (
+                      <button
+                        key={b}
+                        onClick={() => handleAudioBoostChange(b)}
+                        className={`pouf-dock-pill-btn ${audioBoost === b ? 'active' : ''}`}
+                        style={{ padding: '4px 6px', justifyContent: 'center', fontSize: '0.68rem' }}
+                      >
+                        {b === 100 ? 'Normal' : `${b}%`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: VISUAL / COLOR FILTER */}
+            {activeSettingsTab === 'visual' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Visual Presets
+                  </span>
+                  <button
+                    onClick={() => {
+                      const resetFilter = { brightness: 100, contrast: 100, saturation: 100 };
+                      setVisualFilter(resetFilter);
+                      setVisualPreset('standard');
+                      localStorage.setItem('wt_visual_filter', JSON.stringify(resetFilter));
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#9ca3af',
+                      fontSize: '0.66rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                      padding: 0
+                    }}
+                  >
+                    <RotateCcw size={11} /> Reset
+                  </button>
+                </div>
+
+                {/* Preset Chips */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                  {[
+                    { id: 'standard', label: 'Standard', b: 100, c: 100, s: 100 },
+                    { id: 'anime', label: 'Anime Vivid', b: 102, c: 110, s: 125 },
+                    { id: 'cinema', label: 'Cinema Warm', b: 96, c: 108, s: 105 },
+                    { id: 'night', label: 'Night Dim', b: 82, c: 95, s: 90 }
+                  ].map((p) => {
+                    const isSelected = visualPreset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          const newFilter = { brightness: p.b, contrast: p.c, saturation: p.s };
+                          setVisualFilter(newFilter);
+                          setVisualPreset(p.id);
+                          localStorage.setItem('wt_visual_filter', JSON.stringify(newFilter));
+                        }}
+                        className={`pouf-item-card ${isSelected ? 'active' : ''}`}
+                        style={{ padding: '6px 8px', justifyContent: 'center' }}
+                      >
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{p.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Range Sliders */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '2px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
+                      <span>Brightness</span>
+                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.brightness}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="70"
+                      max="130"
+                      value={visualFilter.brightness}
+                      onChange={(e) => handleVisualFilterChange('brightness', parseInt(e.target.value, 10))}
+                      className="pouf-range-slider"
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
+                      <span>Contrast</span>
+                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.contrast}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="80"
+                      max="140"
+                      value={visualFilter.contrast}
+                      onChange={(e) => handleVisualFilterChange('contrast', parseInt(e.target.value, 10))}
+                      className="pouf-range-slider"
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
+                      <span>Saturation</span>
+                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.saturation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="150"
+                      value={visualFilter.saturation}
+                      onChange={(e) => handleVisualFilterChange('saturation', parseInt(e.target.value, 10))}
+                      className="pouf-range-slider"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
             {/* TAB: ASPECT RATIO */}
             {activeSettingsTab === 'aspect' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.04em' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.05em' }}>
                   Aspect Ratio Fit
                 </div>
 
                 {[
-                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard letterbox ratio' },
-                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Eliminates top/bottom black bars' },
-                  { id: 'fill', label: 'Stretch (100% Canvas)', desc: 'Fills canvas without cropping' }
+                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard pillarbox & letterbox ratio' },
+                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Fills display & eliminates black bars' },
+                  { id: 'fill', label: 'Full Stretch (100% Canvas)', desc: 'Fills viewport without cropping' }
                 ].map(opt => {
                   const isActive = aspectRatio === opt.id;
                   return (
                     <button
                       key={opt.id}
                       onClick={() => handleAspectChange(opt.id)}
-                      className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                      style={{
-                        padding: '8px 10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        textAlign: 'left'
-                      }}
+                      className={`pouf-item-card ${isActive ? 'active' : ''}`}
                     >
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: '0.76rem' }}>{opt.label}</div>
+                        <div style={{ fontWeight: 800, fontSize: '0.78rem' }}>{opt.label}</div>
                         <div style={{ fontSize: '0.64rem', color: isActive ? '#fce7f3' : '#9ca3af', marginTop: '1px' }}>{opt.desc}</div>
                       </div>
-                      {isActive && <Check size={14} />}
+                      {isActive ? (
+                        <span className="pouf-badge-active">ACTIVE</span>
+                      ) : (
+                        <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>
+                      )}
                     </button>
                   );
                 })}
@@ -1930,32 +2322,32 @@ export function PoufPlayer({
             {activeSettingsTab === 'speed' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.04em' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.05em' }}>
                     Playback Speed
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                     {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(spd => {
                       const isActive = playbackSpeed === spd;
                       return (
                         <button
                           key={spd}
                           onClick={() => handleSpeedChange(spd)}
-                          className={isActive ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
+                          className={`pouf-item-card ${isActive ? 'active' : ''}`}
                           style={{
-                            padding: '6px 2px',
+                            padding: '8px 2px',
+                            justifyContent: 'center',
                             fontWeight: 800,
-                            fontSize: '0.74rem',
-                            cursor: 'pointer'
+                            fontSize: '0.76rem'
                           }}
                         >
-                          {spd === 1.0 ? '1.0x' : `${spd}x`}
+                          <span>{spd === 1.0 ? '1.0x Normal' : `${spd}x`}</span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                <div style={{ paddingTop: '6px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
+                <div style={{ paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <button
                     onClick={() => {
                       onForceSyncAll?.();
@@ -1963,22 +2355,24 @@ export function PoufPlayer({
                     }}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)',
-                      color: '#1a1006',
-                      border: 'none',
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(245, 158, 11, 0.1) 100%)',
+                      border: '1px solid rgba(245, 158, 11, 0.55)',
+                      color: '#fef3c7',
                       fontWeight: 800,
                       fontSize: '0.78rem',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '6px',
+                      gap: '7px',
                       cursor: 'pointer',
-                      boxShadow: '0 3px 10px rgba(245, 158, 11, 0.4)'
+                      boxShadow: '0 4px 14px rgba(245, 158, 11, 0.25)',
+                      transition: 'all 0.2s ease'
                     }}
                   >
-                    <span>⚡ Force Sync Both Viewers</span>
+                    <Sparkles size={14} color="#fbbf24" />
+                    <span>Force Sync Both Viewers</span>
                   </button>
                 </div>
               </div>

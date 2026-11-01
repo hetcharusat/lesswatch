@@ -15,7 +15,14 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('wt_user');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.name) {
+          u.name = u.name.replace(/^(jotaro|jolyne|joyeline)\s+/i, '').replace(/^riaa$/i, 'Ria').trim();
+        }
+        return u;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -24,7 +31,7 @@ export default function App() {
   const [activeView, setActiveView] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/room/')) return 'room';
-    if (path === '/library') return 'library';
+    if (path === '/library' || path === '/media' || path === '/media-manager') return 'library';
     if (path === '/studio') return 'studio';
     if (path === '/downloads') return 'downloads';
     return 'home';
@@ -43,6 +50,27 @@ export default function App() {
   const [initialType, setInitialType] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [liveData, setLiveData] = useState(null);
+
+  // Sync browser back/forward buttons with active view
+  useEffect(() => {
+    function handlePopState() {
+      const path = window.location.pathname;
+      if (path.startsWith('/room/')) {
+        setActiveView('room');
+        setActiveRoomId(path.split('/')[2] || 'lounge');
+      } else if (path === '/library' || path === '/media' || path === '/media-manager') {
+        setActiveView('library');
+      } else if (path === '/studio') {
+        setActiveView('studio');
+      } else if (path === '/downloads') {
+        setActiveView('downloads');
+      } else {
+        setActiveView('home');
+      }
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {

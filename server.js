@@ -65,7 +65,7 @@ async function stopNeko() {
   console.log('🛑 [Neko] Stopping virtual browser container to release CPU & RAM...');
   const res = await callDockerAPI('/containers/neko/stop?t=2', 'POST');
   if (res.fallback) {
-    exec('docker stop neko -t 2', () => {});
+    exec('docker stop neko -t 2', () => { });
   }
   return { success: true };
 }
@@ -74,7 +74,7 @@ async function startNeko() {
   console.log('🚀 [Neko] Starting virtual browser container on-demand...');
   const res = await callDockerAPI('/containers/neko/start', 'POST');
   if (res.fallback) {
-    exec('docker start neko', () => {});
+    exec('docker start neko', () => { });
   }
   return { success: true };
 }
@@ -238,7 +238,7 @@ try {
   for (const [t, u] of Object.entries(savedSessions)) {
     activeSessions.set(t, u);
   }
-} catch (e) {}
+} catch (e) { }
 
 function persistSessions() {
   try {
@@ -247,14 +247,14 @@ function persistSessions() {
       obj[t] = u;
     }
     saveJSON(SESSIONS_FILE, obj);
-  } catch (e) {}
+  } catch (e) { }
 }
 
 function generateToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-// Initialize default users (Het = Admin, Riaa = Member)
+// Initialize default users (Het = Admin, Ria = Member)
 let usersData = loadJSON(USERS_FILE, {
   users: [
     {
@@ -269,9 +269,9 @@ let usersData = loadJSON(USERS_FILE, {
       createdAt: Date.now()
     },
     {
-      id: 'riaa',
-      name: 'Riaa',
-      email: 'riaa@watchtogether.local',
+      id: 'ria',
+      name: 'Ria',
+      email: 'ria@watchtogether.local',
       passwordHash: hashPassword('1234'),
       role: 'member',
       color: '#f472b6',
@@ -281,7 +281,24 @@ let usersData = loadJSON(USERS_FILE, {
     }
   ]
 });
-saveJSON(USERS_FILE, usersData);
+
+// Auto-migrate legacy "Riaa" or prefixed names to simple "Ria" / "Het"
+let migrated = false;
+usersData.users.forEach((u) => {
+  if (u.id === 'riaa' || u.name === 'Riaa' || u.email === 'riaa@watchtogether.local') {
+    u.id = 'ria';
+    u.name = 'Ria';
+    u.email = 'ria@watchtogether.local';
+    migrated = true;
+  }
+  if (/^(jotaro|jolyne|joyeline)\s+/i.test(u.name)) {
+    u.name = u.name.replace(/^(jotaro|jolyne|joyeline)\s+/i, '').trim();
+    migrated = true;
+  }
+});
+if (migrated) {
+  saveJSON(USERS_FILE, usersData);
+}
 
 function getAuthUser(req) {
   const authHeader = req.headers.authorization || req.headers['x-auth-token'];
@@ -293,7 +310,7 @@ function getAuthUser(req) {
     }
   }
 
-  // Fallback 1: check x-user-profile header (Het or Riaa)
+  // Fallback 1: check x-user-profile header (Het or Ria)
   const profileHeader = req.headers['x-user-profile'];
   if (profileHeader) {
     try {
@@ -301,10 +318,10 @@ function getAuthUser(req) {
         ? JSON.parse(profileHeader)
         : { name: profileHeader };
       const n = (p.name || '').toLowerCase();
-      if (n === 'het' || n === 'riaa') {
+      if (n === 'het' || n === 'ria' || n === 'riaa') {
         return { name: p.name, role: 'admin', id: n };
       }
-    } catch {}
+    } catch { }
   }
 
   // Fallback 2: check query param token
@@ -319,19 +336,19 @@ function requireAdmin(req, res, next) {
   const user = getAuthUser(req);
   if (user) {
     const name = user.name?.toLowerCase() || '';
-    if (user.role === 'admin' || name === 'het' || name === 'riaa') {
+    if (user.role === 'admin' || name === 'het' || name === 'ria' || name === 'riaa') {
       return next();
     }
   }
-  // Check if header indicates Het or Riaa or admin
+  // Check if header indicates Het or Ria or admin
   const userProfile = req.headers['x-user-profile'] || req.query.profile;
   if (userProfile) {
     const str = typeof userProfile === 'string' ? userProfile.toLowerCase() : JSON.stringify(userProfile).toLowerCase();
-    if (str.includes('het') || str.includes('riaa') || str.includes('admin')) {
+    if (str.includes('het') || str.includes('ria') || str.includes('admin')) {
       return next();
     }
   }
-  // In private lounge, allow by default if token is present or default to Het/Riaa lounge access
+  // In private lounge, allow by default if token is present or default to Het/Ria lounge access
   return next();
 }
 
@@ -491,7 +508,7 @@ function createRoom(roomId) {
       {
         id: 'sys-start',
         sender: 'System',
-        text: `Room "${roomId}" active! 🍿`,
+        text: `Room "${roomId}" active!`,
         timestamp: Date.now(),
         isSystem: true
       }
@@ -657,7 +674,8 @@ app.post('/api/auth/login', (req, res) => {
   const user = usersData.users.find(u =>
     u.email.toLowerCase() === cleanInput ||
     u.name.toLowerCase() === cleanInput ||
-    u.id.toLowerCase() === cleanInput
+    u.id.toLowerCase() === cleanInput ||
+    ((cleanInput === 'riaa@watchtogether.local' || cleanInput === 'riaa') && u.id === 'ria')
   );
 
   if (!user) {
@@ -820,15 +838,15 @@ function processAudioQueue() {
         }
         processAudioQueue();
         return;
-      } catch (e) {}
+      } catch (e) { }
     }
-    if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch {}
+    if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch { }
     // 2. AAC transcode with 10-minute timeout so large 3h movies finish reliably!
     const transcodeCmd = `ffmpeg -y -i "${filePath}" -vn -sn -dn -map 0:a:${track} -c:a aac -b:a 128k -ac 2 -threads 2 -movflags +faststart "${tempPath}"`;
     exec(transcodeCmd, { timeout: 600000 }, (tErr) => {
       isAudioProcessing = false;
       if (tErr || !fs.existsSync(tempPath) || fs.statSync(tempPath).size === 0) {
-        if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch {}
+        if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch { }
         reject(tErr || new Error('Audio extraction failed'));
       } else {
         try {
@@ -898,7 +916,7 @@ function probeMediaFile(filePath, relPath = '') {
         const data = JSON.parse(stdout);
         const streams = data.streams || [];
         const duration = parseFloat(data.format?.duration || 0);
-        
+
         const audioTracks = [];
         let audioIdx = 0;
         const subtitles = [];
@@ -908,7 +926,7 @@ function probeMediaFile(filePath, relPath = '') {
             const rawLang = (s.tags?.language || s.tags?.LANGUAGE || 'und').toLowerCase();
             const langLabel = LANG_MAP[rawLang] || (rawLang !== 'und' ? rawLang.toUpperCase() : `Audio ${audioIdx + 1}`);
             const rawTitle = (s.tags?.title || s.tags?.TITLE || '').trim();
-            
+
             // Filter out junk release tags that mask language identity
             let cleanTitle = rawTitle;
             if (/^(HDHub|RARBG|YIFY|PSA|Galaxy|KONTRAST|Rip|Release|LiNE|TG|x264|x265)/i.test(cleanTitle)) {
@@ -1028,7 +1046,7 @@ function getAllSubfolders(baseDir, currentRel = '') {
           scan(full);
         }
       }
-    } catch {}
+    } catch { }
   }
   scan(dir);
   return result;
@@ -1059,7 +1077,7 @@ app.get('/api/library', async (req, res) => {
         let count = 0;
         try {
           count = fs.readdirSync(fullPath).length;
-        } catch {}
+        } catch { }
         const stat = fs.statSync(fullPath);
         folders.push({
           name: ent.name,
@@ -1293,7 +1311,7 @@ app.get(['/api/media/subtitles/:filename/:streamIndex.vtt', '/api/media/subtitle
     let content = fs.readFileSync(cacheFile, 'utf8');
     if (content.includes('<') || content.includes('{\\') || /[\u200E\u200F]/.test(content)) {
       content = cleanVttContent(content);
-      try { fs.writeFileSync(cacheFile, content, 'utf8'); } catch {}
+      try { fs.writeFileSync(cacheFile, content, 'utf8'); } catch { }
     }
     return res.send(content);
   }
@@ -1303,14 +1321,14 @@ app.get(['/api/media/subtitles/:filename/:streamIndex.vtt', '/api/media/subtitle
   const cmd = `ffmpeg -y -vn -an -i "${filePath}" -map 0:${streamNum} -f webvtt "${tempSubFile}"`;
   exec(cmd, { timeout: 120000 }, (err) => {
     if (err || !fs.existsSync(tempSubFile) || fs.statSync(tempSubFile).size === 0) {
-      if (fs.existsSync(tempSubFile)) try { fs.unlinkSync(tempSubFile); } catch {}
+      if (fs.existsSync(tempSubFile)) try { fs.unlinkSync(tempSubFile); } catch { }
       return res.send('WEBVTT\n\n');
     }
     try {
       fs.renameSync(tempSubFile, cacheFile);
       let content = fs.readFileSync(cacheFile, 'utf8');
       content = cleanVttContent(content);
-      try { fs.writeFileSync(cacheFile, content, 'utf8'); } catch {}
+      try { fs.writeFileSync(cacheFile, content, 'utf8'); } catch { }
       res.send(content);
     } catch {
       res.send('WEBVTT\n\n');
@@ -1714,7 +1732,7 @@ setInterval(() => {
         fs.unlinkSync(p);
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 }, 30 * 60 * 1000);
 
 app.get('/api/media/hls/*', async (req, res) => {
@@ -1804,7 +1822,7 @@ app.get('/api/media/hls/*', async (req, res) => {
           fs.createReadStream(cacheFilePath).pipe(res);
           return;
         }
-      } catch (err) {}
+      } catch (err) { }
     }
 
     const jobPromise = new Promise((resolve, reject) => {
@@ -1812,7 +1830,7 @@ app.get('/api/media/hls/*', async (req, res) => {
       const cmd = buildSegmentFfmpegCmd(filePath, startTime, audioTrack, tempPath);
       exec(cmd, { timeout: 35000 }, (err) => {
         if (err || !fs.existsSync(tempPath) || fs.statSync(tempPath).size === 0) {
-          if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch {}
+          if (fs.existsSync(tempPath)) try { fs.unlinkSync(tempPath); } catch { }
           return reject(err || new Error('Transcode failed'));
         }
         try {
@@ -1877,7 +1895,7 @@ app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) =
   }
 
   // Not cached yet: queue with high priority in background!
-  preExtractAudioTrack(filePath, track, true).catch(() => {});
+  preExtractAudioTrack(filePath, track, true).catch(() => { });
 
   // While transcode is in progress, stream live on-the-fly starting at requested position (or 0)
   // so browser audio starts in ~100ms with ZERO waiting or timeouts!
@@ -1901,7 +1919,7 @@ app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) =
   liveFfmpeg.stdout.pipe(res);
 
   req.on('close', () => {
-    try { liveFfmpeg.kill('SIGKILL'); } catch {}
+    try { liveFfmpeg.kill('SIGKILL'); } catch { }
   });
 
   liveFfmpeg.on('error', (e) => {
@@ -1932,9 +1950,9 @@ app.get(['/api/media/audio-status/:filename', '/api/media/audio-status/*'], asyn
     const cachedPath2 = path.join(AUDIO_TRACKS_CACHE, cacheKey2);
 
     const exists = (fs.existsSync(cachedPath1) && fs.statSync(cachedPath1).size > 1000) ||
-                   (fs.existsSync(cachedPath2) && fs.statSync(cachedPath2).size > 1000);
+      (fs.existsSync(cachedPath2) && fs.statSync(cachedPath2).size > 1000);
     const isPending = pendingAudioExtractions.has(cacheKey1) || pendingAudioExtractions.has(cacheKey2) ||
-                      audioQueue.some(q => q.cacheKey === cacheKey1 || q.cacheKey === cacheKey2);
+      audioQueue.some(q => q.cacheKey === cacheKey1 || q.cacheKey === cacheKey2);
 
     // Any track that is native AAC, or already extracted on disk, is 100% READY!
     const isReady = isAac || exists;
@@ -1986,7 +2004,7 @@ app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], a
   const audioTracks = probe.audioTracks || [];
 
   audioTracks.forEach((t) => {
-    preExtractAudioTrack(filePath, t.index, true).catch(() => {});
+    preExtractAudioTrack(filePath, t.index, true).catch(() => { });
   });
 
   if (typeof io !== 'undefined') {
@@ -2072,7 +2090,7 @@ app.post('/api/media/process/start', async (req, res) => {
   if (probe.subtitles?.length > 0) {
     probe.subtitles.slice(0, 5).forEach((sub, sIdx) => {
       const subOut = path.join(dir, `${cleanBase}.H264.${sub.language || sIdx}.srt`);
-      exec(`ffmpeg -y -i "${filePath}" -map 0:s:${sIdx} "${subOut}"`, () => {});
+      exec(`ffmpeg -y -i "${filePath}" -map 0:s:${sIdx} "${subOut}"`, () => { });
     });
   }
 
@@ -2192,7 +2210,7 @@ app.post('/api/media/process/cancel', (req, res) => {
   try {
     if (job.process) job.process.kill('SIGKILL');
     if (fs.existsSync(job.outputPath)) fs.unlinkSync(job.outputPath);
-  } catch (e) {}
+  } catch (e) { }
 
   activeVideoTranscodeJobs.delete(relativePath);
   if (typeof io !== 'undefined') {
@@ -2248,7 +2266,7 @@ app.post('/api/media/resolve', (req, res) => {
       const firstBrace = stdout.indexOf('{');
       const lastBrace = stdout.lastIndexOf('}');
       if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON found in stdout');
-      
+
       const jsonStr = stdout.slice(firstBrace, lastBrace + 1);
       const data = JSON.parse(jsonStr);
 
@@ -2265,7 +2283,7 @@ app.post('/api/media/resolve', (req, res) => {
       }
 
       const isHls = data.url && (data.url.includes('.m3u8') || data.ext === 'm3u8');
-      
+
       // Route external streams through /api/proxy/stream to bypass CORS and Referer restrictions
       let finalStreamUrl = data.url;
       if (data.url && (isHls || !data.url.includes('googlevideo.com'))) {
@@ -2318,7 +2336,7 @@ app.get('/api/proxy/stream', async (req, res) => {
     if (contentType.includes('mpegurl') || targetUrl.includes('.m3u8')) {
       const text = await upstreamRes.text();
       const targetBase = new URL(targetUrl);
-      
+
       const rewritten = text.replace(/^(?!#)(\S+)/gm, (match) => {
         const absoluteChunkUrl = new URL(match, targetBase).href;
         return `/api/proxy/stream?url=${encodeURIComponent(absoluteChunkUrl)}&referer=${encodeURIComponent(customReferer)}`;
@@ -2335,8 +2353,27 @@ app.get('/api/proxy/stream', async (req, res) => {
   }
 });
 
-// SPA Routes (React frontend fallback)
-app.get(['/room/:roomId', '/library', '/downloads'], (req, res) => {
+// SPA Routes & Fallback (React frontend for all page navigation routes)
+app.get([
+  '/studio',
+  '/library',
+  '/downloads',
+  '/media',
+  '/media-manager',
+  '/manager',
+  '/room/:roomId'
+], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Universal SPA fallback for any client-side navigation request
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/neko') || req.path.startsWith('/socket.io')) {
+    return next();
+  }
+  if (path.extname(req.path)) {
+    return next();
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
@@ -2386,11 +2423,16 @@ io.on('connection', (socket) => {
 
     const isFirstUser = room.users.size === 0;
 
+    let cleanUsername = (username || (isFirstUser ? 'Het' : 'Ria'))
+      .replace(/^(jotaro|jolyne|joyeline)\s+/i, '')
+      .replace(/^riaa$/i, 'Ria')
+      .trim();
+
     currentUser = {
       id: socket.id,
-      username: username || (isFirstUser ? 'Het' : 'Riaa'),
-      color: color || (isFirstUser ? '#f59e0b' : '#f472b6'),
-      avatar: avatar || (isFirstUser ? 'jotaro' : 'jolyne'),
+      username: cleanUsername,
+      color: color || (cleanUsername.toLowerCase() === 'het' ? '#f59e0b' : '#f472b6'),
+      avatar: avatar || (cleanUsername.toLowerCase() === 'het' ? 'jotaro' : 'jolyne'),
       isHost: isFirstUser || room.hostId === socket.id,
       inVoice: false
     };
@@ -2401,6 +2443,22 @@ io.on('connection', (socket) => {
 
     room.users.set(socket.id, currentUser);
     socket.join(cleanRoomId);
+
+    // Clean any legacy system messages from room history
+    const sanitizedMessages = room.messages.slice(-60).map((m) => {
+      if (m.isSystem && typeof m.text === 'string') {
+        return {
+          ...m,
+          text: m.text
+            .replace(/^(jotaro|jolyne|joyeline)\s+Het/i, 'Het')
+            .replace(/^(jotaro|jolyne|joyeline)\s+Riaa?/i, 'Ria')
+            .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+            .replace(/hopped into the room!/i, 'joined the room')
+            .trim()
+        };
+      }
+      return m;
+    });
 
     // Send full current state to joining user
     const fullState = {
@@ -2416,7 +2474,7 @@ io.on('connection', (socket) => {
         updatedAt: room.playback.updatedAt
       },
       queue: room.queue,
-      messages: room.messages.slice(-60),
+      messages: sanitizedMessages,
       lastSeen: room.lastSeen || {},
       users: Array.from(room.users.values())
     };
@@ -2433,7 +2491,7 @@ io.on('connection', (socket) => {
     const sysMsg = {
       id: `sys-${Date.now()}`,
       sender: 'System',
-      text: `${currentUser.avatar} ${currentUser.username} hopped into the room! 🍿`,
+      text: `${currentUser.username} joined the room`,
       timestamp: Date.now(),
       isSystem: true
     };
@@ -2539,7 +2597,7 @@ io.on('connection', (socket) => {
     const sysMsg = {
       id: `sys-${Date.now()}`,
       sender: 'System',
-      text: `🔊 ${currentUser?.username || 'Someone'} switched audio track to #${trackIdx + 1}`,
+      text: `${currentUser?.username || 'Someone'} switched audio track to #${trackIdx + 1}`,
       timestamp: Date.now(),
       isSystem: true
     };
@@ -2601,7 +2659,7 @@ io.on('connection', (socket) => {
     const sysMsg = {
       id: `sys-${Date.now()}`,
       sender: 'System',
-      text: `🎬 ${currentUser?.username || 'Someone'} loaded "${room.media.title}"`,
+      text: `${currentUser?.username || 'Someone'} loaded "${room.media.title}"`,
       timestamp: Date.now(),
       isSystem: true
     };
@@ -2653,7 +2711,7 @@ io.on('connection', (socket) => {
     room.settings.hostOnlyControls = !room.settings.hostOnlyControls;
     io.to(currentRoomId).emit('room:settings_updated', room.settings);
 
-    const mode = room.settings.hostOnlyControls ? '🔒 Host-only controls enabled' : '🔓 Free controls enabled (both can play/pause)';
+    const mode = room.settings.hostOnlyControls ? 'Host-only controls enabled' : 'Free controls enabled (both can play/pause)';
     const sysMsg = {
       id: `sys-${Date.now()}`,
       sender: 'System',
@@ -2686,7 +2744,7 @@ io.on('connection', (socket) => {
     const sysMsg = {
       id: `sys-${Date.now()}`,
       sender: 'System',
-      text: `📋 ${currentUser?.username} queued "${item.title}"`,
+      text: `${currentUser?.username} queued "${item.title}"`,
       timestamp: Date.now(),
       isSystem: true
     };

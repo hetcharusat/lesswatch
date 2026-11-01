@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserAvatar } from './JojoAvatar';
 import { ClayChat, ClayClose, ClayCheck, ClayClock, ClayArrow, ClayHeart } from './ClayIcons';
+import { Send, Smile, Users, MessageSquare, Check, CheckCheck } from 'lucide-react';
 
 export function ChatSidebar({
   isOpen = true,
@@ -183,7 +184,7 @@ export function ChatSidebar({
         >
           {messages.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '4rem', fontSize: '0.86rem', fontWeight: 600 }}>
-              No messages yet. Say hi to everyone! 🌸
+              No messages yet. Start the conversation!
             </div>
           ) : (
             messages.map((msg, idx) => {
@@ -225,15 +226,13 @@ export function ChatSidebar({
                           <span
                             style={{
                               color: isSeen ? '#38bdf8' : '#9ca3af',
-                              fontSize: '0.82rem',
-                              fontWeight: 900,
-                              letterSpacing: '-1.5px',
-                              marginLeft: '2px',
-                              lineHeight: 1
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              marginLeft: '2px'
                             }}
                             title={isSeen ? `Seen by ${partnerEntry?.[0] || 'partner'}` : 'Delivered'}
                           >
-                            {isSeen ? '✓✓' : '✓'}
+                            {isSeen ? <CheckCheck size={13} /> : <Check size={13} />}
                           </span>
                         )}
                       </span>
@@ -274,7 +273,7 @@ export function ChatSidebar({
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {connectedUsers.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '3rem', fontSize: '0.86rem' }}>
-              Only you in the room right now 🍿
+              Only you in the lounge right now
             </div>
           ) : (
             connectedUsers.map((u, idx) => {
@@ -355,13 +354,14 @@ export function ChatSidebar({
           <button
             type="button"
             onClick={() => setInputText(prev => prev + ' 🌸')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: 0 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+            title="Add emote"
           >
-            😊
+            <Smile size={18} color="var(--pink-primary)" />
           </button>
         </div>
 
-        {/* Hot Pink Circular Send Button with Paper Plane */}
+        {/* Hot Pink Circular Send Button */}
         <button
           type="submit"
           disabled={!inputText.trim()}
@@ -381,10 +381,9 @@ export function ChatSidebar({
             cursor: inputText.trim() ? 'pointer' : 'default',
             transition: 'all 0.2s ease'
           }}
+          title="Send message"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-          </svg>
+          <Send size={15} color="#ffffff" style={{ transform: 'translateX(1px)' }} />
         </button>
       </form>
     </div>

@@ -2,8 +2,8 @@ import React from 'react';
 
 /**
  * JoJo's Bizarre Adventure Custom Anime Avatars
- * - Het  -> Jotaro Kujo (Stardust Crusaders)
- * - Riaa / Ria -> Jolyne Cujoh (Stone Ocean)
+ * - Het -> Jotaro Kujo (Stardust Crusaders)
+ * - Ria -> Jolyne Cujoh (Stone Ocean)
  */
 
 export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', style = {}, showBorder = true }) {
@@ -136,7 +136,7 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
   if (isJolyne) {
     // Jolyne Cujoh (Stone Ocean) - Iconic double hair buns in lime/black, butterfly chest motif, turquoise/fuchsia anime styling
     return (
-      <div className={`jojo-avatar jojo-jolyne ${className}`} style={containerStyle} title="Riaa">
+      <div className={`jojo-avatar jojo-jolyne ${className}`} style={containerStyle} title="Ria">
         <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ display: 'block' }}>
           <defs>
             <linearGradient id="jolyneLime" x1="0%" y1="0%" x2="100%" y2="100%">
