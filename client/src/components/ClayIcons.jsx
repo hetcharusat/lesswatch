@@ -184,6 +184,36 @@ export function ClayChat({ size = 24, className = '', style = {} }) {
   );
 }
 
+// 6b. 3D Clay Users / Friends Icon
+export function ClayUsers({ size = 24, className = '', style = {} }) {
+  const s = typeof size === 'number' ? `${size}px` : size;
+  return (
+    <span className={`clay-icon ${className}`} style={{ display: 'inline-flex', width: s, height: s, minWidth: s, minHeight: s, alignItems: 'center', justifyContent: 'center', filter: 'drop-shadow(0 3px 6px rgba(236,72,153,0.35))', ...style }}>
+      <svg viewBox="0 0 40 40" width="100%" height="100%">
+        <defs>
+          <linearGradient id="cusers_p1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#ff70ba" />
+            <stop offset="50%" stopColor="#ec4899" />
+            <stop offset="100%" stopColor="#be185d" />
+          </linearGradient>
+          <linearGradient id="cusers_p2" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#f472b6" />
+            <stop offset="100%" stopColor="#db2777" />
+          </linearGradient>
+        </defs>
+        {/* Secondary user (behind) */}
+        <circle cx="28" cy="14" r="5" fill="url(#cusers_p2)" opacity="0.85" />
+        <path d="M22 32 C22 26 25 22 30 22 C34 22 37 25 38 31 C38 32 37 33 35 33 L23 33 Z" fill="url(#cusers_p2)" opacity="0.85" />
+        {/* Primary user (front) */}
+        <circle cx="16" cy="13" r="6" fill="url(#cusers_p1)" stroke="#ffffff" strokeWidth="1" />
+        <path d="M7 33 C7 25 11 21 17 21 C23 21 27 25 27 33 C27 34 26 35 24 35 L10 35 C8 35 7 34 7 33 Z" fill="url(#cusers_p1)" stroke="#ffffff" strokeWidth="1" />
+        {/* Specular clay highlight */}
+        <ellipse cx="14" cy="11" rx="2" ry="1.2" fill="#ffffff" opacity="0.75" />
+      </svg>
+    </span>
+  );
+}
+
 // 7. 3D Clay Download Cloud Icon
 export function ClayDownload({ size = 24, className = '', style = {} }) {
   const s = typeof size === 'number' ? `${size}px` : size;
@@ -670,6 +700,7 @@ export default {
   ClayFilm,
   ClaySparkle,
   ClayChat,
+  ClayUsers,
   ClayDownload,
   ClayPlay,
   ClayPause,

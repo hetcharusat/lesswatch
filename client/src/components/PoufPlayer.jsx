@@ -1103,7 +1103,7 @@ export function PoufPlayer({
           top: 0,
           left: 0,
           right: 0,
-          padding: '1rem 1.4rem 2.8rem',
+          padding: isChitChatMode ? '1rem 5.6rem 2.8rem 1.4rem' : '1rem 1.4rem 2.8rem',
           background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
           backdropFilter: 'none',
           WebkitBackdropFilter: 'none',
@@ -1155,28 +1155,26 @@ export function PoufPlayer({
             <span>{viewerCount}</span>
           </div>
 
-          {!isChitChatMode && (
-            <button
-              onClick={() => {
-                setIsLocked(true);
-                setShowControls(false);
-                triggerLockHint();
-              }}
-              className="pouf-glass-btn"
-              style={{
-                width: '32px',
-                height: '32px',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Lock Controls (L)"
-            >
-              <Lock size={14} />
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setIsLocked(true);
+              setShowControls(false);
+              triggerLockHint();
+            }}
+            className="pouf-glass-btn"
+            style={{
+              width: '32px',
+              height: '32px',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer'
+            }}
+            title="Lock Controls (L)"
+          >
+            <Lock size={14} />
+          </button>
         </div>
       </div>
 
@@ -1287,8 +1285,8 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 5.2. Non-Intrusive Corner Unlock HUD Button (Hidden in Chit Chat mode) */}
-      {isLocked && !isChitChatMode && (
+      {/* 5.2. Non-Intrusive Corner Unlock HUD Button (Top-Left corner, never collides) */}
+      {isLocked && (
         <button
           onClick={(e) => {
             e.stopPropagation();

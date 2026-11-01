@@ -33,6 +33,8 @@ import {
   ClaySubtitles,
   ClayUpload
 } from './ClayIcons';
+import { createNoiseSuppressorNode } from '../services/noiseSuppressor';
+import { GiphyPicker } from './GiphyPicker';
 
 function extractYouTubeId(url) {
   if (!url || typeof url !== 'string') return '';
@@ -63,7 +65,7 @@ const rtcConfig = {
   iceCandidatePoolSize: 10
 };
 
-// Studio Opus SDP modifier (Forces 128kbps stereo transmission, eliminates robotic artifacts)
+// Studio Opus SDP modifier (Forces 128kbps stereo transmission, forward error correction, continuous voice stream)
 function boostOpusSDP(sdp) {
   if (!sdp) return sdp;
   return sdp.replace(/a=fmtp:(\d+)(.*)/g, (match, pt, rest) => {
@@ -77,6 +79,12 @@ function boostOpusSDP(sdp) {
       }
       if (!params.includes('cbr=')) {
         params += ';cbr=1';
+      }
+      if (!params.includes('useinbandfec=')) {
+        params += ';useinbandfec=1';
+      }
+      if (!params.includes('usedtx=')) {
+        params += ';usedtx=0';
       }
       return `a=fmtp:${pt} ${params}`;
     }
@@ -212,8 +220,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [noiseSuppression, setNoiseSuppression] = useState(() => localStorage.getItem('wt_noise_supp') === 'true');
   const [noiseIntensity, setNoiseIntensity] = useState(() => {
     const saved = localStorage.getItem('wt_noise_intensity');
-    return saved !== null ? parseInt(saved, 10) : 40;
+    return saved !== null ? Math.max(0, Math.min(100, parseInt(saved, 10) || 0)) : 0;
   });
+  const [isEchoCancellationEnabled, setIsEchoCancellationEnabled] = useState(() => {
+    return localStorage.getItem('wt_echo_cancellation') !== 'false';
+  });
+  const isEchoCancellationEnabledRef = useRef(isEchoCancellationEnabled);
   const [micLevel, setMicLevel] = useState(0);
   const [isNoiseGateOpen, setIsNoiseGateOpen] = useState(false);
   const noiseIntensityRef = useRef(noiseIntensity);
@@ -368,6 +380,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [artPlayerDomEl, setArtPlayerDomEl] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInputText, setChatInputText] = useState('');
+  const [showFloatingGiphy, setShowFloatingGiphy] = useState(false);
   const [recentMessages, setRecentMessages] = useState([]);
 
   // Refs
@@ -474,19 +487,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       constraints = {
         audio: {
           echoCancellation: true,
-          noiseSuppression: true,
+          noiseSuppression: false,
           autoGainControl: true
         },
         video: false
       };
     } else {
-      // Desktop constraints with selected safe input
+      // Desktop constraints: Studio quality, user-controlled echo cancellation, zero browser ducking
       constraints = {
         audio: {
           deviceId: selectedAudioInput ? { ideal: selectedAudioInput } : undefined,
-          echoCancellation: true,
-          noiseSuppression: noiseSuppression,
-          autoGainControl: true
+          echoCancellation: isEchoCancellationEnabledRef.current,
+          noiseSuppression: false, // Handled via Web Audio / Speex node to prevent double-suppression
+          autoGainControl: false   // Prevents browser AGC from ducking mic during double-talk!
         },
         video: false
       };
@@ -495,15 +508,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     try {
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (err) {
-      if (isMobile) {
-        console.warn('High-spec mobile constraints failed, using basic audio fallback:', err);
-        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      }
-      throw err;
+      console.warn('High-spec constraints failed, using basic audio fallback:', err);
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
   }
 
-  // Web Audio Noise Gate & DSP Filter Pipeline
+  // Web Audio Noise Gate & DSP Filter Pipeline (@sapphi-red/web-noise-suppressor + Dynamic Gate)
   function setupAudioProcessing(rawStream) {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -521,6 +531,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) return rawStream;
 
+      // Keep native mic sample rate (e.g. 48kHz / 44.1kHz)
       const ctx = new AudioContextClass();
       audioContextRef.current = ctx;
       if (ctx.state === 'suspended') {
@@ -580,15 +591,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         return rawStream;
       }
 
-      // Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 90Hz)
+      // Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 80Hz)
       const highpass = ctx.createBiquadFilter();
       highpass.type = 'highpass';
-      highpass.frequency.value = 90;
-
-      // Gentle high cut (Removes harsh RF hiss and sharp sibilance above 8.5kHz)
-      const lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = 8500;
+      highpass.frequency.value = 80;
 
       // Dynamic Noise Gate Gain Node
       const gateGain = ctx.createGain();
@@ -597,18 +603,35 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       // Create destination for WebRTC output
       const destination = ctx.createMediaStreamDestination();
 
+      // Immediate clean pipeline with 0ms latency
       source.connect(highpass);
-      highpass.connect(lowpass);
-      lowpass.connect(gateGain);
+      highpass.connect(gateGain);
       gateGain.connect(destination);
 
       // Analyser connected to filtered audio for speaking & level detection
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.25;
+      analyser.smoothingTimeConstant = 0.2;
       highpass.connect(analyser);
 
-      audioNodesRef.current = { source, highpass, lowpass, gateGain, destination, analyser };
+      audioNodesRef.current = { source, highpass, gateGain, destination, analyser, speexNode: null };
+
+      // Asynchronously integrate AI/DSP Speex Noise Suppressor from @sapphi-red/web-noise-suppressor
+      createNoiseSuppressorNode(ctx).then((speexNode) => {
+        if (speexNode && audioNodesRef.current && audioNodesRef.current.highpass && audioNodesRef.current.gateGain) {
+          try {
+            audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
+            audioNodesRef.current.highpass.connect(speexNode);
+            speexNode.connect(audioNodesRef.current.gateGain);
+            audioNodesRef.current.speexNode = speexNode;
+            console.log('✅ @sapphi-red/web-noise-suppressor active in Web Audio pipeline');
+          } catch (e) {
+            console.warn('Error chaining speexNode:', e);
+          }
+        }
+      }).catch((e) => {
+        console.warn('createNoiseSuppressorNode initialization error:', e);
+      });
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
@@ -635,15 +658,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
         const intensity = noiseIntensityRef.current;
         if (intensity === 0) {
-          // Filter disabled: wide open
+          // Gate completely disabled: 100% wide open, zero cuts, studio clear voice!
           gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
           setIsNoiseGateOpen(true);
         } else {
-          // Threshold scale: at intensity 50%, threshold is ~19
-          const gateThreshold = 3 + (intensity * 0.32);
+          // Precision threshold scale
+          const gateThreshold = 2 + (intensity * 0.3);
           if (avg > gateThreshold) {
-            gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.015);
-            gateHoldTicks = 5; // ~300ms hold time prevents chopped words
+            gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.012);
+            gateHoldTicks = 8; // ~480ms hold time prevents cutting off trailing words!
             setIsNoiseGateOpen(true);
           } else {
             if (gateHoldTicks > 0) {
@@ -651,15 +674,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
               setIsNoiseGateOpen(true);
             } else {
-              gateGain.gain.setTargetAtTime(0.001, ctx.currentTime, 0.04);
+              // Gentle downward expander prevents unnatural hard cuts / popping
+              gateGain.gain.setTargetAtTime(0.015, ctx.currentTime, 0.05);
               setIsNoiseGateOpen(false);
             }
           }
         }
 
-        const isSpeakingNow = avg > 14;
+        const isSpeakingNow = avg > (intensity === 0 ? 10 : (2 + intensity * 0.28));
         if (isSpeakingNow) {
-          speakingTicks = Math.min(speakingTicks + 1, 6);
+          speakingTicks = Math.min(speakingTicks + 1, 5);
         } else {
           speakingTicks = Math.max(speakingTicks - 1, 0);
         }
@@ -686,8 +710,36 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localStorage.setItem('wt_noise_intensity', String(num));
     if (audioNodesRef.current?.gateGain && audioContextRef.current) {
       if (num === 0) {
-        audioNodesRef.current.gateGain.gain.setTargetAtTime(1.0, audioContextRef.current.currentTime, 0.02);
+        audioNodesRef.current.gateGain.gain.setValueAtTime(1.0, audioContextRef.current.currentTime);
         setIsNoiseGateOpen(true);
+      }
+    }
+  }
+
+  async function handleEchoCancellationToggle() {
+    const nextVal = !isEchoCancellationEnabled;
+    setIsEchoCancellationEnabled(nextVal);
+    isEchoCancellationEnabledRef.current = nextVal;
+    localStorage.setItem('wt_echo_cancellation', String(nextVal));
+    if (isVoiceConnectedRef.current && !isMutedRef.current) {
+      try {
+        const rawStream = await acquireMicStream();
+        rawHardwareStreamRef.current = rawStream;
+        const processedStream = setupAudioProcessing(rawStream);
+        localStreamRef.current = processedStream;
+        const newTrack = processedStream.getAudioTracks()[0] || rawStream.getAudioTracks()[0];
+        if (newTrack) {
+          localAudioTrackRef.current = newTrack;
+          newTrack.enabled = !isMutedRef.current;
+          peerConnectionsRef.current.forEach((pc) => {
+            const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+            if (sender) {
+              sender.replaceTrack(newTrack).catch(() => {});
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Error applying echo cancellation change:', err);
       }
     }
   }
@@ -763,20 +815,56 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
   }
 
-  // WebRTC Peer Connection Factory (Native Socket.IO Mesh - On Demand Only)
+  function renegotiatePeer(pc, peerId) {
+    if (!pc || pc.signalingState === 'closed') return;
+    pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
+      .then((offer) => {
+        offer.sdp = boostOpusSDP(offer.sdp);
+        return pc.setLocalDescription(offer);
+      })
+      .then(() => {
+        socketRef.current?.emit('voice:signal', {
+          targetPeerId: peerId,
+          signalData: { desc: pc.localDescription }
+        });
+      })
+      .catch((err) => console.warn('WebRTC renegotiation offer error:', err));
+  }
+
+  // WebRTC Peer Connection Factory (Native Socket.IO Mesh - Guaranteed Full Duplex)
   function getOrCreatePeerConnection(peerId, isInitiator = false) {
     if (peerConnectionsRef.current.has(peerId)) {
-      return peerConnectionsRef.current.get(peerId);
+      const existingPc = peerConnectionsRef.current.get(peerId);
+      // Ensure our local audio track is attached if missing
+      if (localStreamRef.current && localAudioTrackRef.current) {
+        const senders = existingPc.getSenders();
+        const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
+        if (!hasAudioSender) {
+          try {
+            existingPc.addTrack(localAudioTrackRef.current, localStreamRef.current);
+            if (isInitiator) {
+              renegotiatePeer(existingPc, peerId);
+            }
+          } catch (e) {
+            console.warn('Track add to existing pc error:', e);
+          }
+        } else if (isInitiator) {
+          renegotiatePeer(existingPc, peerId);
+        }
+      }
+      return existingPc;
     }
 
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnectionsRef.current.set(peerId, pc);
 
     // Attach local microphone tracks if active
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current);
-      });
+    if (localStreamRef.current && localAudioTrackRef.current) {
+      try {
+        pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
+      } catch (e) {
+        console.warn('Track add error on pc init:', e);
+      }
     }
 
     // ICE Candidate Exchange
@@ -803,18 +891,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     };
 
     if (isInitiator) {
-      pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
-        .then((offer) => {
-          offer.sdp = boostOpusSDP(offer.sdp);
-          return pc.setLocalDescription(offer);
-        })
-        .then(() => {
-          socketRef.current?.emit('voice:signal', {
-            targetPeerId: peerId,
-            signalData: { desc: pc.localDescription }
-          });
-        })
-        .catch((err) => console.warn('WebRTC offer error:', err));
+      renegotiatePeer(pc, peerId);
     }
 
     return pc;
@@ -859,13 +936,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       socketRef.current?.emit('voice:join', { hasAudio: true, hasVideo: false });
       socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
 
-      // Initiate WebRTC connections to all other connected peers
+      // CRITICAL FOR FULL DUPLEX TWO-WAY AUDIO:
+      // Loop over ALL existing peer connections and attach our new audio track + renegotiate!
+      peerConnectionsRef.current.forEach((pc, peerId) => {
+        const senders = pc.getSenders();
+        const audioSender = senders.find((s) => s.track && s.track.kind === 'audio');
+        if (audioSender) {
+          audioSender.replaceTrack(audioTrack).catch(() => {});
+        } else {
+          try {
+            pc.addTrack(audioTrack, processedStream);
+          } catch (e) {
+            console.warn('Failed to add track to existing pc:', e);
+          }
+        }
+        renegotiatePeer(pc, peerId);
+      });
+
+      // Initiate WebRTC connections to any other connected peers who don't have a PC yet
       const targets = connectedUsersRef.current && connectedUsersRef.current.length > 0
         ? connectedUsersRef.current
         : connectedUsers;
       targets.forEach((u) => {
         if (u.id && u.id !== socketRef.current?.id) {
-          getOrCreatePeerConnection(u.id, true);
+          if (!peerConnectionsRef.current.has(u.id)) {
+            getOrCreatePeerConnection(u.id, true);
+          }
         }
       });
 
@@ -1721,7 +1817,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     s.on('voice:peer_joined', ({ peerId, username, hasAudio }) => {
       console.log(`🎙️ Peer joined voice: ${username} (${peerId})`);
       if (isVoiceConnectedRef.current && localStreamRef.current) {
-        getOrCreatePeerConnection(peerId, true);
+        const pc = peerConnectionsRef.current.get(peerId);
+        if (pc) {
+          const senders = pc.getSenders();
+          const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
+          if (!hasAudioSender && localAudioTrackRef.current) {
+            try {
+              pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
+            } catch (e) {}
+          }
+          renegotiatePeer(pc, peerId);
+        } else {
+          getOrCreatePeerConnection(peerId, true);
+        }
       }
     });
 
@@ -1732,6 +1840,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           const { desc } = signalData;
           if (desc.type === 'offer') {
             const pc = getOrCreatePeerConnection(senderPeerId, false);
+            // CRITICAL FOR FULL DUPLEX TWO-WAY AUDIO:
+            if (localStreamRef.current && localAudioTrackRef.current) {
+              const senders = pc.getSenders();
+              const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
+              if (!hasAudioSender) {
+                try {
+                  pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
+                } catch (e) {
+                  console.warn('Track add on offer error:', e);
+                }
+              }
+            }
+
             await pc.setRemoteDescription(new RTCSessionDescription(desc));
 
             const queued = pendingCandidatesRef.current.get(senderPeerId) || [];
@@ -2898,12 +3019,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     };
   }, [activePlayerType]);
 
-  function handleSendChat(e) {
-    if (e) e.preventDefault();
+  function handleSendChat(e, gifUrl = null) {
+    if (e && e.preventDefault) e.preventDefault();
     if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     const text = chatInputText.trim();
-    if (!text || !socket) {
+    if ((!text && !gifUrl) || !socket) {
       setChatOpen(false);
+      setShowFloatingGiphy(false);
       setChatInputText('');
       if (activePlayerType === 'neko') {
         setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
@@ -2911,9 +3033,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return;
     }
 
-    socket.emit('chat:send_message', { text });
+    socket.emit('chat:send_message', { text, image: gifUrl || null });
     setChatInputText('');
     setChatOpen(false);
+    setShowFloatingGiphy(false);
     if (activePlayerType === 'neko') {
       setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
     }
@@ -2998,14 +3121,71 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
                 {m.sender}:
               </span>
-              <span>{m.text}</span>
+              {m.image ? (
+                <img
+                  src={m.image}
+                  alt="GIF"
+                  style={{
+                    maxHeight: '75px',
+                    borderRadius: '8px',
+                    display: 'block',
+                    marginTop: '2px'
+                  }}
+                />
+              ) : (
+                <span>{m.text}</span>
+              )}
             </div>
           ))}
         </div>
 
+        {/* Floating In-Video GIPHY Picker popup */}
+        {showFloatingGiphy && chatOpen && (
+          <div style={{ width: '280px', marginBottom: '8px' }}>
+            <GiphyPicker
+              onSelectGif={(gifUrl) => handleSendChat(null, gifUrl)}
+              onClose={() => setShowFloatingGiphy(false)}
+              isDarkTheme={true}
+            />
+          </div>
+        )}
+
         {chatOpen && (
           <form onSubmit={handleSendChat} className="floating-glass-chat-bar">
             <UserAvatar user={currentProfile} size={24} showBorder={true} />
+
+            {/* Quick GIF Button */}
+            <button
+              type="button"
+              onClick={() => setShowFloatingGiphy((prev) => !prev)}
+              style={{
+                background: showFloatingGiphy ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(244, 114, 182, 0.35)',
+                borderRadius: '6px',
+                padding: '2px 5px',
+                cursor: 'pointer',
+                lineHeight: 1
+              }}
+              title="Send GIF"
+            >
+              <span style={{ fontSize: '0.62rem', fontWeight: 900, color: showFloatingGiphy ? '#ffffff' : '#f472b6' }}>
+                GIF
+              </span>
+            </button>
+
+            {/* Quick Emoji Reactions */}
+            {['❤️', '😂', '🍿'].map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => setChatInputText((prev) => prev + em)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.92rem', padding: '1px 2px', lineHeight: 1 }}
+                title={`Insert ${em}`}
+              >
+                {em}
+              </button>
+            ))}
+
             <input
               ref={chatInputRef}
               type="text"
@@ -3025,6 +3205,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               type="button"
               onClick={() => {
                 setChatOpen(false);
+                setShowFloatingGiphy(false);
                 setChatInputText('');
                 if (activePlayerType === 'neko') {
                   setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
@@ -3643,7 +3824,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                   Noise Filter & Gate
                 </span>
                 <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isNoiseGateOpen ? '#34d399' : '#f472b6' }}>
-                  {noiseIntensity === 0 ? 'Off' : isNoiseGateOpen ? 'Open' : 'Gated'}
+                  {noiseIntensity === 0 ? 'Off (Pure Voice)' : isNoiseGateOpen ? 'Open' : 'Gated'}
                 </span>
               </div>
 
@@ -3674,6 +3855,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                   {noiseIntensity}%
                 </span>
               </div>
+              <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
+                {noiseIntensity === 0 ? 'Gate is off: 100% full speech transmission' : 'Silences room rumble & fan noise between words'}
+              </div>
+            </div>
+
+            {/* Echo Cancellation Mode Toggle */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(244, 114, 182, 0.18)',
+              borderRadius: '10px',
+              padding: '8px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f1f5f9' }}>
+                  Echo Cancellation
+                </span>
+                <span style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
+                  {isEchoCancellationEnabled ? 'On (Safe for Speakers)' : 'Off (Studio Mode for Headphones)'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleEchoCancellationToggle}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '9999px',
+                  border: isEchoCancellationEnabled ? '1px solid rgba(236, 72, 153, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                  background: isEchoCancellationEnabled ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'rgba(255, 255, 255, 0.08)',
+                  color: '#ffffff',
+                  fontSize: '0.70rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {isEchoCancellationEnabled ? 'Enabled' : 'Disabled'}
+              </button>
             </div>
 
             {/* Mic Toggle Button */}
@@ -3894,9 +4116,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             title="Exit Chit Chat Mode (Esc)"
             style={{
               position: 'absolute',
-              top: '20px',
-              right: '20px',
-              zIndex: 80,
+              top: '16px',
+              right: '18px',
+              zIndex: 90,
               width: '38px',
               height: '38px',
               borderRadius: '50%',
@@ -4547,8 +4769,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             isCollapsed={false}
             onToggleCollapse={() => setIsChatCollapsed(true)}
             messages={chatMessages}
-            onSendMessage={(text) => {
-              socket?.emit('chat:send_message', { text, isDanmaku: true });
+            onSendMessage={(text, image) => {
+              socket?.emit('chat:send_message', { text, image, isDanmaku: true });
             }}
             currentProfile={currentProfile}
             connectedUsers={connectedUsers}
@@ -4584,8 +4806,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           isOpen={isChatSidebarOpen}
           onClose={() => setIsChatSidebarOpen(false)}
           messages={chatMessages}
-          onSendMessage={(text) => {
-            socket?.emit('chat:send_message', { text, isDanmaku: true });
+          onSendMessage={(text, image) => {
+            socket?.emit('chat:send_message', { text, image, isDanmaku: true });
           }}
           currentProfile={currentProfile}
           connectedUsers={connectedUsers}
