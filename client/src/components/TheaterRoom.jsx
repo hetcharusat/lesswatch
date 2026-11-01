@@ -2675,6 +2675,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       const isFs = !!fsEl || isF11;
       setIsTheaterFullscreen(isFs);
 
+      if (!isFs) {
+        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+          navigator.keyboard.unlock();
+        }
+      }
+
       // Inform Neko iframe of fullscreen state
       try {
         const iframeDoc = nekoIframeRef.current?.contentDocument;
@@ -2917,38 +2923,42 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
         else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       }
-    } else if (artInstanceRef.current && activePlayerType !== 'neko') {
-      try {
-        if (typeof artInstanceRef.current.fullscreenToggle === 'function') {
-          artInstanceRef.current.fullscreenToggle();
-        } else if (typeof artInstanceRef.current.fullscreen === 'boolean') {
-          artInstanceRef.current.fullscreen = !artInstanceRef.current.fullscreen;
-        } else {
-          const playerEl = artInstanceRef.current.template?.$player || artContainerRef.current;
-          if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-            if (playerEl?.requestFullscreen) playerEl.requestFullscreen().catch(() => {});
-            else if (playerEl?.webkitRequestFullscreen) playerEl.webkitRequestFullscreen();
-          } else {
-            if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-          }
+    } else if (activePlayerType !== 'neko') {
+      // Direct / HLS PoufPlayer media
+      const container = document.querySelector('.pouf-player-container') || theaterCanvasRef.current;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (container?.requestFullscreen) {
+          container.requestFullscreen().then(() => {
+            if ('keyboard' in navigator && navigator.keyboard?.lock) {
+              navigator.keyboard.lock(['Escape']).catch(() => {});
+            }
+          }).catch(() => {});
+        } else if (container?.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
         }
-      } catch {
-        const playerEl = artInstanceRef.current.template?.$player || artContainerRef.current || theaterCanvasRef.current;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-          if (playerEl?.requestFullscreen) playerEl.requestFullscreen().catch(() => {});
-          else if (playerEl?.webkitRequestFullscreen) playerEl.webkitRequestFullscreen();
-        } else {
-          if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      } else {
+        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+          navigator.keyboard.unlock();
         }
+        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       }
     } else {
       const el = theaterCanvasRef.current;
       if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (el?.requestFullscreen) el.requestFullscreen().catch(() => {});
-        else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        if (el?.requestFullscreen) {
+          el.requestFullscreen().then(() => {
+            if ('keyboard' in navigator && navigator.keyboard?.lock) {
+              navigator.keyboard.lock(['Escape']).catch(() => {});
+            }
+          }).catch(() => {});
+        } else if (el?.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen();
+        }
       } else {
+        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+          navigator.keyboard.unlock();
+        }
         if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
         else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       }
@@ -3000,6 +3010,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           handleExitChitChat();
           return;
         }
+        // If nothing else is open, exit fullscreen cleanly if currently in fullscreen
+        const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+        if (fsEl) {
+          e.preventDefault();
+          e.stopPropagation();
+          if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+            navigator.keyboard.unlock();
+          }
+          if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+          return;
+        }
       }
 
       if (isInInput) {
@@ -3041,13 +3063,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const isSidebarActive = (isChitChatModeRef.current && !isChatCollapsedRef.current) || isChatSidebarOpenRef.current;
         if (!isSidebarActive) {
           e.preventDefault();
+          e.stopPropagation();
           setChatOpen(true);
           resetChatInactivityTimer();
           setTimeout(() => {
             if (chatInputRef.current) {
               chatInputRef.current.focus();
             }
-          }, 30);
+          }, 40);
         }
         return;
       }
@@ -3143,7 +3166,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         className="floating-chat-overlay"
         onClick={(e) => e.stopPropagation()}
         style={{
-          bottom: (isTheaterFullscreen || activePlayerType === 'neko') ? (chatOpen ? '20px' : '64px') : '72px'
+          bottom: (isTheaterFullscreen || activePlayerType === 'neko') ? (chatOpen ? '72px' : '64px') : '72px'
         }}
       >
         <div className="floating-chat-bubbles-stack">
@@ -3235,6 +3258,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 setChatInputText(e.target.value);
                 resetChatInactivityTimer();
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setChatOpen(false);
+                  setShowFloatingGiphy(false);
+                  setChatInputText('');
+                  chatInputRef.current?.blur();
+                }
+              }}
               placeholder={`Chat with ${currentProfile.name === 'Het' ? 'Ria' : 'Het'}... (Enter to send, Esc to close)`}
               className="floating-chat-input"
               autoFocus
@@ -3262,9 +3295,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       </div>
     );
 
-    if (artPlayerDomEl && activePlayerType !== 'youtube' && activePlayerType !== 'neko') {
-      return ReactDOM.createPortal(overlay, artPlayerDomEl);
-    }
     return overlay;
   }
 
@@ -4449,17 +4479,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               }
             }}
             onForceSyncAll={() => handleForceSync()}
-            onToggleChat={() => {
-              setIsChitChatMode((prev) => {
-                const next = !prev;
-                if (next) {
-                  setIsChatCollapsed(false);
-                  setIsChatSidebarOpen(false);
-                  handleMarkChatSeen();
-                }
-                return next;
-              });
-            }}
             viewerCount={connectedUsers.length || 1}
             isHost={isHost}
             canControl={true}
@@ -4472,15 +4491,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 resetChatInactivityTimer();
                 setTimeout(() => {
                   if (chatInputRef.current) chatInputRef.current.focus();
-                }, 30);
+                }, 40);
               }
             }}
-          />
+          >
+            {renderChatOverlay()}
+          </PoufPlayer>
         </div>
         )}
 
-        {/* Floating Chat Overlay (auto-fades in 5s) */}
-        {renderChatOverlay()}
+        {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
+        {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
 
         {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
         {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (

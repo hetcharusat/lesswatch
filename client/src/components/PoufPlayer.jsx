@@ -87,7 +87,8 @@ export function PoufPlayer({
   canControl = true,
   isChitChatMode = false,
   className = '',
-  style = {}
+  style = {},
+  children
 }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
@@ -878,15 +879,42 @@ export function PoufPlayer({
     setHoverTime(null);
   }
 
+  useEffect(() => {
+    const handleFsChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      setIsFullscreen(!!fsEl);
+      if (!fsEl && 'keyboard' in navigator && navigator.keyboard?.unlock) {
+        navigator.keyboard.unlock();
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+    };
+  }, []);
+
   function toggleFullscreen() {
     const container = containerRef.current;
     if (!container) return;
 
-    if (!document.fullscreenElement) {
-      if (container.requestFullscreen) container.requestFullscreen().catch(() => {});
-      else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFs) {
+      if (container.requestFullscreen) {
+        container.requestFullscreen().then(() => {
+          if ('keyboard' in navigator && navigator.keyboard?.lock) {
+            navigator.keyboard.lock(['Escape']).catch(() => {});
+          }
+        }).catch(() => {});
+      } else if (container.webkitRequestFullscreen) {
+        container.webkitRequestFullscreen();
+      }
       setIsFullscreen(true);
     } else {
+      if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+        navigator.keyboard.unlock();
+      }
       if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       setIsFullscreen(false);
@@ -974,6 +1002,18 @@ export function PoufPlayer({
     localStorage.setItem('wt_playback_speed', newSpeed);
   };
 
+  // Always-fresh refs for keyboard shortcuts to avoid stale closures
+  const onEnterChatRef = useRef(onEnterChat);
+  onEnterChatRef.current = onEnterChat;
+  const onToggleChatRef = useRef(onToggleChat);
+  onToggleChatRef.current = onToggleChat;
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+  const showSubMenuRef = useRef(showSubMenu);
+  showSubMenuRef.current = showSubMenu;
+  const showSettingsMenuRef = useRef(showSettingsMenu);
+  showSettingsMenuRef.current = showSettingsMenu;
+
   // Keyboard Shortcuts
   useEffect(() => {
     function handleKeyDown(e) {
@@ -991,14 +1031,14 @@ export function PoufPlayer({
         return;
       }
 
-      if (isLocked) {
+      if (isLockedRef.current) {
         triggerLockHint();
         return;
       }
 
       // Escape closes player popover menus first
       if (e.key === 'Escape') {
-        if (showSubMenu || showSettingsMenu) {
+        if (showSubMenuRef.current || showSettingsMenuRef.current) {
           e.preventDefault();
           e.stopPropagation();
           setShowSubMenu(false);
@@ -1009,9 +1049,10 @@ export function PoufPlayer({
 
       // Enter triggers floating quick chat if available
       if (e.key === 'Enter') {
-        if (onEnterChat) {
+        if (onEnterChatRef.current) {
           e.preventDefault();
-          onEnterChat();
+          e.stopPropagation();
+          onEnterChatRef.current();
           return;
         }
       }
@@ -1033,7 +1074,7 @@ export function PoufPlayer({
         setIsMuted(prev => !prev);
       } else if (e.key === 'c' || e.key === 'C') {
         e.preventDefault();
-        onToggleChat?.();
+        onToggleChatRef.current?.();
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         handleTogglePiP();
@@ -1042,7 +1083,7 @@ export function PoufPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [duration, activeSubtitleIndex, allSubtitles.length]);
+  }, []);
 
   return (
     <div
@@ -1176,26 +1217,28 @@ export function PoufPlayer({
             <span>{viewerCount}</span>
           </div>
 
-          <button
-            onClick={() => {
-              setIsLocked(true);
-              setShowControls(false);
-              triggerLockHint();
-            }}
-            className="pouf-glass-btn"
-            style={{
-              width: '32px',
-              height: '32px',
-              color: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-            title="Lock Controls (L)"
-          >
-            <Lock size={14} />
-          </button>
+          {!isChitChatMode && (
+            <button
+              onClick={() => {
+                setIsLocked(true);
+                setShowControls(false);
+                triggerLockHint();
+              }}
+              className="pouf-glass-btn"
+              style={{
+                width: '32px',
+                height: '32px',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+              title="Lock Controls (L)"
+            >
+              <Lock size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -2376,6 +2419,9 @@ export function PoufPlayer({
           </div>
         )}
       </div>
+
+      {/* 8. In-Video Overlays (Floating Instant Chat rendered inside player for Fullscreen visibility) */}
+      {children}
     </div>
   );
 }
