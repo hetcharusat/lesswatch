@@ -1640,16 +1640,24 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
     const range = req.headers.range;
 
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=3600');
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
-      // Cap open-ended range request to 6MB chunk so seeking buffers instantly
-      const CHUNK_SIZE = 6 * 1024 * 1024;
-      const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + CHUNK_SIZE - 1, fileSize - 1);
-      const chunkSize = end - start + 1;
+      if (isNaN(start) || start >= fileSize) {
+        res.setHeader('Content-Range', `bytes */${fileSize}`);
+        return res.status(416).send('Requested Range Not Satisfiable');
+      }
 
+      // Stream natural byte range without premature termination
+      let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      if (isNaN(end) || end >= fileSize) {
+        end = fileSize - 1;
+      }
+
+      const chunkSize = end - start + 1;
       const fileStream = fs.createReadStream(filePath, { start, end });
       const headers = {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -1661,6 +1669,13 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
 
       res.writeHead(206, headers);
       fileStream.pipe(res);
+
+      req.on('close', () => {
+        fileStream.destroy();
+      });
+      fileStream.on('error', () => {
+        if (!res.headersSent) res.status(500).send('Streaming read error');
+      });
     } else {
       const headers = {
         'Content-Length': fileSize,
@@ -1669,7 +1684,12 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         'Cache-Control': 'public, max-age=3600'
       };
       res.writeHead(200, headers);
-      fs.createReadStream(filePath).pipe(res);
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+      req.on('close', () => fileStream.destroy());
+      fileStream.on('error', () => {
+        if (!res.headersSent) res.status(500).send('Streaming read error');
+      });
     }
   } catch (err) {
     if (!res.headersSent) res.status(500).send('Streaming error');

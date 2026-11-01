@@ -41,7 +41,11 @@ import {
   Lock,
   Unlock,
   PictureInPicture,
-  Sun
+  Sun,
+  ChevronRight,
+  ChevronLeft,
+  Gauge,
+  Crop
 } from 'lucide-react';
 
 /**
@@ -104,13 +108,17 @@ export function PoufPlayer({
   const [hoverTime, setHoverTime] = useState(null);
   const [hoverPosition, setHoverPosition] = useState(0);
 
-  // Separate Menus for Subtitles and Settings
+  // Separate Compact YouTube-Style Menus for Subtitles and Settings
   const [showSubMenu, setShowSubMenu] = useState(false);
+  const [subsSubView, setSubsSubView] = useState('root'); // 'root' | 'options' | 'search'
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [settingsSubView, setSettingsSubView] = useState('root'); // 'root' | 'audio' | 'speed' | 'boost' | 'filters' | 'aspect'
   const [activeSettingsTab, setActiveSettingsTab] = useState('audio'); // 'audio' | 'visual' | 'aspect' | 'speed'
+  const [subtitleColor, setSubtitleColor] = useState(() => localStorage.getItem('wt_sub_color') || '#ffffff');
 
   // Controls Lock Mode
   const [isLocked, setIsLocked] = useState(false);
+  const [isHoveringUnlock, setIsHoveringUnlock] = useState(false);
   const [showLockHint, setShowLockHint] = useState(false);
   const lockHintTimerRef = useRef(null);
 
@@ -1001,6 +1009,9 @@ export function PoufPlayer({
         onPause={handlePauseEvent}
         onWaiting={() => setIsBuffering(true)}
         onCanPlay={() => setIsBuffering(false)}
+        onSeeking={() => setIsBuffering(true)}
+        onSeeked={() => setIsBuffering(false)}
+        onError={() => setIsBuffering(false)}
         style={{
           width: '100%',
           height: '100%',
@@ -1131,7 +1142,7 @@ export function PoufPlayer({
           <span
             style={{
               display: 'inline-block',
-              color: subtitleStyle === 'pink' ? '#ff85c0' : '#ffffff',
+              color: subtitleColor || (subtitleStyle === 'pink' ? '#ff85c0' : '#ffffff'),
               fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               fontSize: `${subtitleSize}px`,
               fontWeight: 800,
@@ -1215,57 +1226,41 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* 5.2. Screen Controls Locked HUD */}
+      {/* 5.2. Non-Intrusive Corner Unlock HUD Button */}
       {isLocked && (
-        <div
-          onClick={(e) => e.stopPropagation()}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsLocked(false);
+            setShowControls(true);
+          }}
+          onMouseEnter={() => setIsHoveringUnlock(true)}
+          onMouseLeave={() => setIsHoveringUnlock(false)}
+          title="Controls Locked — Click to Unlock"
           style={{
             position: 'absolute',
-            top: '24px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 60,
+            top: '20px',
+            left: '20px',
+            zIndex: 80,
+            width: '38px',
+            height: '38px',
+            borderRadius: '50%',
+            background: isHoveringUnlock ? 'rgba(236, 72, 153, 0.28)' : 'rgba(15, 10, 22, 0.65)',
+            backdropFilter: 'blur(16px)',
+            border: isHoveringUnlock ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.12)',
+            color: isHoveringUnlock ? '#ffffff' : '#9ca3af',
             display: 'flex',
             alignItems: 'center',
-            gap: '10px',
-            padding: '8px 18px',
-            borderRadius: '9999px',
-            background: 'rgba(18, 8, 26, 0.88)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(244, 114, 182, 0.4)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(244, 114, 182, 0.28)',
-            opacity: showControls || showLockHint ? 1 : 0.28,
-            transition: 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+            justifyContent: 'center',
+            cursor: 'pointer',
+            opacity: isHoveringUnlock ? 1 : 0.28,
+            boxShadow: isHoveringUnlock ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
+            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            pointerEvents: 'auto'
           }}
         >
-          <Lock size={14} color="#f472b6" />
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fce7f3' }}>
-            Controls Locked
-          </span>
-          <button
-            onClick={() => {
-              setIsLocked(false);
-              setShowControls(true);
-            }}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 10px',
-              borderRadius: '9999px',
-              background: 'linear-gradient(135deg, #ec4899, #db2777)',
-              border: 'none',
-              color: '#ffffff',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 0 10px rgba(236, 72, 153, 0.45)'
-            }}
-          >
-            <Unlock size={12} />
-            <span>Unlock</span>
-          </button>
-        </div>
+          {isHoveringUnlock ? <Unlock size={17} color="#f472b6" /> : <Lock size={17} color="#9ca3af" />}
+        </button>
       )}
 
       {/* 6. Minimalist Obsidian Cinema HUD Glass Controls Overlay */}
@@ -1512,10 +1507,11 @@ export function PoufPlayer({
             <button
               onClick={() => {
                 setShowSubMenu(prev => !prev);
+                setSubsSubView('root');
                 setShowSettingsMenu(false);
               }}
               className={showSubMenu ? 'pouf-dock-pill-btn active' : 'pouf-dock-pill-btn'}
-              title="Subtitles & SubDL Search"
+              title="Subtitles (CC)"
             >
               <ClaySubtitles size={14} />
               <span>Subs</span>
@@ -1528,10 +1524,11 @@ export function PoufPlayer({
             <button
               onClick={() => {
                 setShowSettingsMenu(prev => !prev);
+                setSettingsSubView('root');
                 setShowSubMenu(false);
               }}
               className={showSettingsMenu ? 'pouf-dock-icon-btn active' : 'pouf-dock-icon-btn'}
-              title="Settings (Audio, Ratio, Sync)"
+              title="Settings (Audio, Speed, Boost, Presets)"
             >
               <Settings
                 size={16}
@@ -1563,7 +1560,7 @@ export function PoufPlayer({
         </div>
 
         {/* ------------------------------------------------------------------ */}
-        {/* 7. DEDICATED SUBTITLES & STYLING POPOVER (OUTSIDE SETTINGS)        */}
+        {/* 7. COMPACT YOUTUBE-STYLE SUBTITLES POPOVER                         */}
         {/* ------------------------------------------------------------------ */}
         {showSubMenu && (
           <div
@@ -1571,413 +1568,302 @@ export function PoufPlayer({
             className="pouf-popover-shell"
             style={{
               position: 'absolute',
-              bottom: '76px',
-              right: '32px',
-              padding: '16px',
-              width: '360px',
-              maxHeight: '480px',
-              zIndex: 70,
+              bottom: '62px',
+              right: '54px',
+              width: '260px',
+              maxHeight: '380px',
+              padding: '8px',
+              zIndex: 75,
               display: 'flex',
               flexDirection: 'column',
-              gap: '12px',
+              gap: '4px',
               overflowY: 'auto'
             }}
           >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <ClaySubtitles size={15} />
+            {subsSubView === 'root' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#fce7f3' }}>
+                    Subtitles (CC)
+                  </span>
+                  <button
+                    onClick={() => setShowSubMenu(false)}
+                    style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0 }}
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
-                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3', letterSpacing: '0.02em' }}>
-                  Subtitles & Styling
-                </span>
-              </div>
-              <button
-                onClick={() => setShowSubMenu(false)}
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '50%',
-                  color: '#9ca3af',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <X size={13} />
-              </button>
-            </div>
 
-            {/* Subtitle Track Selector */}
-            <div>
-              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.05em' }}>
-                Active Subtitle Track
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '120px', overflowY: 'auto' }}>
-                <button
-                  onClick={() => onSubtitleChange?.(-1)}
-                  className={`pouf-item-card ${activeSubtitleIndex === -1 ? 'active' : ''}`}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '160px', overflowY: 'auto', marginTop: '2px' }}>
+                  <div
+                    onClick={() => onSubtitleChange?.(-1)}
+                    className={`pouf-yt-menu-item ${activeSubtitleIndex === -1 ? 'active' : ''}`}
+                  >
+                    <span>Off</span>
+                    {activeSubtitleIndex === -1 && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                  </div>
+
+                  {allSubtitles.map((t, idx) => {
+                    const isActive = activeSubtitleIndex === idx;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => onSubtitleChange?.(idx)}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {t.title || `Track ${idx + 1}`}
+                        </span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".srt,.vtt"
+                  onChange={handleUploadSubtitleFile}
+                  style={{ display: 'none' }}
+                />
+
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="pouf-yt-menu-item"
                 >
-                  <span style={{ fontWeight: activeSubtitleIndex === -1 ? 700 : 500 }}>Off (No Subtitles)</span>
-                  {activeSubtitleIndex === -1 ? <span className="pouf-badge-active">ACTIVE</span> : <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>}
+                  <Upload size={14} color="#f472b6" />
+                  <span>Upload Subtitle File</span>
+                </div>
+
+                <div
+                  onClick={() => setSubsSubView('search')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Sparkles size={14} color="#f472b6" />
+                  <span>Search SubDL Online</span>
+                  <ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} />
+                </div>
+
+                <div
+                  onClick={() => setSubsSubView('options')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Sliders size={14} color="#f472b6" />
+                  <span>Options & Delay Sync</span>
+                  <ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} />
+                </div>
+              </>
+            )}
+
+            {subsSubView === 'options' && (
+              <>
+                <button
+                  onClick={() => setSubsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Subtitle Options</span>
                 </button>
 
-                {allSubtitles.map((t, idx) => {
-                  const isActive = activeSubtitleIndex === idx;
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => onSubtitleChange?.(idx)}
-                      className={`pouf-item-card ${isActive ? 'active' : ''}`}
-                    >
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 700 : 500 }}>
-                        {t.title || `Track ${idx + 1}`}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
+                  {/* Font Size */}
+                  <div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                      Font Size ({subtitleSize}px)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                      {[
+                        { label: 'S', val: 18 },
+                        { label: 'M', val: 24 },
+                        { label: 'L', val: 32 },
+                        { label: 'XL', val: 40 }
+                      ].map((sz) => (
+                        <button
+                          key={sz.val}
+                          onClick={() => handleSizeChange(sz.val)}
+                          className={`pouf-dock-pill-btn ${subtitleSize === sz.val ? 'active' : ''}`}
+                          style={{ padding: '3px 0', justifyContent: 'center', fontSize: '0.70rem' }}
+                        >
+                          {sz.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Subtitle Color Swatches */}
+                  <div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                      Text Color
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {[
+                        { color: '#ffffff', label: 'White' },
+                        { color: '#fde047', label: 'Yellow' },
+                        { color: '#38bdf8', label: 'Cyan' },
+                        { color: '#f472b6', label: 'Pink' }
+                      ].map((c) => (
+                        <button
+                          key={c.color}
+                          onClick={() => {
+                            setSubtitleColor(c.color);
+                            localStorage.setItem('wt_sub_color', c.color);
+                          }}
+                          style={{
+                            flex: 1,
+                            height: '24px',
+                            borderRadius: '6px',
+                            background: c.color,
+                            border: subtitleColor === c.color ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)',
+                            boxShadow: subtitleColor === c.color ? '0 0 10px rgba(255,255,255,0.6)' : 'none',
+                            cursor: 'pointer'
+                          }}
+                          title={c.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Position */}
+                  <div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                      Position
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                      {[
+                        { label: 'Bottom', val: 36 },
+                        { label: 'Raised', val: 80 },
+                        { label: 'High', val: 140 }
+                      ].map((p) => (
+                        <button
+                          key={p.val}
+                          onClick={() => handleBottomChange(p.val)}
+                          className={`pouf-dock-pill-btn ${subtitleBottom === p.val ? 'active' : ''}`}
+                          style={{ padding: '3px 0', justifyContent: 'center', fontSize: '0.68rem' }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Delay Offset */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px' }}>
+                      <span>Sync Delay</span>
+                      <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
                       </span>
-                      {isActive ? <span className="pouf-badge-active">ACTIVE</span> : <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Quick Actions: Upload File & SubDL Direct Search */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept=".srt,.vtt"
-                onChange={handleUploadSubtitleFile}
-                style={{ display: 'none' }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="pouf-glass-btn"
-                style={{
-                  padding: '6px 8px',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '5px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Upload size={12} color="#f472b6" />
-                <span>Upload File</span>
-              </button>
-
-              <button
-                onClick={handleToggleOnlineSubSearch}
-                className={showOnlineSubSearch ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                style={{
-                  padding: '6px 8px',
-                  fontSize: '0.72rem',
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '5px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Sparkles size={12} />
-                <span>SubDL Search</span>
-              </button>
-            </div>
-
-            {/* SubDL Direct Search Drawer */}
-            {showOnlineSubSearch && (
-              <div
-                className="pouf-glass-card"
-                style={{
-                  padding: '10px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '7px'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <Search size={12} color="#f472b6" />
-                    <span>SubDL Online Subtitles</span>
-                  </span>
-                  <span style={{ fontSize: '0.62rem', color: '#9ca3af' }}>API Ready</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => handleDelayChange(subtitleDelay - 0.5)}
+                        className="pouf-dock-pill-btn"
+                        style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.70rem' }}
+                      >
+                        -0.5s
+                      </button>
+                      <button
+                        onClick={() => handleDelayChange(0.0)}
+                        className="pouf-dock-pill-btn"
+                        style={{ padding: '3px 8px', fontSize: '0.68rem' }}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        onClick={() => handleDelayChange(subtitleDelay + 0.5)}
+                        className="pouf-dock-pill-btn"
+                        style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.70rem' }}
+                      >
+                        +0.5s
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
+              </>
+            )}
+
+            {subsSubView === 'search' && (
+              <>
+                <button
+                  onClick={() => setSubsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>SubDL Online Search</span>
+                </button>
+
+                <div style={{ display: 'flex', gap: '4px', padding: '2px 4px' }}>
                   <input
                     type="text"
                     value={onlineSearchQuery}
                     onChange={(e) => setOnlineSearchQuery(e.target.value)}
-                    placeholder="Search title, filename or episode..."
+                    placeholder="Search movie/anime..."
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()}
                     className="pouf-glass-input"
-                    style={{
-                      flex: 1,
-                      padding: '5px 8px',
-                      fontSize: '0.72rem'
-                    }}
+                    style={{ flex: 1, padding: '4px 6px', fontSize: '0.72rem' }}
                   />
                   <button
                     onClick={() => handleSearchOnlineSubtitles()}
                     disabled={isSearchingOnline}
                     className="pouf-glass-btn-primary"
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '0.72rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
+                    style={{ padding: '4px 8px', fontSize: '0.70rem' }}
                   >
                     {isSearchingOnline ? '...' : <Search size={12} />}
                   </button>
                 </div>
 
-                {isSearchingOnline ? (
-                  <div style={{ padding: '12px 0', textAlign: 'center', color: '#f472b6', fontSize: '0.70rem', fontWeight: 700 }}>
-                    Searching SubDL releases...
-                  </div>
-                ) : onlineSearchResults.length > 0 ? (
-                  <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
-                    {onlineSearchResults.map((sub, sIdx) => {
-                      const isDownloadingThis = downloadingSubId === sub.fileId;
-                      return (
-                        <div
-                          key={sIdx}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '6px 8px',
-                            borderRadius: '6px',
-                            background: 'rgba(255,255,255,0.04)',
-                            border: '1px solid rgba(244, 114, 182, 0.18)',
-                            gap: '6px'
-                          }}
-                        >
-                          <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, textAlign: 'left' }}>
-                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.70rem', color: '#f3f4f6', fontWeight: 700 }} title={sub.fileName}>
-                              {sub.fileName}
-                            </div>
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginTop: '2px', fontSize: '0.60rem' }}>
-                              <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(244, 114, 182, 0.25)', color: '#f472b6', fontWeight: 800 }}>
-                                {sub.language}
-                              </span>
-                              {sub.episode && (
-                                <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db', fontWeight: 700 }}>
-                                  S{sub.season}E{sub.episode}
-                                </span>
-                              )}
-                              {sub.hi && (
-                                <span style={{ padding: '0px 4px', borderRadius: '3px', background: 'rgba(251, 191, 36, 0.2)', color: '#fbbf24', fontWeight: 700 }}>
-                                  SDH
-                                </span>
-                              )}
-                              {sub.author && (
-                                <span style={{ color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  by {sub.author}
-                                </span>
-                              )}
-                            </div>
+                <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                  {isSearchingOnline ? (
+                    <div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.70rem', color: '#f472b6' }}>
+                      Searching SubDL...
+                    </div>
+                  ) : onlineSearchResults.length > 0 ? (
+                    onlineSearchResults.map((sub, sIdx) => (
+                      <div
+                        key={sIdx}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '4px 6px',
+                          borderRadius: '6px',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(244,114,182,0.15)',
+                          gap: '6px'
+                        }}
+                      >
+                        <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, fontSize: '0.68rem', color: '#f3f4f6' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                            {sub.fileName}
                           </div>
-                          <button
-                            onClick={() => handleDownloadOnlineSubtitle(sub)}
-                            disabled={isDownloadingOnline}
-                            className={isDownloadingThis ? 'pouf-glass-btn' : 'pouf-glass-btn-primary'}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '5px',
-                              fontSize: '0.66rem',
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              flexShrink: 0
-                            }}
-                          >
-                            {isDownloadingThis ? (
-                              <span>Loading...</span>
-                            ) : (
-                              <>
-                                <Download size={11} />
-                                <span>Get</span>
-                              </>
-                            )}
-                          </button>
+                          <span style={{ fontSize: '0.60rem', color: '#f472b6' }}>{sub.language}</span>
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div style={{ padding: '8px 0', textAlign: 'center', color: '#9ca3af', fontSize: '0.66rem' }}>
-                    Type a title or episode and tap Search
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Subtitle Appearance & Style */}
-            <div>
-              <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '0.04em' }}>
-                Appearance & Style
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
-                {[
-                  { id: 'pink', label: 'Pink Glow', desc: 'Aesthetic Pink' },
-                  { id: 'transparent', label: 'Outline', desc: 'Drop Shadow' },
-                  { id: 'soft', label: 'Soft Glass', desc: 'Translucent' },
-                  { id: 'box', label: 'Solid Box', desc: 'Dark Box' }
-                ].map(st => (
-                  <button
-                    key={st.id}
-                    onClick={() => handleStyleChange(st.id)}
-                    className={subtitleStyle === st.id ? 'pouf-glass-btn-primary' : 'pouf-glass-btn'}
-                    style={{
-                      padding: '5px 2px',
-                      fontSize: '0.68rem',
-                      fontWeight: 800,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Pixel Controller: Font Size */}
-            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
-                  Font Size
-                </span>
-                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
-                  {subtitleSize}px
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={() => handleSizeChange(subtitleSize - 1)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  -
-                </button>
-                <input
-                  type="range"
-                  min="14"
-                  max="48"
-                  value={subtitleSize}
-                  onChange={(e) => handleSizeChange(parseInt(e.target.value, 10))}
-                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                />
-                <button
-                  onClick={() => handleSizeChange(subtitleSize + 1)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            {/* Pixel Controller: Bottom Position */}
-            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
-                  Bottom Position
-                </span>
-                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#f472b6', fontVariantNumeric: 'tabular-nums' }}>
-                  {subtitleBottom}px
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={() => handleBottomChange(subtitleBottom - 5)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  -
-                </button>
-                <input
-                  type="range"
-                  min="10"
-                  max="280"
-                  step="5"
-                  value={subtitleBottom}
-                  onChange={(e) => handleBottomChange(parseInt(e.target.value, 10))}
-                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                />
-                <button
-                  onClick={() => handleBottomChange(subtitleBottom + 5)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            {/* Subtitle Sync Delay */}
-            <div className="pouf-glass-card" style={{ padding: '7px 9px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#d1d5db' }}>
-                  Sync Delay
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontVariantNumeric: 'tabular-nums' }}>
-                    {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
-                  </span>
-                  {subtitleDelay !== 0 && (
-                    <button
-                      onClick={() => handleDelayChange(0.0)}
-                      className="pouf-glass-btn"
-                      style={{ padding: '1px 5px', fontSize: '0.62rem', cursor: 'pointer' }}
-                    >
-                      Reset
-                    </button>
+                        <button
+                          onClick={() => handleDownloadOnlineSubtitle(sub)}
+                          disabled={isDownloadingOnline}
+                          className="pouf-glass-btn-primary"
+                          style={{ padding: '3px 6px', fontSize: '0.64rem', flexShrink: 0 }}
+                        >
+                          {downloadingSubId === sub.fileId ? '...' : 'Get'}
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.68rem', color: '#9ca3af' }}>
+                      Type title and press enter
+                    </div>
                   )}
                 </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={() => handleDelayChange(subtitleDelay - 0.1)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  -
-                </button>
-                <input
-                  type="range"
-                  min="-5.0"
-                  max="5.0"
-                  step="0.1"
-                  value={subtitleDelay}
-                  onChange={(e) => handleDelayChange(parseFloat(e.target.value))}
-                  style={{ flex: 1, accentColor: '#ec4899', cursor: 'pointer' }}
-                />
-                <button
-                  onClick={() => handleDelayChange(subtitleDelay + 0.1)}
-                  className="pouf-glass-btn"
-                  style={{ width: '22px', height: '22px', padding: 0, fontWeight: 800, cursor: 'pointer' }}
-                >
-                  +
-                </button>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
 
         {/* ------------------------------------------------------------------ */}
-        {/* 8. OBSIDIAN NEON HUD SETTINGS POPOVER (Audio, Ratio, Speed, Sync)  */}
+        {/* 8. COMPACT YOUTUBE-STYLE SETTINGS POPOVER (Audio, Speed, Boost, etc.) */}
         {/* ------------------------------------------------------------------ */}
         {showSettingsMenu && (
           <div
@@ -1985,397 +1871,295 @@ export function PoufPlayer({
             className="pouf-popover-shell"
             style={{
               position: 'absolute',
-              bottom: '76px',
-              right: '32px',
-              padding: '16px',
-              width: '330px',
-              maxHeight: '460px',
-              zIndex: 70,
+              bottom: '62px',
+              right: '18px',
+              width: '250px',
+              maxHeight: '380px',
+              padding: '8px',
+              zIndex: 75,
               display: 'flex',
               flexDirection: 'column',
-              gap: '12px',
+              gap: '4px',
               overflowY: 'auto'
             }}
           >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(244, 114, 182, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Settings size={14} color="var(--pink-primary)" />
-                </div>
-                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fce7f3', letterSpacing: '0.02em' }}>
-                  Player Settings
-                </span>
-              </div>
-              <button
-                onClick={() => setShowSettingsMenu(false)}
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '50%',
-                  color: '#9ca3af',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <X size={13} />
-              </button>
-            </div>
-
-            {/* Recessed Obsidian Capsule Tabs */}
-            <div className="pouf-tab-bar">
-              {[
-                { id: 'audio', label: 'Audio' },
-                { id: 'visual', label: 'Visual' },
-                { id: 'aspect', label: 'Ratio' },
-                { id: 'speed', label: 'Speed' }
-              ].map(tab => {
-                const isActive = activeSettingsTab === tab.id;
-                return (
+            {settingsSubView === 'root' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#fce7f3' }}>
+                    Playback Settings
+                  </span>
                   <button
-                    key={tab.id}
-                    onClick={() => setActiveSettingsTab(tab.id)}
-                    className={`pouf-tab-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setShowSettingsMenu(false)}
+                    style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0 }}
                   >
-                    {tab.label}
+                    <X size={14} />
                   </button>
-                );
-              })}
-            </div>
-
-            {/* TAB: AUDIO TRACKS */}
-            {activeSettingsTab === 'audio' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Available Audio Streams
-                  </span>
-                  <span style={{ fontSize: '0.64rem', color: '#71717a', fontFamily: 'JetBrains Mono, monospace' }}>
-                    {audioTracks.length} Detected
-                  </span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                {/* Audio Track Row */}
+                <div
+                  onClick={() => setSettingsSubView('audio')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Volume2 size={15} color="#f472b6" />
+                  <span>Audio Track</span>
+                  <span className="pouf-yt-val">
+                    {audioTracks[activeAudioIndex]?.title || (audioTracks.length > 0 ? `Track #${activeAudioIndex + 1}` : 'Stereo AAC')}
+                  </span>
+                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+
+                {/* Speed Row */}
+                <div
+                  onClick={() => setSettingsSubView('speed')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Gauge size={15} color="#f472b6" />
+                  <span>Speed</span>
+                  <span className="pouf-yt-val">
+                    {playbackSpeed === 1.0 ? 'Normal' : `${playbackSpeed}x`}
+                  </span>
+                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+
+                {/* Audio Boost Row */}
+                <div
+                  onClick={() => setSettingsSubView('boost')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Sparkles size={15} color="#f472b6" />
+                  <span>Volume Boost</span>
+                  <span className="pouf-yt-val" style={{ color: audioBoost > 100 ? '#fbbf24' : undefined }}>
+                    {audioBoost}%
+                  </span>
+                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+
+                {/* Visual Presets Row */}
+                <div
+                  onClick={() => setSettingsSubView('filters')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Sliders size={15} color="#f472b6" />
+                  <span>Visual Presets</span>
+                  <span className="pouf-yt-val">
+                    {visualPreset === 'standard' ? 'Normal' : visualPreset}
+                  </span>
+                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+
+                {/* Aspect Ratio Row */}
+                <div
+                  onClick={() => setSettingsSubView('aspect')}
+                  className="pouf-yt-menu-item"
+                >
+                  <Crop size={15} color="#f472b6" />
+                  <span>Aspect Ratio</span>
+                  <span className="pouf-yt-val">
+                    {aspectRatio === 'contain' ? '16:9' : aspectRatio === 'cover' ? 'Zoom' : 'Stretch'}
+                  </span>
+                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+              </>
+            )}
+
+            {settingsSubView === 'audio' && (
+              <>
+                <button
+                  onClick={() => setSettingsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Audio Stream ({audioTracks.length || 1})</span>
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '200px', overflowY: 'auto' }}>
                   {audioTracks.length === 0 ? (
-                    <div className="pouf-item-card active" style={{ cursor: 'default' }}>
-                      <span style={{ fontWeight: 700 }}>Default Audio (Stereo AAC)</span>
-                      <span className="pouf-badge-active">ACTIVE</span>
+                    <div className="pouf-yt-menu-item active">
+                      <span>Default Audio (Stereo AAC)</span>
+                      <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />
                     </div>
                   ) : (
                     audioTracks.map((t, idx) => {
                       const trackIdx = t.index ?? idx;
                       const isActive = activeAudioIndex === trackIdx;
-                      const trackStatus = audioStatusData?.tracks?.find((st) => st.index === trackIdx);
-                      const isReady = (t.codec || '').toLowerCase() === 'aac' || trackIdx === 0 || trackStatus?.isReady;
-                      const isProcessing = trackStatus?.isProcessing;
-
                       return (
-                        <button
+                        <div
                           key={trackIdx}
                           onClick={() => onAudioTrackChange?.(trackIdx)}
-                          className={`pouf-item-card ${isActive ? 'active' : ''}`}
+                          className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', overflow: 'hidden' }}>
-                            <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                              {t.title || `Audio Track #${idx + 1}`}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {t.title || `Track #${idx + 1}`}
+                          </span>
+                          {t.codec && (
+                            <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>
+                              {t.codec.toUpperCase()}
                             </span>
-                            {t.codec && (
-                              <span className="pouf-badge-codec">
-                                {t.codec.toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                            {isReady ? (
-                              <span className="pouf-badge-ready" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                <Check size={10} /> Ready
-                              </span>
-                            ) : isProcessing ? (
-                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(251, 191, 36, 0.22)', color: '#fbbf24', fontWeight: 700 }}>
-                                Extracting
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.08)', color: '#9ca3af', fontWeight: 600 }}>
-                                Pending
-                              </span>
-                            )}
-                            {isActive ? (
-                              <span className="pouf-badge-active">ACTIVE</span>
-                            ) : (
-                              <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>
-                            )}
-                          </div>
-                        </button>
+                          )}
+                          {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                        </div>
                       );
                     })
                   )}
                 </div>
 
-                {audioTracks.length > 1 && (
-                  <div style={{ marginTop: '2px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                    {audioStatusData?.allReady ? (
-                      <div style={{ fontSize: '0.68rem', color: '#34d399', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                        <Check size={12} color="#34d399" />
-                        <span>Dual-Track Audio Cache Active</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleProcessAllAudio}
-                        disabled={isProcessingAudio}
-                        style={{
-                          width: '100%',
-                          padding: '7px 10px',
-                          borderRadius: '8px',
-                          background: 'rgba(244, 114, 182, 0.15)',
-                          border: '1px solid rgba(244, 114, 182, 0.35)',
-                          color: '#fbcfe8',
-                          fontWeight: 700,
-                          fontSize: '0.72rem',
-                          cursor: isProcessingAudio ? 'not-allowed' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '5px'
-                        }}
-                      >
-                        <Sparkles size={12} color="var(--pink-primary)" />
-                        <span>{isProcessingAudio ? 'Extracting in Background...' : 'Pre-extract All Tracks to AAC'}</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Audio Gain Boost Section */}
-                <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Volume Boost (Gain)
-                    </span>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: audioBoost > 100 ? '#fbbf24' : '#9ca3af', fontFamily: 'JetBrains Mono, monospace' }}>
-                      {audioBoost}%
-                    </span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
-                    {[100, 125, 150, 200].map((b) => (
-                      <button
-                        key={b}
-                        onClick={() => handleAudioBoostChange(b)}
-                        className={`pouf-dock-pill-btn ${audioBoost === b ? 'active' : ''}`}
-                        style={{ padding: '4px 6px', justifyContent: 'center', fontSize: '0.68rem' }}
-                      >
-                        {b === 100 ? 'Normal' : `${b}%`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: VISUAL / COLOR FILTER */}
-            {activeSettingsTab === 'visual' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Visual Presets
-                  </span>
+                {audioTracks.length > 1 && !audioStatusData?.allReady && (
                   <button
-                    onClick={() => {
-                      const resetFilter = { brightness: 100, contrast: 100, saturation: 100 };
-                      setVisualFilter(resetFilter);
-                      setVisualPreset('standard');
-                      localStorage.setItem('wt_visual_filter', JSON.stringify(resetFilter));
-                    }}
+                    onClick={handleProcessAllAudio}
+                    disabled={isProcessingAudio}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#9ca3af',
-                      fontSize: '0.66rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px',
-                      padding: 0
+                      marginTop: '6px',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      background: 'rgba(244, 114, 182, 0.15)',
+                      border: '1px solid rgba(244, 114, 182, 0.35)',
+                      color: '#fbcfe8',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      cursor: isProcessingAudio ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    <RotateCcw size={11} /> Reset
+                    {isProcessingAudio ? 'Extracting in background...' : 'Pre-extract All Tracks to AAC'}
                   </button>
-                </div>
+                )}
+              </>
+            )}
 
-                {/* Preset Chips */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+            {settingsSubView === 'speed' && (
+              <>
+                <button
+                  onClick={() => setSettingsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Playback Speed</span>
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((spd) => {
+                    const isActive = playbackSpeed === spd;
+                    return (
+                      <div
+                        key={spd}
+                        onClick={() => handleSpeedChange(spd)}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
+                      >
+                        <span>{spd === 1.0 ? 'Normal (1.0x)' : `${spd}x`}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {settingsSubView === 'boost' && (
+              <>
+                <button
+                  onClick={() => setSettingsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Volume Boost (Gain)</span>
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   {[
-                    { id: 'standard', label: 'Standard', b: 100, c: 100, s: 100 },
+                    { b: 100, label: 'Normal (100%)' },
+                    { b: 125, label: 'Boost 125%' },
+                    { b: 150, label: 'Boost 150%' },
+                    { b: 175, label: 'Boost 175%' },
+                    { b: 200, label: 'Max Boost (200%)' }
+                  ].map((item) => {
+                    const isActive = audioBoost === item.b;
+                    return (
+                      <div
+                        key={item.b}
+                        onClick={() => handleAudioBoostChange(item.b)}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
+                      >
+                        <span>{item.label}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {settingsSubView === 'filters' && (
+              <>
+                <button
+                  onClick={() => setSettingsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Visual Presets</span>
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {[
+                    { id: 'standard', label: 'Standard (Default)', b: 100, c: 100, s: 100 },
                     { id: 'anime', label: 'Anime Vivid', b: 102, c: 110, s: 125 },
                     { id: 'cinema', label: 'Cinema Warm', b: 96, c: 108, s: 105 },
-                    { id: 'night', label: 'Night Dim', b: 82, c: 95, s: 90 }
+                    { id: 'night', label: 'Night Dim', b: 82, c: 95, s: 90 },
+                    { id: 'cyberpunk', label: 'Cyberpunk Neon', b: 100, c: 120, s: 140 },
+                    { id: 'noir', label: 'Noir (Black & White)', b: 95, c: 115, s: 0 }
                   ].map((p) => {
-                    const isSelected = visualPreset === p.id;
+                    const isActive = visualPreset === p.id;
                     return (
-                      <button
+                      <div
                         key={p.id}
                         onClick={() => {
                           const newFilter = { brightness: p.b, contrast: p.c, saturation: p.s };
                           setVisualFilter(newFilter);
                           setVisualPreset(p.id);
                           localStorage.setItem('wt_visual_filter', JSON.stringify(newFilter));
+                          localStorage.setItem('wt_visual_preset', p.id);
                         }}
-                        className={`pouf-item-card ${isSelected ? 'active' : ''}`}
-                        style={{ padding: '6px 8px', justifyContent: 'center' }}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
                       >
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>{p.label}</span>
-                      </button>
+                        <span>{p.label}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                      </div>
                     );
                   })}
                 </div>
-
-                {/* Range Sliders */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '2px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
-                      <span>Brightness</span>
-                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.brightness}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="70"
-                      max="130"
-                      value={visualFilter.brightness}
-                      onChange={(e) => handleVisualFilterChange('brightness', parseInt(e.target.value, 10))}
-                      className="pouf-range-slider"
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
-                      <span>Contrast</span>
-                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.contrast}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="80"
-                      max="140"
-                      value={visualFilter.contrast}
-                      onChange={(e) => handleVisualFilterChange('contrast', parseInt(e.target.value, 10))}
-                      className="pouf-range-slider"
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: '#e5e7eb', marginBottom: '3px' }}>
-                      <span>Saturation</span>
-                      <span style={{ color: '#f472b6', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{visualFilter.saturation}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="150"
-                      value={visualFilter.saturation}
-                      onChange={(e) => handleVisualFilterChange('saturation', parseInt(e.target.value, 10))}
-                      className="pouf-range-slider"
-                    />
-                  </div>
-                </div>
-              </div>
+              </>
             )}
 
-            {/* TAB: ASPECT RATIO */}
-            {activeSettingsTab === 'aspect' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.05em' }}>
-                  Aspect Ratio Fit
-                </div>
+            {settingsSubView === 'aspect' && (
+              <>
+                <button
+                  onClick={() => setSettingsSubView('root')}
+                  className="pouf-yt-back-btn"
+                >
+                  <ChevronLeft size={16} />
+                  <span>Aspect Ratio</span>
+                </button>
 
-                {[
-                  { id: 'contain', label: 'Default Fit (16:9)', desc: 'Standard pillarbox & letterbox ratio' },
-                  { id: 'cover', label: 'Cinema Zoom (Cover 21:9)', desc: 'Fills display & eliminates black bars' },
-                  { id: 'fill', label: 'Full Stretch (100% Canvas)', desc: 'Fills viewport without cropping' }
-                ].map(opt => {
-                  const isActive = aspectRatio === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => handleAspectChange(opt.id)}
-                      className={`pouf-item-card ${isActive ? 'active' : ''}`}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: '0.78rem' }}>{opt.label}</div>
-                        <div style={{ fontSize: '0.64rem', color: isActive ? '#fce7f3' : '#9ca3af', marginTop: '1px' }}>{opt.desc}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {[
+                    { id: 'contain', label: 'Default Fit (16:9)' },
+                    { id: 'cover', label: 'Cinema Zoom (Cover 21:9)' },
+                    { id: 'fill', label: 'Full Stretch (100% Canvas)' }
+                  ].map((opt) => {
+                    const isActive = aspectRatio === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => handleAspectChange(opt.id)}
+                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
+                      >
+                        <span>{opt.label}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
                       </div>
-                      {isActive ? (
-                        <span className="pouf-badge-active">ACTIVE</span>
-                      ) : (
-                        <span style={{ fontSize: '0.70rem', color: '#52525b' }}>Select</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* TAB: PLAYBACK SPEED & ROOM SYNC */}
-            {activeSettingsTab === 'speed' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.05em' }}>
-                    Playback Speed
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(spd => {
-                      const isActive = playbackSpeed === spd;
-                      return (
-                        <button
-                          key={spd}
-                          onClick={() => handleSpeedChange(spd)}
-                          className={`pouf-item-card ${isActive ? 'active' : ''}`}
-                          style={{
-                            padding: '8px 2px',
-                            justifyContent: 'center',
-                            fontWeight: 800,
-                            fontSize: '0.76rem'
-                          }}
-                        >
-                          <span>{spd === 1.0 ? '1.0x Normal' : `${spd}x`}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                    );
+                  })}
                 </div>
-
-                <div style={{ paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <button
-                    onClick={() => {
-                      onForceSyncAll?.();
-                      setShowSettingsMenu(false);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(245, 158, 11, 0.1) 100%)',
-                      border: '1px solid rgba(245, 158, 11, 0.55)',
-                      color: '#fef3c7',
-                      fontWeight: 800,
-                      fontSize: '0.78rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '7px',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(245, 158, 11, 0.25)',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <Sparkles size={14} color="#fbbf24" />
-                    <span>Force Sync Both Viewers</span>
-                  </button>
-                </div>
-              </div>
+              </>
             )}
           </div>
         )}

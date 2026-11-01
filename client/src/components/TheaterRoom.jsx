@@ -1180,7 +1180,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     const drift = clientTime - authTime;
 
     // Sub-second precision threshold matrix
-    if (Math.abs(drift) <= 0.35) {
+    if (Math.abs(drift) <= 0.4) {
       if (UnifiedPlayer.getRate() !== 1.0) {
         UnifiedPlayer.setRate(1.0);
       }
@@ -1188,20 +1188,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return;
     }
 
-    if (Math.abs(drift) <= 1.8) {
-      // Gentle micro rate nudging (4% speed difference) - smooth, imperceptible, zero frame skips!
+    if (Math.abs(drift) <= 3.0) {
+      // Gentle micro rate nudging (3% speed difference) - smooth, imperceptible, zero frame skips!
       if (drift < 0) {
-        UnifiedPlayer.setRate(1.04);
+        UnifiedPlayer.setRate(1.03);
         setSyncStatus('Catching Up');
       } else {
-        UnifiedPlayer.setRate(0.96);
+        UnifiedPlayer.setRate(0.97);
         setSyncStatus('Aligning');
       }
     } else {
-      // Significant drift (> 1.8s): Re-align to authoritative timestamp
-      setRemoteLock(800);
+      // Significant drift (> 3.0s): Re-align to authoritative timestamp
+      setRemoteLock(1000);
+      isSeekingRef.current = true;
       UnifiedPlayer.seek(authTime);
       UnifiedPlayer.setRate(1.0);
+      setTimeout(() => { isSeekingRef.current = false; }, 1000);
       setSyncStatus('In Sync');
     }
   }
@@ -4048,26 +4050,53 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             onSubtitlePosChange={(pos) => handleChangeSubtitlePos(pos)}
             isPlaying={roomPlaybackState.isPlaying}
             currentTime={roomPlaybackState.currentTime}
-            onPlay={() => {
+            onPlay={(t) => {
               if (isRemoteActionRef.current) return;
+              const video = document.querySelector('.pouf-player-container video');
+              const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
+              serverSyncStateRef.current = {
+                currentTime: curTime,
+                isPlaying: true,
+                playbackRate: 1.0,
+                receivedAt: Date.now()
+              };
+              setRoomPlaybackState({ currentTime: curTime, isPlaying: true });
+              setRemoteLock(500);
               if (socket) {
-                const video = document.querySelector('.pouf-player-container video');
-                const t = video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0);
-                socket.emit('player:play', { currentTime: t });
+                socket.emit('player:play', { currentTime: curTime });
               }
             }}
-            onPause={() => {
+            onPause={(t) => {
               if (isRemoteActionRef.current) return;
+              const video = document.querySelector('.pouf-player-container video');
+              const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
+              serverSyncStateRef.current = {
+                currentTime: curTime,
+                isPlaying: false,
+                playbackRate: 1.0,
+                receivedAt: Date.now()
+              };
+              setRoomPlaybackState({ currentTime: curTime, isPlaying: false });
+              setRemoteLock(500);
               if (socket) {
-                const video = document.querySelector('.pouf-player-container video');
-                const t = video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0);
-                socket.emit('player:pause', { currentTime: t });
+                socket.emit('player:pause', { currentTime: curTime });
               }
             }}
             onSeek={(t) => {
               if (isRemoteActionRef.current) return;
+              const targetTime = typeof t === 'number' && !isNaN(t) ? t : 0;
+              serverSyncStateRef.current = {
+                currentTime: targetTime,
+                isPlaying: serverSyncStateRef.current.isPlaying,
+                playbackRate: 1.0,
+                receivedAt: Date.now()
+              };
+              setRoomPlaybackState((prev) => ({ ...prev, currentTime: targetTime }));
+              setRemoteLock(1200);
+              isSeekingRef.current = true;
+              setTimeout(() => { isSeekingRef.current = false; }, 1200);
               if (socket) {
-                socket.emit('player:seek', { currentTime: t });
+                socket.emit('player:seek', { currentTime: targetTime });
               }
             }}
             onForceSyncAll={() => handleForceSync()}
@@ -4219,52 +4248,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             <span>Library</span>
           </button>
 
-          {/* Subtitles Button */}
-          <button
-            onClick={() => {
-              setShowSubtitlePopover((prev) => !prev);
-              setShowAudioPopover(false);
-              setShowVoiceSettings(false);
-            }}
-            className={`btn-pink-secondary ${showSubtitlePopover ? 'active' : ''}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '0.52rem 0.95rem',
-              fontSize: '0.82rem',
-              background: showSubtitlePopover ? 'rgba(244, 114, 182, 0.25)' : undefined,
-              borderColor: showSubtitlePopover ? 'var(--pink-primary)' : undefined
-            }}
-            title="Subtitle Tracks & Settings"
-          >
-            <Type size={14} color="var(--pink-primary)" />
-            <span>Subs {subtitleTracks.length > 0 ? `(${subtitleTracks.length})` : ''}</span>
-          </button>
-
-          {/* Audio Tracks Button */}
-          <button
-            onClick={() => {
-              setShowAudioPopover((prev) => !prev);
-              setShowSubtitlePopover(false);
-              setShowVoiceSettings(false);
-            }}
-            className={`btn-pink-secondary ${showAudioPopover ? 'active' : ''}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '0.52rem 0.95rem',
-              fontSize: '0.82rem',
-              background: showAudioPopover ? 'rgba(244, 114, 182, 0.25)' : undefined,
-              borderColor: showAudioPopover ? 'var(--pink-primary)' : undefined
-            }}
-            title="Audio Tracks"
-          >
-            <Volume2 size={14} color="var(--pink-primary)" />
-            <span>Audio {audioTracks.length > 0 ? `(${audioTracks.length})` : ''}</span>
-          </button>
-
           {/* Smart Voice / Microphone Button */}
           <button
             onClick={handleMicButtonClick}
@@ -4406,17 +4389,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </button>
         </div>
 
-        {/* Deck Bottom Status Bar */}
-        <div className="theater-deck-between" style={{ marginTop: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', overflow: 'hidden', maxWidth: '70%' }}>
-            <span className="btn-pink-chip" style={{ fontSize: '0.68rem', textTransform: 'uppercase', color: 'var(--pink-primary)', fontWeight: 800 }}>
-              {activePlayerType}
-            </span>
-            <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {currentTitle}
-            </span>
-          </div>
-
+        {/* Deck Bottom Status Bar - Voice Presence Only (Removed duplicate bottom title text) */}
+        <div className="theater-deck-between" style={{ marginTop: '2px', justifyContent: 'flex-end' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             {/* Live Voice Indicator and Connected Peers */}
             {isVoiceConnected && (

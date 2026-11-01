@@ -6,64 +6,67 @@ import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClaySparkle } from './ClayI
 
 export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout, onToggleSidebar }) {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
+  const isRoomView = activeView === 'room';
 
   return (
-    <header className="pink-navbar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-        {/* Hamburger Menu Toggle Button */}
-        <button
-          onClick={onToggleSidebar}
-          className="pink-btn-icon"
-          title="Open Menu Drawer"
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1.5px solid var(--border-pink)',
-            borderRadius: '12px',
-            width: '38px',
-            height: '38px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            boxShadow: '0 2px 6px rgba(244,114,182,0.15)'
-          }}
-        >
-          <Menu size={18} color="var(--pink-primary)" />
-        </button>
+    <header className={`pink-navbar ${isRoomView ? 'theater-navbar-cinema' : ''}`}>
+      {/* Brand & Drawer Toggle (Hidden in theater room to eliminate clutter and blend with player) */}
+      {!isRoomView && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <button
+            onClick={onToggleSidebar}
+            className="pink-btn-icon"
+            title="Open Menu Drawer"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1.5px solid var(--border-pink)',
+              borderRadius: '12px',
+              width: '38px',
+              height: '38px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(244,114,182,0.15)'
+            }}
+          >
+            <Menu size={18} color="var(--pink-primary)" />
+          </button>
 
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            onNavigate('home');
-          }}
-          className="pink-brand"
-        >
-          <PinkPopcornLogo size={36} />
-          <div className="pink-brand-text">
-            Watch<span>Together</span>
-          </div>
-        </a>
-      </div>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('home');
+            }}
+            className="pink-brand"
+          >
+            <PinkPopcornLogo size={36} />
+            <div className="pink-brand-text">
+              Watch<span>Together</span>
+            </div>
+          </a>
+        </div>
+      )}
 
       {/* Center Nav Links with 3D Clay Icons */}
       <nav style={{
         display: 'flex',
         alignItems: 'center',
         gap: '0.4rem',
-        background: 'rgba(255, 255, 255, 0.85)',
+        background: isRoomView ? 'rgba(18, 12, 26, 0.88)' : 'rgba(255, 255, 255, 0.85)',
         backdropFilter: 'blur(16px)',
         padding: '5px 8px',
         borderRadius: '9999px',
-        border: '1.5px solid var(--border-pink)',
-        boxShadow: '0 4px 16px rgba(244, 114, 182, 0.16)'
+        border: isRoomView ? '1.5px solid rgba(244, 114, 182, 0.25)' : '1.5px solid var(--border-pink)',
+        boxShadow: isRoomView ? '0 4px 20px rgba(0, 0, 0, 0.6)' : '0 4px 16px rgba(244, 114, 182, 0.16)'
       }}>
         <button
           onClick={() => onNavigate('home')}
           style={{
             background: activeView === 'home' ? 'linear-gradient(135deg, rgba(236,72,153,0.15), rgba(244,114,182,0.25))' : 'transparent',
             border: activeView === 'home' ? '1.5px solid var(--pink-pastel)' : '1.5px solid transparent',
-            color: activeView === 'home' ? '#be185d' : 'var(--text-muted)',
+            color: activeView === 'home' ? '#be185d' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
             fontSize: '0.82rem',
@@ -84,7 +87,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
           style={{
             background: activeView === 'room' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
             border: activeView === 'room' ? 'none' : '1.5px solid transparent',
-            color: activeView === 'room' ? '#ffffff' : 'var(--text-muted)',
+            color: activeView === 'room' ? '#ffffff' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             boxShadow: activeView === 'room' ? '0 4px 14px rgba(236, 72, 153, 0.4)' : 'none',
             padding: '6px 16px',
             borderRadius: '9999px',
@@ -106,7 +109,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
           style={{
             background: activeView === 'library' ? 'linear-gradient(135deg, rgba(251,191,36,0.15), rgba(245,158,11,0.22))' : 'transparent',
             border: activeView === 'library' ? '1.5px solid var(--gold-border)' : '1.5px solid transparent',
-            color: activeView === 'library' ? '#b45309' : 'var(--text-muted)',
+            color: activeView === 'library' ? '#b45309' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
             fontSize: '0.82rem',
@@ -127,7 +130,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
           style={{
             background: activeView === 'studio' ? 'linear-gradient(135deg, rgba(236,72,153,0.18), rgba(244,114,182,0.28))' : 'transparent',
             border: activeView === 'studio' ? '1.5px solid var(--pink-pastel)' : '1.5px solid transparent',
-            color: activeView === 'studio' ? '#be185d' : 'var(--text-muted)',
+            color: activeView === 'studio' ? '#be185d' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
             fontSize: '0.82rem',
@@ -149,7 +152,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
             style={{
               background: activeView === 'downloads' ? 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(52,211,153,0.22))' : 'transparent',
               border: activeView === 'downloads' ? '1.5px solid rgba(16,185,129,0.35)' : '1.5px solid transparent',
-              color: activeView === 'downloads' ? '#047857' : 'var(--text-muted)',
+              color: activeView === 'downloads' ? '#047857' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
               padding: '5px 14px',
               borderRadius: '9999px',
               fontSize: '0.82rem',
@@ -167,48 +170,36 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         )}
       </nav>
 
-      {/* Right Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        {/* User Pill Badge */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: 'var(--bg-surface)',
-          border: '1.5px solid var(--border-pink)',
-          borderRadius: '9999px',
-          padding: '4px 12px',
-          fontSize: '0.82rem',
-          color: '#3b142d',
-          fontWeight: 800,
-          boxShadow: '0 2px 8px rgba(244, 114, 182, 0.12)'
-        }}>
-          <UserAvatar user={currentUser} size={22} showBorder={true} />
-          <span>{currentUser?.name || 'User'}</span>
-        </div>
+      {/* Right Controls (Hidden in theater room to eliminate clutter and blend with player) */}
+      {!isRoomView && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'var(--bg-surface)',
+            border: '1.5px solid var(--border-pink)',
+            borderRadius: '9999px',
+            padding: '4px 12px',
+            fontSize: '0.82rem',
+            color: '#3b142d',
+            fontWeight: 800,
+            boxShadow: '0 2px 8px rgba(244, 114, 182, 0.12)'
+          }}>
+            <UserAvatar user={currentUser} size={22} showBorder={true} />
+            <span>{currentUser?.name || 'User'}</span>
+          </div>
 
-        {/* Enter Room Action Pill (Only shown on home page) */}
-        {activeView === 'home' && (
           <button
-            onClick={() => onNavigate('room', 'lounge')}
-            className="btn-gold-shimmer"
-            style={{ padding: '0.45rem 1rem', fontSize: '0.82rem', gap: '6px' }}
+            onClick={onLogout}
+            title="Sign Out"
+            className="pink-btn-icon"
+            style={{ width: '36px', height: '36px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            <ClaySparkle size={16} />
-            <span>Enter Room</span>
+            <LogOut size={16} color="var(--text-muted)" />
           </button>
-        )}
-
-        {/* Sign Out Button */}
-        <button
-          onClick={onLogout}
-          title="Sign Out"
-          className="pink-btn-icon"
-          style={{ width: '36px', height: '36px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <LogOut size={16} color="var(--text-muted)" />
-        </button>
-      </div>
+        </div>
+      )}
     </header>
   );
 }
