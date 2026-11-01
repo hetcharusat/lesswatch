@@ -337,43 +337,23 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
   }, [roomId, currentProfile.name, currentProfile.username]);
 
-  const handleEnterChitChat = async () => {
+  const handleEnterChitChat = useCallback(() => {
+    // If native container fullscreen was active, exit it so sidechat is visible beside video
+    if (document.fullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
     setIsChitChatMode(true);
     document.body.classList.add('in-chit-chat-mode');
     setIsChatCollapsed(false);
     setIsChatSidebarOpen(false);
     handleMarkChatSeen();
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      }
-    } catch (err) {
-      console.warn('Fullscreen request blocked or not supported:', err);
-    }
-  };
+  }, [handleMarkChatSeen]);
 
-  const handleExitChitChat = async () => {
+  const handleExitChitChat = useCallback(() => {
     setIsChitChatMode(false);
     document.body.classList.remove('in-chit-chat-mode');
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch {}
-  };
-
-  useEffect(() => {
-    const handleFsChange = () => {
-      if (!document.fullscreenElement && isChitChatModeRef.current) {
-        setIsChitChatMode(false);
-        document.body.classList.remove('in-chit-chat-mode');
-      }
-    };
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFsChange);
-      document.body.classList.remove('in-chit-chat-mode');
-    };
+    setIsChatCollapsed(false);
   }, []);
 
   // Modals
@@ -3054,30 +3034,28 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  const handleToggleSideChat = useCallback(async () => {
+  const handleToggleSideChat = useCallback(() => {
     if (isChitChatModeRef.current) {
       if (isChatCollapsedRef.current) {
+        // Press c while Sidechat is Collapsed: Un-collapses and expands the sidechat
         setIsChatCollapsed(false);
         handleMarkChatSeen();
       } else {
+        // Press c while Sidechat is Open: Exits Chit Chat mode and returns to full cinema screen
         handleExitChitChat();
       }
     } else {
-      if (document.fullscreenElement || document.webkitFullscreenElement) {
-        try {
-          if (document.exitFullscreen) await document.exitFullscreen();
-          else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
-        } catch {}
-      }
+      // Press c in Normal View / Fullscreen: Immediately enters Chit Chat mode with sidechat open beside player
       handleEnterChitChat();
     }
-  }, []);
+  }, [handleEnterChitChat, handleExitChitChat, handleMarkChatSeen]);
 
   useEffect(() => {
     function handleGlobalKeyDown(e) {
       const activeEl = document.activeElement;
-      const isInInput = activeEl && (
-        activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable
+      const isInInput = (
+        (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) ||
+        (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))
       );
 
       // ESCAPE key logic: closes modals, GIF picker, floating chat, or exits chitchat FIRST before browser exits fullscreen!
@@ -3185,12 +3163,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   function handleSendChat(e, gifUrl = null) {
     if (e && e.preventDefault) e.preventDefault();
+    if (e && e.stopPropagation) e.stopPropagation();
     if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     const text = chatInputText.trim();
     if ((!text && !gifUrl) || !socket) {
-      setChatOpen(false);
-      setShowFloatingGiphy(false);
-      setChatInputText('');
+      setTimeout(() => {
+        setChatOpen(false);
+        setShowFloatingGiphy(false);
+        setChatInputText('');
+      }, 50);
       if (activePlayerType === 'neko') {
         setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
       }
@@ -3198,12 +3179,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
 
     socket.emit('chat:send_message', { text, image: gifUrl || null });
-    setChatInputText('');
-    setChatOpen(false);
-    setShowFloatingGiphy(false);
-    if (activePlayerType === 'neko') {
-      setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
-    }
+    setTimeout(() => {
+      setChatInputText('');
+      setChatOpen(false);
+      setShowFloatingGiphy(false);
+      if (activePlayerType === 'neko') {
+        setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
+      }
+    }, 80);
   }
 
   async function handlePlayNow() {

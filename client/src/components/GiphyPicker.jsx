@@ -264,7 +264,15 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
             return (
               <div
                 key={g.id}
-                onClick={() => onSelectGif(fullUrl, g.title)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSelectGif(fullUrl, g.title);
+                }}
                 style={{
                   position: 'relative',
                   width: '100%',

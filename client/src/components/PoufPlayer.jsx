@@ -801,6 +801,11 @@ export function PoufPlayer({
     }
   }
 
+  function handleVideoClick(e) {
+    if (e && e.defaultPrevented) return;
+    togglePlayPause();
+  }
+
   function handleSeekRelative(deltaSeconds) {
     if (isLocked) {
       triggerLockHint();
@@ -1072,9 +1077,6 @@ export function PoufPlayer({
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         setIsMuted(prev => !prev);
-      } else if (e.key === 'c' || e.key === 'C') {
-        e.preventDefault();
-        onToggleChatRef.current?.();
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         handleTogglePiP();
@@ -1114,7 +1116,7 @@ export function PoufPlayer({
         ref={videoRef}
         playsInline
         crossOrigin="anonymous"
-        onClick={togglePlayPause}
+        onClick={handleVideoClick}
         onDoubleClick={toggleFullscreen}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
@@ -2421,7 +2423,19 @@ export function PoufPlayer({
       </div>
 
       {/* 8. In-Video Overlays (Floating Instant Chat rendered inside player for Fullscreen visibility) */}
-      {children}
+      <div
+        className="pouf-invideo-overlay-layer"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: 70
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
     </div>
   );
 }
