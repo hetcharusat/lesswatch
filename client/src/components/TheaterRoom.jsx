@@ -65,7 +65,7 @@ const rtcConfig = {
   iceCandidatePoolSize: 10
 };
 
-// Studio Opus SDP modifier (Forces 128kbps stereo transmission, forward error correction, continuous voice stream)
+// Studio Opus SDP modifier (Forces 128kbps high-fidelity voice transmission, forward error correction, continuous voice stream)
 function boostOpusSDP(sdp) {
   if (!sdp) return sdp;
   return sdp.replace(/a=fmtp:(\d+)(.*)/g, (match, pt, rest) => {
@@ -73,9 +73,6 @@ function boostOpusSDP(sdp) {
       let params = rest.trim();
       if (!params.includes('maxaveragebitrate')) {
         params += ';maxaveragebitrate=128000';
-      }
-      if (!params.includes('stereo=')) {
-        params += ';stereo=1;sprop-stereo=1';
       }
       if (!params.includes('cbr=')) {
         params += ';cbr=1';
@@ -279,44 +276,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return next;
     });
 
-    const audioEl = remoteAudioElementsRef.current.get(peerId);
-    if (!audioEl) return;
-
-    if (numericVol <= 100) {
-      const gainEntry = peerGainNodesRef.current.get(peerId);
-      if (gainEntry && gainEntry.gainNode) {
-        gainEntry.gainNode.gain.value = numericVol / 100;
-      } else {
-        audioEl.volume = numericVol / 100;
-      }
+    const gainEntry = peerGainNodesRef.current.get(peerId);
+    if (gainEntry && gainEntry.gainNode) {
+      gainEntry.gainNode.gain.value = numericVol / 100;
     } else {
-      try {
-        let gainEntry = peerGainNodesRef.current.get(peerId);
-        if (!gainEntry && audioEl.srcObject) {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (AudioContextClass) {
-            const ctx = new AudioContextClass();
-            const source = ctx.createMediaStreamSource(audioEl.srcObject);
-            const gainNode = ctx.createGain();
-            const merger = ctx.createChannelMerger(2);
-            source.connect(gainNode);
-            gainNode.connect(merger, 0, 0); // Left channel
-            gainNode.connect(merger, 0, 1); // Right channel
-            merger.connect(ctx.destination);
-            gainEntry = { ctx, gainNode };
-            peerGainNodesRef.current.set(peerId, gainEntry);
-            audioEl.volume = 0;
-          }
-        }
-        if (gainEntry && gainEntry.gainNode) {
-          gainEntry.gainNode.gain.value = numericVol / 100;
-        } else {
-          audioEl.volume = 1.0;
-        }
-      } catch (err) {
-        console.warn('Audio boost error:', err);
-        audioEl.volume = 1.0;
-      }
+      const audioEl = remoteAudioElementsRef.current.get(peerId);
+      if (audioEl) audioEl.volume = Math.min(1.0, numericVol / 100);
     }
   }, []);
 
@@ -843,7 +808,49 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     audioEl.srcObject = remoteStream;
     const curVol = peerVolumes.get(peerId) ?? 100;
-    audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
+
+    // Dual-Ear Stereo Pipeline: Duplicates mono/left mic voice to BOTH Left (0) and Right (1) channels!
+    // Completely solves the fatal "one side voice / left-ear only" issue on Windows & headphones.
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        let gainEntry = peerGainNodesRef.current.get(peerId);
+        if (!gainEntry) {
+          const ctx = new AudioContextClass();
+          const source = ctx.createMediaStreamSource(remoteStream);
+          const gainNode = ctx.createGain();
+          const merger = ctx.createChannelMerger(2);
+
+          source.connect(gainNode);
+          gainNode.connect(merger, 0, 0); // Pipe to Left ear
+          gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
+          merger.connect(ctx.destination);
+
+          gainNode.gain.value = curVol / 100;
+          gainEntry = { ctx, source, gainNode, merger };
+          peerGainNodesRef.current.set(peerId, gainEntry);
+
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+          }
+
+          // Mute raw audio element so it doesn't leak raw unbalanced mono sound
+          audioEl.volume = 0;
+        } else {
+          gainEntry.gainNode.gain.value = curVol / 100;
+          if (gainEntry.ctx && gainEntry.ctx.state === 'suspended') {
+            gainEntry.ctx.resume().catch(() => {});
+          }
+          audioEl.volume = 0;
+        }
+      } else {
+        audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
+      }
+    } catch (e) {
+      console.warn('Stereo voice merger fallback to raw audio element:', e);
+      audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
+    }
+
     const playPromise = audioEl.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
@@ -868,6 +875,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   function stopRemoteAudio(peerId) {
+    const gainEntry = peerGainNodesRef.current.get(peerId);
+    if (gainEntry) {
+      try {
+        if (gainEntry.source) gainEntry.source.disconnect();
+        if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
+        if (gainEntry.merger) gainEntry.merger.disconnect();
+        if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
+      } catch {}
+      peerGainNodesRef.current.delete(peerId);
+    }
     const audioEl = remoteAudioElementsRef.current.get(peerId);
     if (audioEl) {
       try {
@@ -1271,6 +1288,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   // Autoplay Unlocker: Unmutes & resumes remote audio on first user gesture
   function unlockAudio() {
+    peerGainNodesRef.current.forEach((entry) => {
+      if (entry && entry.ctx && entry.ctx.state === 'suspended') {
+        entry.ctx.resume().catch(() => {});
+      }
+    });
     remoteAudioElementsRef.current.forEach((el) => {
       if (el && el.srcObject) {
         el.play().catch(() => {});
