@@ -1077,6 +1077,12 @@ export function PoufPlayer({
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         handleTogglePiP();
+      } else if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        onToggleChatRef.current?.();
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
       }
     }
 

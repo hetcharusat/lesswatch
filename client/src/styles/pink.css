@@ -598,26 +598,27 @@ body {
    WHOLE-SCREEN CHAT SIDEBAR (100% Full Height Beside Stage) 🌸
    ============================================================ */
 .chat-sidebar-drawer {
-  width: 360px;
-  min-width: 320px;
-  max-width: 420px;
-  height: 100%;
-  flex-shrink: 0;
-  background: linear-gradient(175deg, #1b0e25 0%, #130a1c 60%, #0d0613 100%);
+  width: 300px !important;
+  min-width: 290px !important;
+  max-width: 310px !important;
+  height: 100% !important;
+  flex-shrink: 0 !important;
+  background: linear-gradient(175deg, #1b0e25 0%, #130a1c 60%, #0d0613 100%) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-radius: 20px !important;
+  border-radius: 0 !important;
   border: none !important;
   outline: none !important;
   box-shadow: -10px 0 35px rgba(0, 0, 0, 0.8) !important;
-  display: flex;
-  flex-direction: column;
-  animation: slideInFromRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: transform, opacity;
-  transform: translateZ(0);
-  position: relative;
-  overflow: hidden;
-  z-index: 50;
+  display: flex !important;
+  flex-direction: column !important;
+  animation: none !important;
+  transition: none !important;
+  will-change: auto !important;
+  transform: none !important;
+  position: relative !important;
+  overflow: hidden !important;
+  z-index: 50 !important;
 }
 
 /* Remove glitter/pink accent line to prevent border artifacts */
@@ -1630,20 +1631,19 @@ body.in-chit-chat-mode header {
 }
 
 .theater-view-wrapper.chit-chat-mode .theater-chat-sidebar-container {
-  width: 360px !important;
-  min-width: 320px !important;
-  max-width: 420px !important;
+  width: 300px !important;
+  min-width: 290px !important;
+  max-width: 310px !important;
   height: 100% !important;
   flex-shrink: 0 !important;
-  padding: 10px 10px 10px 4px !important;
-  background: transparent !important;
-  border-radius: 20px !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
+  padding: 0 !important;
+  background: rgba(14, 10, 20, 0.98) !important;
+  border-left: 1px solid rgba(244, 114, 182, 0.22) !important;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.7) !important;
   display: flex !important;
   flex-direction: column !important;
-  transition: opacity 0.15s ease !important;
+  animation: none !important;
+  transition: none !important;
 }
 
 .theater-view-wrapper.chit-chat-mode .theater-chat-sidebar-container.collapsed {
@@ -1658,51 +1658,22 @@ body.in-chit-chat-mode header {
   pointer-events: none !important;
 }
 
-/* Beautiful Floating Exit Chit Chat Button */
-.chit-chat-exit-pill {
-  position: absolute;
-  top: 16px;
-  right: 18px;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 18px;
-  border-radius: 9999px;
-  background: rgba(23, 15, 32, 0.88);
-  backdrop-filter: blur(16px);
-  border: 1.5px solid rgba(244, 114, 182, 0.5);
-  color: #fce7f3;
-  font-size: 0.84rem;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.chit-chat-exit-pill:hover {
-  background: linear-gradient(135deg, #ec4899, #db2777);
-  color: #ffffff;
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 26px rgba(236, 72, 153, 0.5);
-}
-
 .theater-chat-sidebar-container {
-  width: 360px;
-  min-width: 320px;
-  max-width: 420px;
-  height: 100%;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  transition: opacity 0.15s ease;
-  background: transparent !important;
-  border-radius: 20px !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  overflow: hidden;
-  z-index: 50;
+  width: 300px !important;
+  min-width: 290px !important;
+  max-width: 310px !important;
+  height: 100% !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative !important;
+  background: rgba(14, 10, 20, 0.98) !important;
+  border-left: 1px solid rgba(244, 114, 182, 0.22) !important;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.7) !important;
+  animation: none !important;
+  transition: none !important;
+  overflow: hidden !important;
+  z-index: 50 !important;
 }
 
 .theater-chat-sidebar-container.collapsed {
@@ -1830,44 +1801,24 @@ body.in-chit-chat-mode header {
   transform: translateY(-50%) translateX(-2px);
 }
 
-/* Fullscreen Slideout Chat Overlay */
-.fullscreen-chat-slideout {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  max-width: 85vw;
-  height: 100%;
-  z-index: 10000;
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.85);
-  animation: slideInChatFromRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  pointer-events: auto;
-  display: flex;
-}
-
-@keyframes slideInChatFromRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
 .clay-chat-compact-badge {
   position: absolute;
-  top: -4px;
-  left: -4px;
-  background: var(--pink-primary);
-  color: white;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 1px 5px;
-  box-shadow: 0 2px 6px rgba(236, 72, 153, 0.6);
+  top: -8px;
+  left: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #ec4899 0%, #db2777 100%) !important;
+  color: #ffffff !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1.5px solid #ffffff !important;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.8), 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+  pointer-events: none;
+  line-height: 1;
 }
 
 /* Fullscreen Theater Wrapper */
@@ -1912,11 +1863,15 @@ body.in-chit-chat-mode header {
 
 .theater-view-wrapper:fullscreen .chat-sidebar-drawer,
 .theater-view-wrapper:-webkit-full-screen .chat-sidebar-drawer {
-  width: 360px !important;
-  min-width: 320px !important;
+  width: 300px !important;
+  min-width: 290px !important;
+  max-width: 310px !important;
   height: 100% !important;
   flex-shrink: 0 !important;
   border-radius: 0 !important;
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
   z-index: 9999 !important;
 }
 

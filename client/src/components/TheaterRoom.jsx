@@ -353,6 +353,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [recentMessages, setRecentMessages] = useState([]);
 
   // Refs
+  const theaterWrapperRef = useRef(null);
   const theaterCanvasRef = useRef(null);
   const artContainerRef = useRef(null);
   const artInstanceRef = useRef(null);
@@ -2506,10 +2507,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
       const triggerTheaterFullscreen = (options) => {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-          if (theaterCanvasRef.current?.requestFullscreen) {
-            return theaterCanvasRef.current.requestFullscreen(options);
-          } else if (theaterCanvasRef.current?.webkitRequestFullscreen) {
-            theaterCanvasRef.current.webkitRequestFullscreen();
+          const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
+          if (targetEl?.requestFullscreen) {
+            return targetEl.requestFullscreen(options);
+          } else if (targetEl?.webkitRequestFullscreen) {
+            targetEl.webkitRequestFullscreen();
           }
         } else {
           if (document.exitFullscreen) {
@@ -2707,11 +2709,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   };
 
-  // Cinema Video Fullscreen (fullscreen only the video canvas / player)
-  // True Cinema Video Fullscreen (fullscreens the video canvas only, 100% edge-to-edge, zero bottom deck)
+  // Cinema Video Fullscreen (fullscreen the entire theater wrapper edge-to-edge)
   function toggleVideoFullscreen() {
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    const targetEl = theaterCanvasRef.current || document.documentElement;
+    const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
     if (!isFs) {
       if (targetEl.requestFullscreen) {
         targetEl.requestFullscreen().then(() => {
@@ -2733,7 +2734,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   // Toggle Chat Sidebar cleanly (C shortcut & minimal docked trigger)
   // If sidebar is open: closes it cleanly without exiting fullscreen
-  // If sidebar is closed: enters true cinema fullscreen on player (if not already) and opens sidebar
+  // If sidebar is closed: enters true cinema fullscreen on theater wrapper (if not already) and opens sidebar
   const handleToggleSideChat = useCallback(() => {
     if (isChatSidebarOpenRef.current) {
       setIsChatSidebarOpen(false);
@@ -2742,7 +2743,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
     if (!isFs) {
-      const targetEl = theaterCanvasRef.current || document.documentElement;
+      const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
       if (targetEl.requestFullscreen) {
         targetEl.requestFullscreen().catch(() => {});
       } else if (targetEl.webkitRequestFullscreen) {
@@ -2786,16 +2787,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setShowVoiceSettings(false);
           return;
         }
-        if (isChatSidebarOpen) {
+        if (isChatSidebarOpenRef.current) {
           e.preventDefault();
           e.stopPropagation();
           setIsChatSidebarOpen(false);
-          return;
-        }
-        if (isChitChatModeRef.current) {
-          e.preventDefault();
-          e.stopPropagation();
-          handleExitChitChat();
           return;
         }
         // If nothing else is open, exit fullscreen cleanly if currently in fullscreen
@@ -4016,12 +4011,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   return (
-    <div className={`theater-view-wrapper ${isChitChatMode ? 'chit-chat-mode' : (isChatSidebarOpen ? 'chat-expanded' : '')} ${isChatCollapsed ? 'chat-collapsed' : ''}`}>
+    <div ref={theaterWrapperRef} className={`theater-view-wrapper ${isChatSidebarOpen ? 'chat-expanded' : ''}`}>
       {/* Hidden WebRTC Remote Audio Hub */}
       <div id="wt-remote-audio-hub" style={{ display: 'none' }} aria-hidden="true" />
 
       {/* Left Column: Video Stage + Bottom Control Deck */}
-      <div className={`theater-stage-column ${(isChitChatMode && isChatCollapsed) ? 'full-width' : ''}`}>
+      <div className="theater-stage-column">
       {/* Video Canvas */}
       <div
         ref={theaterCanvasRef}
@@ -4073,42 +4068,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           >
             <Volume2 size={15} color="#ffffff" />
             <span>Tap to enable voice audio</span>
-          </button>
-        )}
-
-        {/* Floating Exit Chit Chat Mode Button (Matches Lock Button Style) */}
-        {isChitChatMode && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleExitChitChat();
-            }}
-            onMouseEnter={() => setIsHoveringExitChitChat(true)}
-            onMouseLeave={() => setIsHoveringExitChitChat(false)}
-            title="Exit Chit Chat Mode (Esc)"
-            style={{
-              position: 'absolute',
-              top: '16px',
-              right: '18px',
-              zIndex: 90,
-              width: '38px',
-              height: '38px',
-              borderRadius: '50%',
-              background: isHoveringExitChitChat ? 'rgba(236, 72, 153, 0.28)' : 'rgba(15, 10, 22, 0.65)',
-              backdropFilter: 'blur(16px)',
-              border: isHoveringExitChitChat ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.12)',
-              color: isHoveringExitChitChat ? '#ffffff' : '#9ca3af',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              opacity: isHoveringExitChitChat ? 1 : 0.35,
-              boxShadow: isHoveringExitChitChat ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
-              transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-              pointerEvents: 'auto'
-            }}
-          >
-            <X size={17} color={isHoveringExitChitChat ? '#f472b6' : '#9ca3af'} />
           </button>
         )}
 
@@ -4486,27 +4445,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </div>
         )}
 
-        {/* Fullscreen & In-Player Side Chat Drawer */}
-        {!isChitChatMode && isChatSidebarOpen && (
-          <div className="fullscreen-chat-slideout">
-            <ChatSidebar
-              isOpen={isChatSidebarOpen}
-              onClose={() => setIsChatSidebarOpen(false)}
-              messages={chatMessages}
-              onSendMessage={(text, image) => {
-                socket?.emit('chat:send_message', { text, image, isDanmaku: true });
-              }}
-              currentProfile={currentProfile}
-              connectedUsers={connectedUsers}
-              lastSeen={roomLastSeen}
-              onMarkSeen={handleMarkChatSeen}
-              onOpenAvatarModal={onOpenAvatarModal}
-            />
-          </div>
-        )}
-
         {/* Minimal Docked Arrow Button when Chat is Closed */}
-        {!isChatSidebarOpen && !isChitChatMode && (
+        {!isChatSidebarOpen && (
           <button
             type="button"
             onClick={handleToggleSideChat}
@@ -4669,8 +4609,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
             {/* CHIT CHAT MODE TOGGLE BUTTON */}
             <button
-              onClick={handleEnterChitChat}
-              className={isChitChatMode ? 'btn-pink-primary' : 'btn-pink-secondary'}
+              onClick={handleToggleSideChat}
+              className={isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4679,11 +4619,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 fontSize: '0.80rem',
                 position: 'relative'
               }}
-              title="Toggle Chit Chat Split Screen (Video + Full Chat Sidebar)"
+              title="Toggle Chit Chat Split Screen (Shortcut: C)"
             >
               <ClayChat size={16} />
               <span>Chit Chat Mode</span>
-              {unreadChatCount > 0 && (
+              {unreadChatCount > 0 && !isChatSidebarOpen && (
                 <span className="clay-unread-badge" style={{ marginLeft: '4px' }}>
                   {unreadChatCount}
                 </span>
@@ -4775,14 +4715,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       </div>
       </div>
 
-      {/* CHIT CHAT MODE: Full-Height Dedicated Sidebar Beside Video Screen */}
-      {isChitChatMode && !isChatCollapsed && (
+      {/* Dedicated Split-Screen Chat Sidebar in ALL scenarios */}
+      {isChatSidebarOpen && (
         <div className="theater-chat-sidebar-container">
           <ChatSidebar
             isOpen={true}
-            isCollapsible={true}
-            isCollapsed={false}
-            onToggleCollapse={() => setIsChatCollapsed(true)}
+            onClose={() => setIsChatSidebarOpen(false)}
             messages={chatMessages}
             onSendMessage={(text, image) => {
               socket?.emit('chat:send_message', { text, image, isDanmaku: true });
@@ -4794,26 +4732,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             onOpenAvatarModal={onOpenAvatarModal}
           />
         </div>
-      )}
-
-      {/* Floating Re-open Tab when Chit Chat is Collapsed */}
-      {isChitChatMode && isChatCollapsed && (
-        <button
-          onClick={() => {
-            setIsChatCollapsed(false);
-            handleMarkChatSeen();
-          }}
-          className="clay-chat-reopen-tab"
-          title="Open Chit Chat"
-        >
-          <ClayArrow direction="left" size={16} />
-          <span>Chat</span>
-          {unreadChatCount > 0 && (
-            <span className="clay-unread-badge" style={{ marginLeft: '4px' }}>
-              {unreadChatCount}
-            </span>
-          )}
-        </button>
       )}
 
 
