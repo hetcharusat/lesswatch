@@ -7,15 +7,22 @@ import React from 'react';
  */
 
 export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', style = {}, showBorder = true }) {
+  const [imgError, setImgError] = React.useState(false);
   const cleanName = (name || '').trim().toLowerCase();
   const rawAvatar = (avatar || '').trim();
   const cleanAvatar = rawAvatar.toLowerCase();
 
-  const isCustomImage = rawAvatar.startsWith('data:') ||
+  React.useEffect(() => {
+    setImgError(false);
+  }, [rawAvatar]);
+
+  const isCustomImage = !imgError && (
+    rawAvatar.startsWith('data:') ||
     rawAvatar.startsWith('/api/avatars') ||
     rawAvatar.startsWith('/') ||
     rawAvatar.startsWith('http://') ||
-    rawAvatar.startsWith('https://');
+    rawAvatar.startsWith('https://')
+  );
 
   const isJotaro =
     !isCustomImage && (
@@ -68,6 +75,7 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
         <img
           src={rawAvatar}
           alt={name}
+          onError={() => setImgError(true)}
           style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }}
         />
       </div>

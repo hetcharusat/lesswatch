@@ -6,7 +6,7 @@ import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
-  RotateCcw, Power, Sliders, ChevronDown, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward
+  RotateCcw, Power, Sliders, ChevronDown, ChevronLeft, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward
 } from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';

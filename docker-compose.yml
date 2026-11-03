@@ -6,12 +6,14 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "7881:7881"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - watch-together
+      - livekit
 
   watch-together:
     build: .
@@ -28,6 +30,23 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=watchtogether
+      - LIVEKIT_API_SECRET=cinema2026livekit
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    restart: always
+    ports:
+      - "7880:7880"
+      - "50000-50200:50000-50200/udp"
+    volumes:
+      - ./livekit.yaml:/livekit.yaml
+    command: --config /livekit.yaml
+    environment:
+      - LIVEKIT_API_KEY=watchtogether
+      - LIVEKIT_API_SECRET=cinema2026livekit
 
 volumes:
   caddy_data:

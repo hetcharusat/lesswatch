@@ -10,8 +10,31 @@ const multer = require('multer');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { Server } = require('socket.io');
 
+// LiveKit Server SDK - Token generation for voice SFU
+let AccessToken;
+try {
+  const livekit = require('livekit-server-sdk');
+  AccessToken = livekit.AccessToken;
+  console.log('🎙️ LiveKit SDK loaded');
+} catch (e) {
+  console.warn('⚠️ livekit-server-sdk not found, voice tokens disabled:', e.message);
+}
+
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'watchtogether';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'cinema2026livekit';
+// LiveKit URL exposed to clients: WebSocket to the SFU
+const LIVEKIT_WS_URL = process.env.LIVEKIT_WS_URL || 'wss://letswatch.atmyhome.tech/livekit';
+
 const app = express();
 const server = http.createServer(app);
+
+// Global safety crash guards
+process.on('unhandledRejection', (reason, promise) => {
+  console.warn('⚠️ [Server] Unhandled Rejection intercepted:', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [Server] Uncaught Exception intercepted:', err?.message || err);
+});
 
 // --------------------------------------------------------------------------
 // Docker Engine Socket Controller for Neko Virtual Browser Lifecycle
@@ -594,6 +617,54 @@ app.get('/api/live-status', (req, res) => {
   res.json(getLiveStatus());
 });
 
+// ============================================================
+// LiveKit SFU - Token Endpoint
+// POST /api/livekit/token  body: { roomId, identity, username }
+// ============================================================
+app.post('/api/livekit/token', express.json(), async (req, res) => {
+  if (!AccessToken) {
+    return res.status(503).json({ error: 'LiveKit not configured on this server' });
+  }
+  const { roomId, identity, username } = req.body || {};
+  if (!roomId || !identity) {
+    return res.status(400).json({ error: 'roomId and identity required' });
+  }
+  try {
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity,
+      name: username || identity,
+      ttl: 24 * 3600 // 24 hours
+    });
+    at.addGrant({ roomJoin: true, room: roomId, canPublish: true, canSubscribe: true });
+    const token = await at.toJwt();
+
+    const host = req.headers.host || 'letswatch.atmyhome.tech';
+    const proto = (req.headers['x-forwarded-proto'] === 'http' || host.includes('localhost') || host.includes('127.0.0.1')) ? 'ws' : 'wss';
+    const wsUrl = process.env.LIVEKIT_WS_URL || `${proto}://${host}/livekit`;
+
+    res.json({ token, url: wsUrl });
+  } catch (err) {
+    console.error('[LiveKit] Token error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/rooms', (req, res) => {
+  const result = [];
+  for (const [id, r] of rooms.entries()) {
+    result.push({
+      id,
+      name: id === 'lounge' ? 'Common Screen Lounge' : id,
+      userCount: r.users?.size || 0,
+      media: r.media || null,
+      isPlaying: r.playback?.isPlaying || false,
+      currentTime: r.playback?.currentTime || 0,
+      users: Array.from(r.users?.values() || []).map(u => ({ username: u.username, name: u.name, avatar: u.avatar, color: u.color }))
+    });
+  }
+  res.json({ rooms: result });
+});
+
 app.get('/api/network-status', (req, res) => {
   let tunnelUrl = null;
   const logFile = path.join(DATA_DIR, 'cloudflared.log');
@@ -1069,7 +1140,7 @@ function probeMediaFile(filePath, relPath = '') {
         audioTracks.forEach((t) => {
           const isAac = (t.codec || '').toLowerCase() === 'aac';
           if (t.index > 0 || !isAac) {
-            preExtractAudioTrack(filePath, t.index);
+            preExtractAudioTrack(filePath, t.index).catch(() => { });
           }
         });
 
@@ -1264,10 +1335,10 @@ app.post('/api/library/folder/rename', requireAdmin, (req, res) => {
   }
 });
 
-// Delete Folder (Admin Only - Supports both DELETE and POST)
-app.all(['/api/library/folder/delete'], requireAdmin, (req, res) => {
+// Delete Folder (Admin Only - Supports both DELETE and POST, query and body)
+app.all(['/api/library/folder/delete', '/api/library/folder'], requireAdmin, (req, res) => {
   if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).send('Method not allowed');
-  const folderPath = req.query.path || req.body?.path;
+  const folderPath = req.body?.folderPath || req.body?.path || req.query?.path || req.query?.folderPath;
   if (!folderPath) return res.status(400).json({ error: 'Path required' });
 
   const targetDir = getSafePath(folderPath);
@@ -1278,8 +1349,10 @@ app.all(['/api/library/folder/delete'], requireAdmin, (req, res) => {
   try {
     fs.rmSync(targetDir, { recursive: true, force: true });
     mediaProbeCache.clear();
+    console.log(`🗑️ Successfully deleted folder "${folderPath}" (${targetDir})`);
     res.json({ success: true, message: 'Folder deleted' });
   } catch (err) {
+    console.error(`❌ Error deleting folder "${folderPath}":`, err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1428,23 +1501,32 @@ app.get(['/api/media/subtitles/:filename/:streamIndex.vtt', '/api/media/subtitle
 });
 
 
-// Rename file in Library (Admin Only - Supports Nested Paths)
-app.post('/api/library/rename', requireAdmin, (req, res) => {
-  const { oldName, newName } = req.body;
-  if (!oldName || !newName) return res.status(400).json({ error: 'Missing parameters' });
+// Rename file in Library (Admin Only - Supports Nested Paths, /file alias, and filePath/oldName)
+app.post(['/api/library/rename', '/api/library/file/rename'], requireAdmin, (req, res) => {
+  const oldName = req.body?.filePath || req.body?.oldName || req.body?.sourcePath;
+  const newName = req.body?.newName;
+  if (!oldName || !newName) return res.status(400).json({ error: 'Missing parameters (oldName/filePath and newName required)' });
 
   const oldPath = getSafePath(oldName);
-  const safeNewName = path.basename(newName).replace(/[^a-zA-Z0-9._ -]/g, '_');
-  const newPath = path.join(path.dirname(oldPath), safeNewName);
-
   if (!fs.existsSync(oldPath)) return res.status(404).json({ error: 'Source file not found' });
+
+  // Auto-preserve original extension if user omitted it
+  const origExt = path.extname(oldPath);
+  let safeNewName = path.basename(newName).replace(/[^a-zA-Z0-9._ -]/g, '_');
+  if (origExt && !safeNewName.toLowerCase().endsWith(origExt.toLowerCase())) {
+    safeNewName += origExt;
+  }
+
+  const newPath = path.join(path.dirname(oldPath), safeNewName);
   if (fs.existsSync(newPath) && oldPath !== newPath) return res.status(400).json({ error: 'Target filename already exists' });
 
   try {
     fs.renameSync(oldPath, newPath);
     mediaProbeCache.clear();
+    console.log(`✏️ Successfully renamed file "${oldName}" -> "${safeNewName}"`);
     res.json({ success: true, newName: safeNewName });
   } catch (err) {
+    console.error(`❌ Error renaming file "${oldName}":`, err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1654,13 +1736,19 @@ app.get('/api/media/subtitles/cache/:filename', (req, res) => {
 // Delete file from Library (Admin Only - Supports Nested Paths, DELETE & POST, and /file alias)
 app.all(['/api/library/delete', '/api/library/delete/:filename', '/api/library/delete/*', '/api/library/file'], requireAdmin, (req, res) => {
   if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).send('Method not allowed');
-  const relPath = req.query.path || req.params[0] || req.params.filename || req.body?.path;
+  const relPath = req.query?.path || req.query?.filePath || req.params[0] || req.params?.filename || req.body?.path || req.body?.filePath || req.body?.filename;
+  if (!relPath) return res.status(400).json({ error: 'File path required' });
   const filePath = resolveExistingMediaFile(relPath);
 
   if (fs.existsSync(filePath)) {
     try {
-      fs.unlinkSync(filePath);
+      if (fs.statSync(filePath).isDirectory()) {
+        fs.rmSync(filePath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(filePath);
+      }
       mediaProbeCache.clear();
+      console.log(`🗑️ Successfully deleted file/path "${relPath}" (${filePath})`);
 
       // Check if any room is currently playing or holding this deleted file!
       for (const [rId, room] of rooms.entries()) {
@@ -2964,9 +3052,12 @@ io.on('connection', (socket) => {
   // ------------------------------------------------------------------------
   socket.on('voice:join', (data = {}) => {
     if (!currentRoomId || !currentUser) return;
+    console.log(`🎙️ [Voice] ${currentUser.username} (${socket.id}) joined voice in room ${currentRoomId}`);
     currentUser.inVoice = true;
     currentUser.hasVideo = !!data.hasVideo;
     currentUser.hasAudio = data.hasAudio !== false;
+    
+    // 1. Announce to room that a new peer joined voice
     socket.to(currentRoomId).emit('voice:peer_joined', {
       peerId: socket.id,
       username: currentUser.username,
@@ -2975,10 +3066,30 @@ io.on('connection', (socket) => {
       hasVideo: !!data.hasVideo,
       hasAudio: data.hasAudio !== false
     });
+
+    // 2. Send active voice peers to the newly joined socket so they discover each other instantly
+    const room = rooms.get(currentRoomId);
+    if (room && room.users) {
+      for (const [uId, u] of room.users.entries()) {
+        if (uId !== socket.id && u.inVoice) {
+          console.log(`🎙️ [Voice] Discovered active peer ${u.username} (${uId}) for ${currentUser.username}`);
+          socket.emit('voice:peer_joined', {
+            peerId: uId,
+            username: u.username,
+            avatar: u.avatar,
+            color: u.color,
+            hasVideo: !!u.hasVideo,
+            hasAudio: u.hasAudio !== false
+          });
+        }
+      }
+    }
   });
 
   socket.on('voice:signal', ({ targetPeerId, signalData }) => {
     if (!targetPeerId || !signalData) return;
+    const sigType = signalData.desc?.type || (signalData.candidate ? 'candidate' : 'unknown');
+    console.log(`📡 [Voice:Signal] ${sigType} from ${currentUser?.username || socket.id} -> ${targetPeerId}`);
     io.to(targetPeerId).emit('voice:signal', {
       senderPeerId: socket.id,
       username: currentUser?.username,

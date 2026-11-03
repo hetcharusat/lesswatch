@@ -2,4 +2,10 @@ node_modules
 *.pem
 .git
 .agents
-downloads/*
+.agent
+downloads
+downloads/**
+data
+data/**
+*.tar.gz
+client

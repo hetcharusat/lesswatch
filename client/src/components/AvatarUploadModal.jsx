@@ -389,3 +389,4 @@ export function AvatarUploadModal({ isOpen, onClose, currentUser, onAvatarUpdate
   );
 }
 export default AvatarUploadModal;
+

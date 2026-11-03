@@ -6,6 +6,11 @@ letswatch.atmyhome.tech {
     @notMedia not path /api/media/stream/*
     encode @notMedia gzip zstd
 
+    # LiveKit WebSocket signaling proxy (strips /livekit prefix)
+    handle_path /livekit* {
+        reverse_proxy livekit:7880
+    }
+
     reverse_proxy /neko* 172.17.0.1:8080
     reverse_proxy watch-together:3000
 }
@@ -13,6 +18,10 @@ letswatch.atmyhome.tech {
 :80 {
     @notMedia not path /api/media/stream/*
     encode @notMedia gzip zstd
+
+    handle_path /livekit* {
+        reverse_proxy livekit:7880
+    }
 
     reverse_proxy /neko* 172.17.0.1:8080
     reverse_proxy watch-together:3000

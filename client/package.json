@@ -14,11 +14,16 @@
     "vite": "^8.3.4"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@formkit/auto-animate": "^0.10.0",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "@videojs/react": "^10.2.0",
     "artplayer": "^5.4.0",
     "canvas-confetti": "^1.9.4",
     "hls.js": "^1.7.3",
+    "livekit-client": "^2.23.0",
     "lucide-react": "^1.61.0",
     "peerjs": "^1.5.5",
     "react": "^19.3.1",

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sparkles, Heart, Shield, Lock, Mail, User, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { UserAvatar } from './JojoAvatar';
 
@@ -10,6 +10,31 @@ export function AuthGate({ onAuthenticated }) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Dynamic user avatars for 1-click login cards
+  const [hetAvatar, setHetAvatar] = useState(() => localStorage.getItem('wt_avatar_het') || 'jotaro');
+  const [riaAvatar, setRiaAvatar] = useState(() => localStorage.getItem('wt_avatar_ria') || 'jolyne');
+
+  useEffect(() => {
+    let isMounted = true;
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(users => {
+        if (!isMounted || !Array.isArray(users)) return;
+        const het = users.find(u => u.name?.toLowerCase() === 'het' || u.id === 'het');
+        const ria = users.find(u => u.name?.toLowerCase() === 'ria' || u.name?.toLowerCase() === 'riaa' || u.id === 'ria');
+        if (het?.avatar) {
+          setHetAvatar(het.avatar);
+          localStorage.setItem('wt_avatar_het', het.avatar);
+        }
+        if (ria?.avatar) {
+          setRiaAvatar(ria.avatar);
+          localStorage.setItem('wt_avatar_ria', ria.avatar);
+        }
+      })
+      .catch((err) => console.warn('Could not fetch avatars for login screen:', err));
+    return () => { isMounted = false; };
+  }, []);
 
   // Quick select helper for Het & Ria
   function handleQuickSelect(selectedEmail, selectedPass) {
@@ -146,7 +171,7 @@ export function AuthGate({ onAuthenticated }) {
                 onClick={() => handleQuickSelect('het@watchtogether.local', '1234')}
                 className={`auth-profile-card profile-het ${email === 'het@watchtogether.local' ? 'selected' : ''}`}
               >
-                <UserAvatar user={{ name: 'Het', avatar: 'jotaro' }} size={40} showBorder={true} />
+                <UserAvatar user={{ name: 'Het', avatar: hetAvatar }} size={40} showBorder={true} />
                 <div className="auth-profile-info">
                   <span className="auth-profile-name">Het</span>
                 </div>
@@ -156,7 +181,7 @@ export function AuthGate({ onAuthenticated }) {
                 onClick={() => handleQuickSelect('ria@watchtogether.local', '1234')}
                 className={`auth-profile-card profile-riaa ${email === 'ria@watchtogether.local' || email === 'riaa@watchtogether.local' ? 'selected' : ''}`}
               >
-                <UserAvatar user={{ name: 'Ria', avatar: 'jolyne' }} size={40} showBorder={true} />
+                <UserAvatar user={{ name: 'Ria', avatar: riaAvatar }} size={40} showBorder={true} />
                 <div className="auth-profile-info">
                   <span className="auth-profile-name">Ria</span>
                 </div>

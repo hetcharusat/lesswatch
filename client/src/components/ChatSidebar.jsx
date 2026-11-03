@@ -57,10 +57,20 @@ export function ChatSidebar({
     isNearBottomRef.current = distanceToBottom < 120;
   };
 
-  // Auto-mark seen and smart scroll (Never yank the user down if they scrolled up to read history!)
+  // When chat drawer is opened, always scroll directly to latest message
   useEffect(() => {
     if (isOpen && !isCollapsed) {
       onMarkSeen?.();
+      isNearBottomRef.current = true;
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 50);
+    }
+  }, [isOpen, isCollapsed]);
+
+  // Auto-mark seen and smart scroll for incoming messages
+  useEffect(() => {
+    if (isOpen && !isCollapsed) {
       const prevCount = prevMsgCountRef.current;
       prevMsgCountRef.current = messages.length;
 
@@ -73,7 +83,7 @@ export function ChatSidebar({
         }
       }
     }
-  }, [isOpen, isCollapsed, messages.length]);
+  }, [messages.length]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -146,13 +156,32 @@ export function ChatSidebar({
           gap: '8px'
         }}
       >
-        <div style={{ display: 'flex', gap: '5px', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)', padding: '3px', borderRadius: '9999px' }}>
+        <div style={{ position: 'relative', display: 'flex', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)', padding: '3px', borderRadius: '9999px', overflow: 'hidden' }}>
+          {/* Sliding Active Pill Background */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '3px',
+              bottom: '3px',
+              left: activeTab === 'chat' ? '3px' : 'calc(50% + 1px)',
+              width: 'calc(50% - 4px)',
+              borderRadius: '9999px',
+              background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+              boxShadow: '0 2px 8px rgba(236, 72, 153, 0.45)',
+              transition: 'left 0.32s cubic-bezier(0.32, 0.72, 0, 1)',
+              pointerEvents: 'none',
+              zIndex: 1
+            }}
+          />
           <button
+            type="button"
             onClick={() => setActiveTab('chat')}
             style={{
+              position: 'relative',
+              zIndex: 2,
               padding: '6px 14px',
               borderRadius: '9999px',
-              background: activeTab === 'chat' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              background: 'transparent',
               color: activeTab === 'chat' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
               border: 'none',
               fontWeight: 800,
@@ -160,20 +189,23 @@ export function ChatSidebar({
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '6px',
-              boxShadow: activeTab === 'chat' ? '0 2px 8px rgba(236, 72, 153, 0.45)' : 'none',
-              transition: 'all 0.2s ease'
+              transition: 'color 0.25s ease'
             }}
           >
             <ClayChat size={15} />
             <span>Chat</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('users')}
             style={{
+              position: 'relative',
+              zIndex: 2,
               padding: '6px 14px',
               borderRadius: '9999px',
-              background: activeTab === 'users' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
+              background: 'transparent',
               color: activeTab === 'users' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
               border: 'none',
               fontWeight: 800,
@@ -181,9 +213,9 @@ export function ChatSidebar({
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '6px',
-              boxShadow: activeTab === 'users' ? '0 2px 8px rgba(236, 72, 153, 0.45)' : 'none',
-              transition: 'all 0.2s ease'
+              transition: 'color 0.25s ease'
             }}
           >
             <ClayUsers size={15} />
@@ -216,11 +248,11 @@ export function ChatSidebar({
             {isDarkTheme ? <Sun size={15} color="#f472b6" /> : <Moon size={15} color="#831843" />}
           </button>
 
-          {/* Clean Circular Collapse Button */}
-          {isCollapsible && (
+          {/* Clean Circular Collapse / Close Button */}
+          {(isCollapsible || onClose) && (
             <button
               type="button"
-              onClick={onToggleCollapse}
+              onClick={isCollapsible ? onToggleCollapse : onClose}
               style={{
                 width: '32px',
                 height: '32px',
@@ -235,7 +267,7 @@ export function ChatSidebar({
                 boxShadow: isDarkTheme ? '0 2px 8px rgba(236, 72, 153, 0.3)' : '0 2px 6px rgba(244, 114, 182, 0.25)',
                 transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
               }}
-              title="Hide Sidebar"
+              title="Close Sidebar (C)"
             >
               <PanelRightClose size={15} color={isDarkTheme ? '#f472b6' : '#831843'} />
             </button>
@@ -243,19 +275,22 @@ export function ChatSidebar({
         </div>
       </div>
 
-      {/* 2. Messages List Tab */}
-      {activeTab === 'chat' && (
+      {/* 2 & 3. Fast, High-Performance Viewport for Messages & Users */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {/* Panel A: Messages List Tab */}
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
           style={{
-            flex: 1,
+            display: activeTab === 'chat' ? 'flex' : 'none',
+            width: '100%',
+            height: '100%',
             overflowY: 'auto',
             padding: '14px',
-            display: 'flex',
             flexDirection: 'column',
             gap: '12px',
-            background: isDarkTheme ? '#0d0a14' : '#ffffff'
+            background: isDarkTheme ? '#0d0a14' : '#ffffff',
+            boxSizing: 'border-box'
           }}
         >
           {messages.length === 0 ? (
@@ -400,11 +435,21 @@ export function ChatSidebar({
           )}
           <div ref={messagesEndRef} />
         </div>
-      )}
 
-      {/* 3. Users List Tab */}
-      {activeTab === 'users' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px', background: isDarkTheme ? '#0a0710' : '#ffffff' }}>
+        {/* Panel B: Users List Tab */}
+        <div
+          style={{
+            display: activeTab === 'users' ? 'flex' : 'none',
+            width: '100%',
+            height: '100%',
+            overflowY: 'auto',
+            padding: '14px',
+            flexDirection: 'column',
+            gap: '8px',
+            background: isDarkTheme ? '#0a0710' : '#ffffff',
+            boxSizing: 'border-box'
+          }}
+        >
           {connectedUsers.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '3rem', fontSize: '0.84rem' }}>
               No other users in this room yet.
@@ -474,7 +519,7 @@ export function ChatSidebar({
             })
           )}
         </div>
-      )}
+      </div>
 
       {/* 4. GIPHY Picker Floating Popover */}
       {showGiphy && (

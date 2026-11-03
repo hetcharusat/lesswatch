@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LogOut } from 'lucide-react';
 import { UserAvatar } from './JojoAvatar';
 import { PinkPopcornLogo } from './PinkPopcornLogo';
@@ -7,6 +7,24 @@ import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClaySparkle } from './ClayI
 export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogout, onOpenAvatarModal }) {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
   const isRoomView = activeView === 'room';
+
+  const navRef = useRef(null);
+  const btnRefs = useRef({});
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0, opacity: 0 });
+
+  useEffect(() => {
+    const activeKey = activeView === 'room' ? 'room' : activeView;
+    const activeEl = btnRefs.current[activeKey];
+    if (activeEl && navRef.current) {
+      const navRect = navRef.current.getBoundingClientRect();
+      const elRect = activeEl.getBoundingClientRect();
+      setIndicatorStyle({
+        left: elRect.left - navRect.left,
+        width: elRect.width,
+        opacity: 1
+      });
+    }
+  }, [activeView, isRoomView]);
 
   return (
     <header className={`pink-navbar ${isRoomView ? 'theater-navbar-cinema' : ''}`}>
@@ -29,23 +47,56 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         </div>
       )}
 
-      {/* Center Nav Links with 3D Clay Icons */}
-      <nav style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.4rem',
-        background: isRoomView ? 'rgba(18, 12, 26, 0.88)' : 'rgba(255, 255, 255, 0.85)',
-        backdropFilter: 'blur(16px)',
-        padding: '5px 8px',
-        borderRadius: '9999px',
-        border: isRoomView ? '1.5px solid rgba(244, 114, 182, 0.25)' : '1.5px solid var(--border-pink)',
-        boxShadow: isRoomView ? '0 4px 20px rgba(0, 0, 0, 0.6)' : '0 4px 16px rgba(244, 114, 182, 0.16)'
-      }}>
+      {/* Center Nav Links with Sliding Apple-smooth Indicator */}
+      <nav
+        ref={navRef}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.35rem',
+          background: isRoomView ? 'rgba(18, 12, 26, 0.88)' : 'rgba(255, 255, 255, 0.85)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          padding: '5px 8px',
+          borderRadius: '9999px',
+          border: isRoomView ? '1.5px solid rgba(244, 114, 182, 0.25)' : '1.5px solid var(--border-pink)',
+          boxShadow: isRoomView ? '0 4px 20px rgba(0, 0, 0, 0.6)' : '0 4px 16px rgba(244, 114, 182, 0.16)'
+        }}
+      >
+        {/* Sliding Capsule Pill */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '5px',
+            bottom: '5px',
+            left: `${indicatorStyle.left}px`,
+            width: `${indicatorStyle.width}px`,
+            borderRadius: '9999px',
+            background: activeView === 'room'
+              ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
+              : activeView === 'library'
+              ? 'linear-gradient(135deg, rgba(251,191,36,0.25), rgba(245,158,11,0.35))'
+              : activeView === 'downloads'
+              ? 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(52,211,153,0.32))'
+              : 'linear-gradient(135deg, rgba(236,72,153,0.22), rgba(244,114,182,0.32))',
+            boxShadow: activeView === 'room' ? '0 4px 14px rgba(236, 72, 153, 0.45)' : 'none',
+            border: activeView === 'room' ? 'none' : '1.5px solid rgba(244, 114, 182, 0.45)',
+            opacity: indicatorStyle.opacity,
+            transition: 'left 0.35s cubic-bezier(0.32, 0.72, 0, 1), width 0.35s cubic-bezier(0.32, 0.72, 0, 1), background 0.3s ease',
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        />
+
         <button
+          ref={(el) => (btnRefs.current['home'] = el)}
           onClick={() => onNavigate('home')}
           style={{
-            background: activeView === 'home' ? 'linear-gradient(135deg, rgba(236,72,153,0.15), rgba(244,114,182,0.25))' : 'transparent',
-            border: activeView === 'home' ? '1.5px solid var(--pink-pastel)' : '1.5px solid transparent',
+            position: 'relative',
+            zIndex: 2,
+            background: 'transparent',
+            border: 'none',
             color: activeView === 'home' ? '#be185d' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
@@ -55,7 +106,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            transition: 'all 0.2s ease'
+            transition: 'color 0.25s ease'
           }}
         >
           <ClayHome size={18} />
@@ -63,12 +114,14 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         </button>
 
         <button
+          ref={(el) => (btnRefs.current['room'] = el)}
           onClick={() => onNavigate('room', 'lounge')}
           style={{
-            background: activeView === 'room' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
-            border: activeView === 'room' ? 'none' : '1.5px solid transparent',
+            position: 'relative',
+            zIndex: 2,
+            background: 'transparent',
+            border: 'none',
             color: activeView === 'room' ? '#ffffff' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
-            boxShadow: activeView === 'room' ? '0 4px 14px rgba(236, 72, 153, 0.4)' : 'none',
             padding: '6px 16px',
             borderRadius: '9999px',
             fontSize: '0.82rem',
@@ -77,7 +130,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            transition: 'all 0.2s ease'
+            transition: 'color 0.25s ease'
           }}
         >
           <ClayTv size={18} />
@@ -85,10 +138,13 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         </button>
 
         <button
+          ref={(el) => (btnRefs.current['library'] = el)}
           onClick={() => onNavigate('library')}
           style={{
-            background: activeView === 'library' ? 'linear-gradient(135deg, rgba(251,191,36,0.15), rgba(245,158,11,0.22))' : 'transparent',
-            border: activeView === 'library' ? '1.5px solid var(--gold-border)' : '1.5px solid transparent',
+            position: 'relative',
+            zIndex: 2,
+            background: 'transparent',
+            border: 'none',
             color: activeView === 'library' ? '#b45309' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
@@ -98,7 +154,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            transition: 'all 0.2s ease'
+            transition: 'color 0.25s ease'
           }}
         >
           <ClayFolder size={18} />
@@ -106,10 +162,13 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
         </button>
 
         <button
+          ref={(el) => (btnRefs.current['studio'] = el)}
           onClick={() => onNavigate('studio')}
           style={{
-            background: activeView === 'studio' ? 'linear-gradient(135deg, rgba(236,72,153,0.18), rgba(244,114,182,0.28))' : 'transparent',
-            border: activeView === 'studio' ? '1.5px solid var(--pink-pastel)' : '1.5px solid transparent',
+            position: 'relative',
+            zIndex: 2,
+            background: 'transparent',
+            border: 'none',
             color: activeView === 'studio' ? '#be185d' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
             padding: '5px 14px',
             borderRadius: '9999px',
@@ -119,7 +178,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            transition: 'all 0.2s ease'
+            transition: 'color 0.25s ease'
           }}
         >
           <ClaySparkle size={18} color={activeView === 'studio' ? '#ec4899' : undefined} />
@@ -128,10 +187,13 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
 
         {isAdmin && (
           <button
+            ref={(el) => (btnRefs.current['downloads'] = el)}
             onClick={() => onNavigate('downloads')}
             style={{
-              background: activeView === 'downloads' ? 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(52,211,153,0.22))' : 'transparent',
-              border: activeView === 'downloads' ? '1.5px solid rgba(16,185,129,0.35)' : '1.5px solid transparent',
+              position: 'relative',
+              zIndex: 2,
+              background: 'transparent',
+              border: 'none',
               color: activeView === 'downloads' ? '#047857' : (isRoomView ? '#cbd5e1' : 'var(--text-muted)'),
               padding: '5px 14px',
               borderRadius: '9999px',
@@ -141,7 +203,7 @@ export function Navbar({ currentUser, onNavigate, activeView, activeRoom, onLogo
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              transition: 'all 0.2s ease'
+              transition: 'color 0.25s ease'
             }}
           >
             <ClayDownload size={18} />
