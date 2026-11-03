@@ -82,6 +82,7 @@ export function PoufPlayer({
   onForceSyncAll,
   onToggleChat,
   onEnterChat,
+  onToggleFullscreen,
   viewerCount = 1,
   isHost = false,
   canControl = true,
@@ -138,7 +139,7 @@ export function PoufPlayer({
     try {
       const saved = localStorage.getItem('wt_visual_filter');
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch { }
     return { brightness: 100, contrast: 100, saturation: 100 };
   });
 
@@ -333,7 +334,7 @@ export function PoufPlayer({
         const data = await res.json();
         setAudioStatusData(data);
       }
-    } catch {}
+    } catch { }
   }, [cleanFilename]);
 
   useEffect(() => {
@@ -351,7 +352,7 @@ export function PoufPlayer({
     try {
       await fetch(`/api/media/process-audio/${encodeURIComponent(cleanFilename)}`, { method: 'POST' });
       fetchAudioStatus();
-    } catch {}
+    } catch { }
     setTimeout(() => setIsProcessingAudio(false), 3000);
   };
 
@@ -381,7 +382,7 @@ export function PoufPlayer({
         video.currentTime = currentTime;
       }
       if (isPlaying) {
-        video.play().catch(() => {});
+        video.play().catch(() => { });
       }
     }
   }, [directStreamUrl]);
@@ -428,7 +429,7 @@ export function PoufPlayer({
           }
           audioRef.current.playbackRate = videoRef.current.playbackRate;
           if (!videoRef.current.paused) {
-            audioRef.current.play().catch(() => {});
+            audioRef.current.play().catch(() => { });
           }
         };
 
@@ -451,12 +452,12 @@ export function PoufPlayer({
     if (!video) return;
 
     if (isPlaying) {
-      if (video.paused) video.play().catch(() => {});
+      if (video.paused) video.play().catch(() => { });
       if (shouldUseAudioElement && audio && audio.paused) {
         if (Math.abs(audio.currentTime - video.currentTime) > 0.4) {
           audio.currentTime = video.currentTime;
         }
-        audio.play().catch(() => {});
+        audio.play().catch(() => { });
       }
     } else {
       if (!video.paused) video.pause();
@@ -724,7 +725,7 @@ export function PoufPlayer({
     if (video.buffered && video.buffered.length > 0) {
       try {
         setBufferedProgress(video.buffered.end(video.buffered.length - 1));
-      } catch {}
+      } catch { }
     }
 
     // Subtitle Cues with Timing Offset
@@ -750,7 +751,7 @@ export function PoufPlayer({
       }
     }
     if (isPlaying && video.paused) {
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     }
   }
 
@@ -760,7 +761,7 @@ export function PoufPlayer({
     triggerCenterAnimation('play');
     if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
       audioRef.current.currentTime = videoRef.current?.currentTime || 0;
-      audioRef.current.play().catch(() => {});
+      audioRef.current.play().catch(() => { });
     }
   }
 
@@ -786,10 +787,10 @@ export function PoufPlayer({
     if (!video) return;
 
     if (video.paused) {
-      video.play().catch(() => {});
+      video.play().catch(() => { });
       if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
         audioRef.current.currentTime = video.currentTime;
-        audioRef.current.play().catch(() => {});
+        audioRef.current.play().catch(() => { });
       }
       if (onPlay) onPlay(video.currentTime);
     } else {
@@ -901,26 +902,28 @@ export function PoufPlayer({
   }, []);
 
   function toggleFullscreen() {
-    const container = containerRef.current;
-    if (!container) return;
-
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+      return;
+    }
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const targetEl = containerRef.current || document.documentElement;
     if (!isFs) {
-      if (container.requestFullscreen) {
-        container.requestFullscreen().then(() => {
+      if (targetEl.requestFullscreen) {
+        targetEl.requestFullscreen().then(() => {
           if ('keyboard' in navigator && navigator.keyboard?.lock) {
-            navigator.keyboard.lock(['Escape']).catch(() => {});
+            navigator.keyboard.lock(['Escape']).catch(() => { });
           }
-        }).catch(() => {});
-      } else if (container.webkitRequestFullscreen) {
-        container.webkitRequestFullscreen();
+        }).catch(() => { });
+      } else if (targetEl.webkitRequestFullscreen) {
+        targetEl.webkitRequestFullscreen();
       }
       setIsFullscreen(true);
     } else {
       if ('keyboard' in navigator && navigator.keyboard?.unlock) {
         navigator.keyboard.unlock();
       }
-      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => { });
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       setIsFullscreen(false);
     }
@@ -1071,12 +1074,6 @@ export function PoufPlayer({
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
         handleSeekRelative(10);
-      } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        toggleFullscreen();
-      } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        setIsMuted(prev => !prev);
       } else if (e.key === 'p' || e.key === 'P') {
         e.preventDefault();
         handleTogglePiP();
@@ -1218,29 +1215,6 @@ export function PoufPlayer({
             <Users size={12} color="#f472b6" />
             <span>{viewerCount}</span>
           </div>
-
-          {!isChitChatMode && (
-            <button
-              onClick={() => {
-                setIsLocked(true);
-                setShowControls(false);
-                triggerLockHint();
-              }}
-              className="pouf-glass-btn"
-              style={{
-                width: '32px',
-                height: '32px',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-              title="Lock Controls (L)"
-            >
-              <Lock size={14} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -1378,13 +1352,13 @@ export function PoufPlayer({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            opacity: isHoveringUnlock ? 1 : 0.22,
+            opacity: isHoveringUnlock ? 1 : 0.60,
             boxShadow: isHoveringUnlock ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
             transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             pointerEvents: 'auto'
           }}
         >
-          {isHoveringUnlock ? <Unlock size={17} color="#f472b6" /> : <Lock size={17} color="#9ca3af" />}
+          {isHoveringUnlock ? <Unlock size={17} color="#f472b6" /> : <Lock size={17} color="#fbcfe8" />}
         </button>
       )}
 
@@ -1680,6 +1654,19 @@ export function PoufPlayer({
               title="Capture Screenshot Frame"
             >
               <Camera size={15} color="#ffe4e6" />
+            </button>
+
+            {/* Lock Screen Controls */}
+            <button
+              onClick={() => {
+                setIsLocked(true);
+                setShowControls(false);
+                triggerLockHint();
+              }}
+              className="pouf-dock-icon-btn"
+              title="Lock Screen Controls (L)"
+            >
+              <Lock size={15} color="#ffe4e6" />
             </button>
 
             {/* Fullscreen */}

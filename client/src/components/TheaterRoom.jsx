@@ -1151,7 +1151,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           : {
               deviceId: deviceId ? { ideal: deviceId } : undefined,
               echoCancellation: true,
-              noiseSuppression: noiseSuppression,
+              noiseSuppression: noiseSuppressionMode !== 'raw',
               autoGainControl: true
             },
         video: false
@@ -1207,8 +1207,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   function toggleNoiseSuppression(enabled) {
-    setNoiseSuppression(enabled);
-    localStorage.setItem('wt_noise_supp', String(enabled));
+    const mode = enabled ? 'rnnoise' : 'raw';
+    setNoiseSuppressionMode(mode);
+    noiseSuppressionModeRef.current = mode;
+    localStorage.setItem('wt_noise_supp_mode', mode);
     if (isVoiceConnectedRef.current) {
       showToast(enabled ? 'Noise Suppression Active' : 'Noise Suppression Off', <ShieldCheck size={15} color="var(--pink-primary)" />);
       switchAudioInput(selectedAudioInput);
@@ -2982,73 +2984,55 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   };
 
   // Cinema Video Fullscreen (fullscreen only the video canvas / player)
+  // True Cinema Video Fullscreen (fullscreens the video canvas only, 100% edge-to-edge, zero bottom deck)
   function toggleVideoFullscreen() {
-    if (activePlayerType === 'youtube') {
-      const el = document.getElementById('react-yt-player') || theaterCanvasRef.current;
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (el?.requestFullscreen) el.requestFullscreen().catch(() => {});
-        else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
-      } else {
-        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-      }
-    } else if (activePlayerType !== 'neko') {
-      // Direct / HLS PoufPlayer media
-      const container = document.querySelector('.pouf-player-container') || theaterCanvasRef.current;
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (container?.requestFullscreen) {
-          container.requestFullscreen().then(() => {
-            if ('keyboard' in navigator && navigator.keyboard?.lock) {
-              navigator.keyboard.lock(['Escape']).catch(() => {});
-            }
-          }).catch(() => {});
-        } else if (container?.webkitRequestFullscreen) {
-          container.webkitRequestFullscreen();
-        }
-      } else {
-        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
-          navigator.keyboard.unlock();
-        }
-        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const targetEl = theaterCanvasRef.current || document.documentElement;
+    if (!isFs) {
+      if (targetEl.requestFullscreen) {
+        targetEl.requestFullscreen().then(() => {
+          if ('keyboard' in navigator && navigator.keyboard?.lock) {
+            navigator.keyboard.lock(['Escape']).catch(() => {});
+          }
+        }).catch(() => {});
+      } else if (targetEl.webkitRequestFullscreen) {
+        targetEl.webkitRequestFullscreen();
       }
     } else {
-      const el = theaterCanvasRef.current;
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (el?.requestFullscreen) {
-          el.requestFullscreen().then(() => {
-            if ('keyboard' in navigator && navigator.keyboard?.lock) {
-              navigator.keyboard.lock(['Escape']).catch(() => {});
-            }
-          }).catch(() => {});
-        } else if (el?.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen();
-        }
-      } else {
-        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
-          navigator.keyboard.unlock();
-        }
-        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+        navigator.keyboard.unlock();
       }
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     }
   }
 
+  // Toggle Chat Sidebar cleanly
+  // If not in fullscreen: enters true fullscreen on player AND opens side chat
+  // If already in fullscreen: toggles side chat without exiting fullscreen
   const handleToggleSideChat = useCallback(() => {
-    if (isChitChatModeRef.current) {
-      if (isChatCollapsedRef.current) {
-        // Press c while Sidechat is Collapsed: Un-collapses and expands the sidechat
-        setIsChatCollapsed(false);
-        handleMarkChatSeen();
-      } else {
-        // Press c while Sidechat is Open: Exits Chit Chat mode and returns to full cinema screen
-        handleExitChitChat();
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFs) {
+      const targetEl = theaterCanvasRef.current || document.documentElement;
+      if (targetEl.requestFullscreen) {
+        targetEl.requestFullscreen().catch(() => {});
+      } else if (targetEl.webkitRequestFullscreen) {
+        targetEl.webkitRequestFullscreen();
       }
+      setIsChatSidebarOpen(true);
+      handleMarkChatSeen();
+      setUnreadChatCount(0);
     } else {
-      // Press c in Normal View / Fullscreen: Immediately enters Chit Chat mode with sidechat open beside player
-      handleEnterChitChat();
+      setIsChatSidebarOpen((prev) => {
+        const next = !prev;
+        if (next) {
+          handleMarkChatSeen();
+          setUnreadChatCount(0);
+        }
+        return next;
+      });
     }
-  }, [handleEnterChitChat, handleExitChitChat, handleMarkChatSeen]);
+  }, [handleMarkChatSeen]);
 
   useEffect(() => {
     function handleGlobalKeyDown(e) {
@@ -3080,6 +3064,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setShowAudioPopover(false);
           setShowSubtitlePopover(false);
           setShowVoiceSettings(false);
+          return;
+        }
+        if (isChatSidebarOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsChatSidebarOpen(false);
           return;
         }
         if (isChitChatModeRef.current) {
@@ -3844,10 +3834,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         className="pouf-popover-shell"
         style={{
           position: 'absolute',
-          bottom: '72px',
-          right: '72px',
-          width: '276px',
-          maxHeight: '80vh',
+          bottom: 'calc(100% + 12px)',
+          right: 0,
+          width: '290px',
+          maxHeight: '380px',
           overflowY: 'auto',
           background: 'rgba(12, 9, 18, 0.96)',
           backdropFilter: 'blur(24px)',
@@ -4301,13 +4291,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       </div>
     );
 
-    const mountTarget = (artPlayerDomEl && activePlayerType !== 'youtube' && activePlayerType !== 'neko')
-      ? artPlayerDomEl
-      : theaterCanvasRef.current;
-
-    if (mountTarget) {
-      return ReactDOM.createPortal(popover, mountTarget);
-    }
     return popover;
   }
 
@@ -4781,9 +4764,42 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </div>
         )}
 
-        {/* Voice Settings Popover renders inside canvas */}
+        {/* Fullscreen & In-Player Side Chat Drawer */}
+        {!isChitChatMode && isChatSidebarOpen && (
+          <div className="fullscreen-chat-slideout">
+            <ChatSidebar
+              isOpen={isChatSidebarOpen}
+              onClose={() => setIsChatSidebarOpen(false)}
+              messages={chatMessages}
+              onSendMessage={(text, image) => {
+                socket?.emit('chat:send_message', { text, image, isDanmaku: true });
+              }}
+              currentProfile={currentProfile}
+              connectedUsers={connectedUsers}
+              lastSeen={roomLastSeen}
+              onMarkSeen={handleMarkChatSeen}
+              onOpenAvatarModal={onOpenAvatarModal}
+            />
+          </div>
+        )}
 
-        {renderVoiceSettingsPopover()}
+        {/* Minimal Docked Arrow Button when Chat is Closed */}
+        {!isChatSidebarOpen && !isChitChatMode && (
+          <button
+            type="button"
+            onClick={handleToggleSideChat}
+            className="clay-docked-chat-trigger"
+            title="Open Chat (Shortcut: C)"
+            aria-label="Open Chat"
+          >
+            <ChevronLeft size={18} strokeWidth={2.4} />
+            {unreadChatCount > 0 && (
+              <span className="clay-chat-compact-badge">
+                {unreadChatCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Glittering Pink Theater Control Deck (Bottom bar) */}
@@ -4907,8 +4923,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
               </span>
-              <ChevronDown size={12} color="var(--pink-primary)" />
+              <ChevronDown size={12} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
             </button>
+
+            {/* Docked Microphone Settings Popover directly above button */}
+            {renderVoiceSettingsPopover()}
           </div>
 
           {/* Group 3: Lounge Social & Viewport Controls */}
@@ -5071,22 +5090,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         </button>
       )}
 
-      {/* Non-Chit Chat Mode: Standard Drawer Sidebar */}
-      {!isChitChatMode && isChatSidebarOpen && (
-        <ChatSidebar
-          isOpen={isChatSidebarOpen}
-          onClose={() => setIsChatSidebarOpen(false)}
-          messages={chatMessages}
-          onSendMessage={(text, image) => {
-            socket?.emit('chat:send_message', { text, image, isDanmaku: true });
-          }}
-          currentProfile={currentProfile}
-          connectedUsers={connectedUsers}
-          lastSeen={roomLastSeen}
-          onMarkSeen={handleMarkChatSeen}
-          onOpenAvatarModal={onOpenAvatarModal}
-        />
-      )}
+
 
       {/* Library Selection Modal */}
       {libraryModalOpen && (
