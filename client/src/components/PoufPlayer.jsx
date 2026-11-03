@@ -1352,7 +1352,7 @@ export function PoufPlayer({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            opacity: isHoveringUnlock ? 1 : 0.60,
+            opacity: isHoveringUnlock ? 1 : 0.80,
             boxShadow: isHoveringUnlock ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
             transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             pointerEvents: 'auto'

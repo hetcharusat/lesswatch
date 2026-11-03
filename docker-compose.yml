@@ -6,7 +6,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "7881:7881"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -40,6 +39,7 @@ services:
     restart: always
     ports:
       - "7880:7880"
+      - "7881:7881"
       - "50000-50200:50000-50200/udp"
     volumes:
       - ./livekit.yaml:/livekit.yaml

@@ -3,6 +3,14 @@ import ReactDOM from 'react-dom';
 import { io } from 'socket.io-client';
 import Hls from 'hls.js';
 import {
+  Room as LiveKitRoom,
+  RoomEvent,
+  Track,
+  ParticipantEvent,
+  createLocalAudioTrack,
+  AudioPresets,
+} from 'livekit-client';
+import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
@@ -233,17 +241,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const isEchoCancellationEnabledRef = useRef(isEchoCancellationEnabled);
   const [micLevel, setMicLevel] = useState(0);
   const [isNoiseGateOpen, setIsNoiseGateOpen] = useState(false);
+  const [showMicPermissionModal, setShowMicPermissionModal] = useState(false);
+  const [micPermissionErrorMsg, setMicPermissionErrorMsg] = useState('');
+  const [isMicSilentWarning, setIsMicSilentWarning] = useState(false);
+  const [dismissedSilenceWarning, setDismissedSilenceWarning] = useState(false);
+  const dismissedSilenceWarningRef = useRef(false);
+  dismissedSilenceWarningRef.current = dismissedSilenceWarning;
   const noiseIntensityRef = useRef(noiseIntensity);
   const rawHardwareStreamRef = useRef(null);
   const audioNodesRef = useRef(null);
 
-  // WebRTC Hardware Refs (Native WebRTC Mesh + Anti-Bluetooth Degradation Guard)
+  // LiveKit SFU Studio Voice Engine Refs
   const socketRef = useRef(null);
-  const peerConnectionsRef = useRef(new Map()); // peerId -> RTCPeerConnection
-  const remoteAudioElementsRef = useRef(new Map()); // peerId -> HTMLAudioElement
-  const pendingCandidatesRef = useRef(new Map()); // peerId -> RTCIceCandidate[]
-  const localStreamRef = useRef(null);
-  const localAudioTrackRef = useRef(null);
+  const livekitRoomRef = useRef(null);             // LiveKitRoom instance
+  const localAudioTrackRef = useRef(null);         // LocalAudioTrack (livekit-client)
+  const remoteAudioElementsRef = useRef(new Map()); // participantIdentity -> HTMLAudioElement
   const audioContextRef = useRef(null);
   const audioAnalyserIntervalRef = useRef(null);
   const isVoiceConnectedRef = useRef(false);
@@ -256,6 +268,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const [chatMessages, setChatMessages] = useState([]);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const isChatSidebarOpenRef = useRef(false);
+  isChatSidebarOpenRef.current = isChatSidebarOpen;
   const [isChitChatMode, setIsChitChatMode] = useState(false);
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [roomLastSeen, setRoomLastSeen] = useState({});
@@ -433,194 +446,40 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  // Safe Microphone Stream Acquisition (Mobile-hardened & Bluetooth-friendly)
-  async function acquireMicStream() {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    let constraints;
-
-    if (isMobile) {
-      // Safe mobile constraints: NEVER pass exact deviceId or sampleRate on mobile
-      constraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: false,
-          autoGainControl: true
-        },
-        video: false
-      };
-    } else {
-      // Desktop constraints: Studio quality, user-controlled echo cancellation, zero browser ducking
-      constraints = {
-        audio: {
-          deviceId: selectedAudioInput ? { ideal: selectedAudioInput } : undefined,
-          echoCancellation: isEchoCancellationEnabledRef.current,
-          noiseSuppression: false, // Handled via Web Audio / Speex node to prevent double-suppression
-          autoGainControl: false   // Prevents browser AGC from ducking mic during double-talk!
-        },
-        video: false
-      };
+  // LiveKit SFU Studio Voice Engine
+  // --------------------------------------------------------------------------
+  function setupAnalyser(mediaStreamTrack) {
+    if (audioAnalyserIntervalRef.current) {
+      clearInterval(audioAnalyserIntervalRef.current);
+      audioAnalyserIntervalRef.current = null;
     }
 
     try {
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (err) {
-      console.warn('High-spec constraints failed, using basic audio fallback:', err);
-      return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    }
-  }
-
-  // Web Audio Noise Gate & DSP Filter Pipeline (@sapphi-red/web-noise-suppressor + Dynamic Gate)
-  function setupAudioProcessing(rawStream) {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-    try {
-      if (audioAnalyserIntervalRef.current) {
-        clearInterval(audioAnalyserIntervalRef.current);
-        audioAnalyserIntervalRef.current = null;
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {});
-        audioContextRef.current = null;
-      }
-      audioNodesRef.current = null;
-
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return rawStream;
-
-      // Keep native mic sample rate (e.g. 48kHz / 44.1kHz)
-      const ctx = new AudioContextClass();
-      audioContextRef.current = ctx;
+      if (!AudioContextClass) return;
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new AudioContextClass();
+      }
+      const ctx = audioContextRef.current;
       if (ctx.state === 'suspended') {
         ctx.resume().catch(() => {});
       }
 
-      const source = ctx.createMediaStreamSource(rawStream);
-
-      // On mobile devices (iOS Safari and Android):
-      // Mobile OS hardware chips handle echo cancellation & noise suppression.
-      // Passing through createMediaStreamDestination() triggers WebKit bug #216460 (silence on WebRTC).
-      // We connect the analyser purely for UI VU-meter & speaking state, and stream rawStream directly!
-      if (isMobile) {
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.25;
-        source.connect(analyser);
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        let speakingTicks = 0;
-
-        audioAnalyserIntervalRef.current = setInterval(() => {
-          if (!isVoiceConnectedRef.current || !localAudioTrackRef.current || isMutedRef.current) {
-            if (isLocalSpeakingRef.current) {
-              isLocalSpeakingRef.current = false;
-              setIsLocalSpeaking(false);
-              socketRef.current?.emit('voice:speaking', { isSpeaking: false });
-            }
-            setMicLevel(0);
-            setIsNoiseGateOpen(false);
-            return;
-          }
-
-          analyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-          const avg = sum / dataArray.length;
-          const levelPct = Math.min(100, Math.round((avg / 120) * 100));
-          setMicLevel(levelPct);
-          setIsNoiseGateOpen(levelPct > 8);
-
-          const isSpeakingNow = avg > 14;
-          if (isSpeakingNow) {
-            speakingTicks = Math.min(speakingTicks + 1, 6);
-          } else {
-            speakingTicks = Math.max(speakingTicks - 1, 0);
-          }
-
-          const active = speakingTicks >= 2;
-          if (active !== isLocalSpeakingRef.current) {
-            isLocalSpeakingRef.current = active;
-            setIsLocalSpeaking(active);
-            socketRef.current?.emit('voice:speaking', { isSpeaking: active });
-          }
-        }, 60);
-
-        return rawStream;
-      }
-
-      // 1. Microphone Pre-amplifier / Input Sensitivity Gain Node
-      const inputGainNode = ctx.createGain();
-      inputGainNode.gain.value = (micGainRef.current || 100) / 100;
-
-      // 2. Low rumble filter (Cuts desk vibrations, AC hum, laptop fan roar under 80Hz)
-      const highpass = ctx.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.value = 80;
-
-      // 3. Dynamic Noise Gate Gain Node
-      const gateGain = ctx.createGain();
-      gateGain.gain.value = 1.0;
-
-      // 4. Dual-Channel Stereo Merger: Fixes fatal Left-Ear-Only speech bug!
-      // Routes mono mic audio identically to BOTH Left (0) and Right (1) channels
-      const stereoMerger = ctx.createChannelMerger(2);
-      gateGain.connect(stereoMerger, 0, 0); // Pipe to Left channel
-      gateGain.connect(stereoMerger, 0, 1); // Duplicate identical audio to Right channel
-
-      // 5. Destination for WebRTC output
-      const destination = ctx.createMediaStreamDestination();
-      destination.channelCount = 2;
-      destination.channelCountMode = 'explicit';
-      destination.channelInterpretation = 'speakers';
-      stereoMerger.connect(destination);
-
-      // Connect input chain
-      source.connect(inputGainNode);
-      inputGainNode.connect(highpass);
-      highpass.connect(gateGain);
-
-      // Analyser connected to filtered audio for speaking & level detection
+      const stream = new MediaStream([mediaStreamTrack]);
+      const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.2;
-      highpass.connect(analyser);
-
-      audioNodesRef.current = {
-        source,
-        inputGainNode,
-        highpass,
-        gateGain,
-        stereoMerger,
-        destination,
-        analyser,
-        suppressorNode: null
-      };
-
-      // Asynchronously integrate AI/DSP Noise Suppressor (@sapphi-red/web-noise-suppressor)
-      const initialMode = noiseSuppressionModeRef.current || 'rnnoise';
-      if (initialMode !== 'raw' && initialMode !== 'off') {
-        createNoiseSuppressorNode(ctx, initialMode).then((res) => {
-          if (res && res.node && audioNodesRef.current && audioNodesRef.current.highpass && audioNodesRef.current.gateGain) {
-            try {
-              audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
-              audioNodesRef.current.highpass.connect(res.node);
-              res.node.connect(audioNodesRef.current.gateGain);
-              audioNodesRef.current.suppressorNode = res.node;
-              console.log(`✅ @sapphi-red/web-noise-suppressor [${res.mode}] active in Web Audio pipeline`);
-            } catch (e) {
-              console.warn('Error chaining noise suppressor node:', e);
-            }
-          }
-        }).catch((e) => {
-          console.warn('createNoiseSuppressorNode initialization error:', e);
-        });
-      }
+      analyser.smoothingTimeConstant = 0.25;
+      source.connect(analyser);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
-      let gateHoldTicks = 0;
+      let silentTicks = 0;
 
       audioAnalyserIntervalRef.current = setInterval(() => {
-        if (!isVoiceConnectedRef.current || !localAudioTrackRef.current || isMutedRef.current) {
+        if (!isVoiceConnectedRef.current || isMutedRef.current) {
+          silentTicks = 0;
+          setIsMicSilentWarning(false);
           if (isLocalSpeakingRef.current) {
             isLocalSpeakingRef.current = false;
             setIsLocalSpeaking(false);
@@ -637,33 +496,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const avg = sum / dataArray.length;
         const levelPct = Math.min(100, Math.round((avg / 120) * 100));
         setMicLevel(levelPct);
+        setIsNoiseGateOpen(levelPct > 8);
 
-        const intensity = noiseIntensityRef.current;
-        if (intensity === 0) {
-          // Gate completely disabled: 100% wide open, zero cuts, studio clear voice!
-          gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
-          setIsNoiseGateOpen(true);
-        } else {
-          // Precision threshold scale
-          const gateThreshold = 2 + (intensity * 0.3);
-          if (avg > gateThreshold) {
-            gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.012);
-            gateHoldTicks = 8; // ~480ms hold time prevents cutting off trailing words!
-            setIsNoiseGateOpen(true);
-          } else {
-            if (gateHoldTicks > 0) {
-              gateHoldTicks--;
-              gateGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.02);
-              setIsNoiseGateOpen(true);
-            } else {
-              // Gentle downward expander prevents unnatural hard cuts / popping
-              gateGain.gain.setTargetAtTime(0.015, ctx.currentTime, 0.05);
-              setIsNoiseGateOpen(false);
+        // Silence diagnosis tracking
+        if (avg < 2.0) {
+          if (!dismissedSilenceWarningRef.current) {
+            silentTicks++;
+            if (silentTicks > 75) {
+              setIsMicSilentWarning(true);
             }
           }
+        } else {
+          silentTicks = 0;
+          setIsMicSilentWarning(false);
         }
 
-        const isSpeakingNow = avg > (intensity === 0 ? 10 : (2 + intensity * 0.28));
+        const isSpeakingNow = avg > 14;
         if (isSpeakingNow) {
           speakingTicks = Math.min(speakingTicks + 1, 5);
         } else {
@@ -677,11 +525,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           socketRef.current?.emit('voice:speaking', { isSpeaking: active });
         }
       }, 60);
-
-      return destination.stream;
     } catch (err) {
-      console.warn('Audio processing setup error, falling back to raw stream:', err);
-      return rawStream;
+      console.warn('setupAnalyser error:', err);
     }
   }
 
@@ -689,51 +534,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setNoiseSuppressionMode(newMode);
     noiseSuppressionModeRef.current = newMode;
     localStorage.setItem('wt_noise_supp_mode', newMode);
-
-    const nodes = audioNodesRef.current;
-    const ctx = audioContextRef.current;
-    if (!nodes || !ctx || ctx.state === 'closed') return;
-
-    try {
-      if (nodes.suppressorNode) {
-        try {
-          nodes.highpass.disconnect(nodes.suppressorNode);
-          nodes.suppressorNode.disconnect(nodes.gateGain);
-          if (typeof nodes.suppressorNode.destroy === 'function') {
-            nodes.suppressorNode.destroy();
-          }
-        } catch {}
-        nodes.suppressorNode = null;
+    if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
+      try {
+        await localAudioTrackRef.current.restartTrack({
+          echoCancellation: isEchoCancellationEnabledRef.current,
+          noiseSuppression: newMode !== 'raw' && newMode !== 'bypass',
+          autoGainControl: true,
+        });
+        showToast(`Noise Suppression: ${newMode.toUpperCase()}`, <ShieldCheck size={15} color="var(--pink-primary)" />);
+      } catch (err) {
+        console.warn('Failed to update noise suppression mode:', err);
       }
-
-      if (newMode === 'raw' || newMode === 'off') {
-        try { nodes.highpass.connect(nodes.gateGain); } catch {}
-        showToast('Mic Filter: Raw Studio (Pure Voice)', <Mic size={15} color="var(--pink-primary)" />);
-        return;
-      }
-
-      const res = await createNoiseSuppressorNode(ctx, newMode);
-      if (res && res.node && audioNodesRef.current) {
-        try {
-          audioNodesRef.current.highpass.disconnect(audioNodesRef.current.gateGain);
-        } catch {}
-        audioNodesRef.current.highpass.connect(res.node);
-        res.node.connect(audioNodesRef.current.gateGain);
-        audioNodesRef.current.suppressorNode = res.node;
-        showToast(`Mic Noise Filter: ${res.mode === 'rnnoise' ? 'Deep AI (RNNoise)' : 'Acoustic DSP (Speex)'}`, <ShieldCheck size={15} color="#34d399" />);
-      }
-    } catch (err) {
-      console.warn('Failed to switch noise suppressor mode:', err);
-    }
-  }
-
-  function handleMicGainChange(val) {
-    const num = Math.max(50, Math.min(200, parseInt(val, 10) || 100));
-    setMicGain(num);
-    micGainRef.current = num;
-    localStorage.setItem('wt_mic_gain', String(num));
-    if (audioNodesRef.current?.inputGainNode && audioContextRef.current) {
-      audioNodesRef.current.inputGainNode.gain.setValueAtTime(num / 100, audioContextRef.current.currentTime);
     }
   }
 
@@ -742,12 +553,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setNoiseIntensity(num);
     noiseIntensityRef.current = num;
     localStorage.setItem('wt_noise_intensity', String(num));
-    if (audioNodesRef.current?.gateGain && audioContextRef.current) {
-      if (num === 0) {
-        audioNodesRef.current.gateGain.gain.setValueAtTime(1.0, audioContextRef.current.currentTime);
-        setIsNoiseGateOpen(true);
-      }
-    }
   }
 
   async function handleEchoCancellationToggle() {
@@ -755,344 +560,326 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setIsEchoCancellationEnabled(nextVal);
     isEchoCancellationEnabledRef.current = nextVal;
     localStorage.setItem('wt_echo_cancellation', String(nextVal));
-    if (isVoiceConnectedRef.current && !isMutedRef.current) {
+    if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
       try {
-        const rawStream = await acquireMicStream();
-        rawHardwareStreamRef.current = rawStream;
-        const processedStream = setupAudioProcessing(rawStream);
-        localStreamRef.current = processedStream;
-        const newTrack = processedStream.getAudioTracks()[0] || rawStream.getAudioTracks()[0];
-        if (newTrack) {
-          localAudioTrackRef.current = newTrack;
-          newTrack.enabled = !isMutedRef.current;
-          peerConnectionsRef.current.forEach((pc) => {
-            const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-            if (sender) {
-              sender.replaceTrack(newTrack).catch(() => {});
-            }
-          });
-        }
+        await localAudioTrackRef.current.restartTrack({
+          echoCancellation: nextVal,
+        });
+        showToast(nextVal ? 'Echo Cancellation Active' : 'Echo Cancellation Disabled', <ShieldCheck size={15} color="var(--pink-primary)" />);
       } catch (err) {
         console.warn('Error applying echo cancellation change:', err);
       }
     }
   }
 
-  // Remote Audio Management (Attached on-demand, prevents Neko iframe ducking)
-  function playRemoteAudio(peerId, remoteStream) {
-    let audioEl = remoteAudioElementsRef.current.get(peerId);
-    if (!audioEl) {
-      audioEl = document.createElement('audio');
-      audioEl.id = `remote-audio-${peerId}`;
-      audioEl.autoplay = true;
-      audioEl.playsInline = true;
-      audioEl.setAttribute('playsinline', '');
-      audioEl.setAttribute('webkit-playsinline', '');
-      audioEl.setAttribute('autoplay', '');
+  // ==========================================================================
+  // LiveKit SFU Full-Duplex Voice Engine + Dual-Ear Stereo Pipeline
+  // ==========================================================================
+  const isConnectingVoiceRef = useRef(false);
 
-      let hub = document.getElementById('wt-remote-audio-hub');
-      if (!hub) {
-        hub = document.createElement('div');
-        hub.id = 'wt-remote-audio-hub';
-        hub.style.display = 'none';
-        hub.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(hub);
+  // Automatically connects to LiveKit SFU room in listening mode (or with mic)
+  // Guarantees all participants in the lounge hear each other without refreshing or toggling
+  async function connectVoiceRoom({ publishMic = false } = {}) {
+    if (livekitRoomRef.current && livekitRoomRef.current.state === 'connected') {
+      if (publishMic && !localAudioTrackRef.current) {
+        return publishLocalMic();
       }
-      hub.appendChild(audioEl);
-
-      if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
-        audioEl.setSinkId(selectedAudioOutput).catch(() => {});
-      }
-      remoteAudioElementsRef.current.set(peerId, audioEl);
+      return;
     }
 
-    audioEl.srcObject = remoteStream;
-    const curVol = peerVolumes.get(peerId) ?? 100;
+    if (isConnectingVoiceRef.current) return;
+    isConnectingVoiceRef.current = true;
 
-    // Dual-Ear Stereo Pipeline: Duplicates mono/left mic voice to BOTH Left (0) and Right (1) channels!
-    // Completely solves the fatal "one side voice / left-ear only" issue on Windows & headphones.
     try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
-        let gainEntry = peerGainNodesRef.current.get(peerId);
-        if (!gainEntry) {
-          const ctx = new AudioContextClass();
-          const source = ctx.createMediaStreamSource(remoteStream);
-          const gainNode = ctx.createGain();
-          const merger = ctx.createChannelMerger(2);
-
-          source.connect(gainNode);
-          gainNode.connect(merger, 0, 0); // Pipe to Left ear
-          gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
-          merger.connect(ctx.destination);
-
-          gainNode.gain.value = curVol / 100;
-          gainEntry = { ctx, source, gainNode, merger };
-          peerGainNodesRef.current.set(peerId, gainEntry);
-
-          if (ctx.state === 'suspended') {
-            ctx.resume().catch(() => {});
-          }
-
-          // Mute raw audio element so it doesn't leak raw unbalanced mono sound
-          audioEl.volume = 0;
-        } else {
-          gainEntry.gainNode.gain.value = curVol / 100;
-          if (gainEntry.ctx && gainEntry.ctx.state === 'suspended') {
-            gainEntry.ctx.resume().catch(() => {});
-          }
-          audioEl.volume = 0;
-        }
-      } else {
-        audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
-      }
-    } catch (e) {
-      console.warn('Stereo voice merger fallback to raw audio element:', e);
-      audioEl.volume = Math.max(0, Math.min(1.0, curVol / 100));
-    }
-
-    const playPromise = audioEl.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        console.warn('Remote audio waiting for interaction on mobile:', err);
-        setNeedsVoiceAudioUnlock(true);
-      });
-    }
-
-    setRemotePeers((prev) => {
-      const next = new Map(prev);
-      const user = connectedUsersRef.current.find((u) => u.id === peerId);
-      next.set(peerId, {
-        username: user?.username || 'Partner',
-        avatar: user?.avatar || 'jojo-star',
-        color: user?.color || '#f472b6',
-        isSpeaking: false,
-        isMuted: false,
-        stream: remoteStream
-      });
-      return next;
-    });
-  }
-
-  function stopRemoteAudio(peerId) {
-    const gainEntry = peerGainNodesRef.current.get(peerId);
-    if (gainEntry) {
-      try {
-        if (gainEntry.source) gainEntry.source.disconnect();
-        if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
-        if (gainEntry.merger) gainEntry.merger.disconnect();
-        if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
-      } catch {}
-      peerGainNodesRef.current.delete(peerId);
-    }
-    const audioEl = remoteAudioElementsRef.current.get(peerId);
-    if (audioEl) {
-      try {
-        audioEl.pause();
-        audioEl.srcObject = null;
-        if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
-      } catch {}
-      remoteAudioElementsRef.current.delete(peerId);
-    }
-    setRemotePeers((prev) => {
-      const next = new Map(prev);
-      next.delete(peerId);
-      return next;
-    });
-  }
-
-  function renegotiatePeer(pc, peerId) {
-    if (!pc || pc.signalingState === 'closed') return;
-    pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
-      .then((offer) => {
-        offer.sdp = boostOpusSDP(offer.sdp);
-        return pc.setLocalDescription(offer);
-      })
-      .then(() => {
-        socketRef.current?.emit('voice:signal', {
-          targetPeerId: peerId,
-          signalData: { desc: pc.localDescription }
-        });
-      })
-      .catch((err) => console.warn('WebRTC renegotiation offer error:', err));
-  }
-
-  // WebRTC Peer Connection Factory (Native Socket.IO Mesh - Guaranteed Full Duplex)
-  function getOrCreatePeerConnection(peerId, isInitiator = false) {
-    if (peerConnectionsRef.current.has(peerId)) {
-      const existingPc = peerConnectionsRef.current.get(peerId);
-      // Ensure our local audio track is attached if missing
-      if (localStreamRef.current && localAudioTrackRef.current) {
-        const senders = existingPc.getSenders();
-        const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
-        if (!hasAudioSender) {
-          try {
-            existingPc.addTrack(localAudioTrackRef.current, localStreamRef.current);
-            if (isInitiator) {
-              renegotiatePeer(existingPc, peerId);
-            }
-          } catch (e) {
-            console.warn('Track add to existing pc error:', e);
-          }
-        } else if (isInitiator) {
-          renegotiatePeer(existingPc, peerId);
-        }
-      }
-      return existingPc;
-    }
-
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnectionsRef.current.set(peerId, pc);
-
-    // Attach local microphone tracks if active
-    if (localStreamRef.current && localAudioTrackRef.current) {
-      try {
-        pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
-      } catch (e) {
-        console.warn('Track add error on pc init:', e);
-      }
-    }
-
-    // ICE Candidate Exchange
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        socketRef.current.emit('voice:signal', {
-          targetPeerId: peerId,
-          signalData: { candidate: event.candidate }
-        });
-      }
-    };
-
-    // Remote Audio Track Received
-    pc.ontrack = (event) => {
-      console.log(`📡 Remote audio track received from ${peerId}:`, event.track.kind);
-      const remoteStream = event.streams[0] || new MediaStream([event.track]);
-      playRemoteAudio(peerId, remoteStream);
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        cleanupPeer(peerId);
-      }
-    };
-
-    if (isInitiator) {
-      renegotiatePeer(pc, peerId);
-    }
-
-    return pc;
-  }
-
-  function cleanupPeer(peerId) {
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (pc) {
-      try { pc.close(); } catch {}
-      peerConnectionsRef.current.delete(peerId);
-    }
-    stopRemoteAudio(peerId);
-    pendingCandidatesRef.current.delete(peerId);
-  }
-
-  // 4. Voice Chat Handlers (Direct, High Quality, Non-Blocking)
-  async function startMicrophone() {
-    try {
-      showToast('Connecting microphone...', <Mic size={15} color="var(--pink-primary)" />);
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         await audioContextRef.current.resume().catch(() => {});
       }
 
-      const rawStream = await acquireMicStream();
-      rawHardwareStreamRef.current = rawStream;
+      // 1. Fetch LiveKit access token from server
+      const myId = socketRef.current?.id || `user-${Date.now()}`;
+      const myUsername = currentProfile?.name || 'User';
 
-      const processedStream = setupAudioProcessing(rawStream);
-      localStreamRef.current = processedStream;
+      const resp = await fetch('/api/livekit/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, identity: myId, username: myUsername })
+      });
 
-      const audioTrack = processedStream.getAudioTracks()[0] || rawStream.getAudioTracks()[0];
-      if (audioTrack) {
-        localAudioTrackRef.current = audioTrack;
-        audioTrack.enabled = true;
+      if (!resp.ok) {
+        throw new Error(`Failed to get voice token (${resp.status})`);
       }
+      const { token, url } = await resp.json();
+
+      // 2. Disconnect previous instance if any
+      if (livekitRoomRef.current) {
+        try { livekitRoomRef.current.disconnect(); } catch {}
+        livekitRoomRef.current = null;
+      }
+
+      // 3. Create LiveKit SFU Room
+      const lkRoom = new LiveKitRoom({
+        audioCaptureDefaults: {
+          deviceId: selectedAudioInput || undefined,
+          echoCancellation: isEchoCancellationEnabledRef.current,
+          noiseSuppression: (noiseSuppressionModeRef.current || 'rnnoise') !== 'raw' && (noiseSuppressionModeRef.current || 'rnnoise') !== 'bypass',
+          autoGainControl: true,
+        },
+        adaptiveStream: false,
+        dynacast: false,
+      });
+      livekitRoomRef.current = lkRoom;
+
+      // 4. Remote Track Subscriptions with Dual-Ear Stereo Pipeline
+      lkRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (track.kind === Track.Kind.Audio) {
+          const audioEl = track.attach();
+          audioEl.id = `remote-audio-${participant.identity}`;
+          audioEl.autoplay = true;
+          audioEl.playsInline = true;
+
+          const vol = peerVolumes.get(participant.identity) ?? 100;
+
+          // Dual-Ear Stereo Pipeline: Duplicates mono/left mic voice to BOTH Left (0) and Right (1) channels!
+          // Completely solves the fatal "one side voice / left-ear only" issue on Windows & headphones.
+          try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass && track.mediaStreamTrack) {
+              const stream = new MediaStream([track.mediaStreamTrack]);
+              let gainEntry = peerGainNodesRef.current.get(participant.identity);
+              if (!gainEntry) {
+                const ctx = new AudioContextClass();
+                const source = ctx.createMediaStreamSource(stream);
+                const gainNode = ctx.createGain();
+                const merger = ctx.createChannelMerger(2);
+
+                source.connect(gainNode);
+                gainNode.connect(merger, 0, 0); // Pipe to Left ear
+                gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
+                merger.connect(ctx.destination);
+
+                gainNode.gain.value = vol / 100;
+                gainEntry = { ctx, source, gainNode, merger };
+                peerGainNodesRef.current.set(participant.identity, gainEntry);
+
+                if (ctx.state === 'suspended') {
+                  ctx.resume().catch(() => {});
+                }
+                // Mute raw audio element to avoid unbalanced echo
+                audioEl.volume = 0;
+              } else {
+                gainEntry.gainNode.gain.value = vol / 100;
+                if (gainEntry.ctx && gainEntry.ctx.state === 'suspended') {
+                  gainEntry.ctx.resume().catch(() => {});
+                }
+                audioEl.volume = 0;
+              }
+            } else {
+              audioEl.volume = Math.max(0, Math.min(1.0, vol / 100));
+            }
+          } catch (e) {
+            console.warn('Dual-ear voice pipeline fallback to raw audio element:', e);
+            audioEl.volume = Math.max(0, Math.min(1.0, vol / 100));
+          }
+
+          let hub = document.getElementById('wt-remote-audio-hub');
+          if (!hub) {
+            hub = document.createElement('div');
+            hub.id = 'wt-remote-audio-hub';
+            hub.style.position = 'fixed';
+            hub.style.left = '-9999px';
+            hub.style.top = '-9999px';
+            hub.style.width = '1px';
+            hub.style.height = '1px';
+            hub.style.opacity = '0.01';
+            hub.style.pointerEvents = 'none';
+            hub.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(hub);
+          }
+          hub.appendChild(audioEl);
+          remoteAudioElementsRef.current.set(participant.identity, audioEl);
+
+          if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
+            audioEl.setSinkId(selectedAudioOutput).catch(() => {});
+          }
+
+          const playPromise = audioEl.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              console.warn('Remote audio waiting for interaction:', err);
+              setNeedsVoiceAudioUnlock(true);
+              const unlock = () => {
+                audioEl.play().then(() => setNeedsVoiceAudioUnlock(false)).catch(() => {});
+                const entry = peerGainNodesRef.current.get(participant.identity);
+                if (entry && entry.ctx && entry.ctx.state === 'suspended') {
+                  entry.ctx.resume().catch(() => {});
+                }
+                window.removeEventListener('click', unlock);
+                window.removeEventListener('keydown', unlock);
+                window.removeEventListener('touchstart', unlock);
+              };
+              window.addEventListener('click', unlock, { once: true });
+              window.addEventListener('keydown', unlock, { once: true });
+              window.addEventListener('touchstart', unlock, { once: true });
+            });
+          }
+
+          setRemotePeers((prev) => {
+            const next = new Map(prev);
+            const user = connectedUsersRef.current.find((u) => u.id === participant.identity);
+            next.set(participant.identity, {
+              username: participant.name || user?.username || 'Partner',
+              avatar: user?.avatar || 'jojo-star',
+              color: user?.color || '#f472b6',
+              isSpeaking: false,
+              isMuted: false,
+            });
+            return next;
+          });
+        }
+      });
+
+      lkRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        track.detach();
+        const el = remoteAudioElementsRef.current.get(participant.identity);
+        if (el) {
+          try {
+            el.pause();
+            el.srcObject = null;
+            if (el.parentNode) el.parentNode.removeChild(el);
+          } catch {}
+          remoteAudioElementsRef.current.delete(participant.identity);
+        }
+        const gainEntry = peerGainNodesRef.current.get(participant.identity);
+        if (gainEntry) {
+          try {
+            if (gainEntry.source) gainEntry.source.disconnect();
+            if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
+            if (gainEntry.merger) gainEntry.merger.disconnect();
+            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
+          } catch {}
+          peerGainNodesRef.current.delete(participant.identity);
+        }
+        setRemotePeers((prev) => {
+          const next = new Map(prev);
+          next.delete(participant.identity);
+          return next;
+        });
+      });
+
+      lkRoom.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const speakingSet = new Set(speakers.map((s) => s.identity));
+        setRemotePeers((prev) => {
+          let changed = false;
+          const next = new Map(prev);
+          next.forEach((peer, id) => {
+            const isSpeaking = speakingSet.has(id);
+            if (peer.isSpeaking !== isSpeaking) {
+              next.set(id, { ...peer, isSpeaking });
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+      });
+
+      lkRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        const el = remoteAudioElementsRef.current.get(participant.identity);
+        if (el) {
+          try {
+            el.pause();
+            el.srcObject = null;
+            if (el.parentNode) el.parentNode.removeChild(el);
+          } catch {}
+          remoteAudioElementsRef.current.delete(participant.identity);
+        }
+        const gainEntry = peerGainNodesRef.current.get(participant.identity);
+        if (gainEntry) {
+          try {
+            if (gainEntry.source) gainEntry.source.disconnect();
+            if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
+            if (gainEntry.merger) gainEntry.merger.disconnect();
+            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
+          } catch {}
+          peerGainNodesRef.current.delete(participant.identity);
+        }
+        setRemotePeers((prev) => {
+          const next = new Map(prev);
+          next.delete(participant.identity);
+          return next;
+        });
+      });
+
+      // 5. Connect to LiveKit server
+      await lkRoom.connect(url, token);
+
+      if (publishMic) {
+        await publishLocalMic();
+      }
+    } catch (err) {
+      console.warn('Voice room connection error:', err);
+    } finally {
+      isConnectingVoiceRef.current = false;
+    }
+  }
+
+  // Publishes user's microphone track to the LiveKit SFU room
+  async function publishLocalMic() {
+    try {
+      showToast('Connecting microphone...', <Mic size={15} color="var(--pink-primary)" />);
+      const lkRoom = livekitRoomRef.current;
+      if (!lkRoom || lkRoom.state !== 'connected') {
+        await connectVoiceRoom({ publishMic: true });
+        return;
+      }
+
+      // 6. Create and publish local high-definition audio track
+      const audioTrack = await createLocalAudioTrack({
+        deviceId: selectedAudioInput || undefined,
+        echoCancellation: isEchoCancellationEnabledRef.current,
+        noiseSuppression: (noiseSuppressionModeRef.current || 'rnnoise') !== 'raw' && (noiseSuppressionModeRef.current || 'rnnoise') !== 'bypass',
+        autoGainControl: true,
+      });
+      localAudioTrackRef.current = audioTrack;
+
+      await lkRoom.localParticipant.publishTrack(audioTrack, {
+        audioBitrate: studioAudioMode ? 128000 : 64000,
+        dtx: false,
+      });
+
+      // 7. Setup VU Meter Analyser
+      setupAnalyser(audioTrack.mediaStreamTrack);
 
       isVoiceConnectedRef.current = true;
       setIsVoiceConnected(true);
       isMutedRef.current = false;
       setIsMuted(false);
 
-      // Notify the room that we are live in voice
+      // Notify Socket.IO room of voice state
       socketRef.current?.emit('voice:join', { hasAudio: true, hasVideo: false });
       socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
 
-      // CRITICAL FOR FULL DUPLEX TWO-WAY AUDIO:
-      // Loop over ALL existing peer connections and attach our new audio track + renegotiate!
-      peerConnectionsRef.current.forEach((pc, peerId) => {
-        const senders = pc.getSenders();
-        const audioSender = senders.find((s) => s.track && s.track.kind === 'audio');
-        if (audioSender) {
-          audioSender.replaceTrack(audioTrack).catch(() => {});
-        } else {
-          try {
-            pc.addTrack(audioTrack, processedStream);
-          } catch (e) {
-            console.warn('Failed to add track to existing pc:', e);
-          }
-        }
-        renegotiatePeer(pc, peerId);
-      });
-
-      // Initiate WebRTC connections to any other connected peers who don't have a PC yet
-      const targets = connectedUsersRef.current && connectedUsersRef.current.length > 0
-        ? connectedUsersRef.current
-        : connectedUsers;
-      targets.forEach((u) => {
-        if (u.id && u.id !== socketRef.current?.id) {
-          if (!peerConnectionsRef.current.has(u.id)) {
-            getOrCreatePeerConnection(u.id, true);
-          }
-        }
-      });
-
       refreshMediaDevices();
-
       playAudioChirp('unmute');
       showToast('Microphone live', <Mic size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Microphone start error:', err);
-      showToast('Microphone access denied: ' + (err.message || err.name || 'Check permissions'), <AlertCircle size={15} color="#ef4444" />);
+      setShowMicPermissionModal(true);
+      setMicPermissionErrorMsg(err.message || 'Microphone access denied. Please allow permissions in browser or system settings.');
+      showToast('Microphone access blocked', <AlertCircle size={15} color="#ef4444" />);
     }
   }
 
+  const startMicrophone = () => publishLocalMic();
+
   function leaveVoiceChat() {
-    // 1. Close all active peer connections
-    peerConnectionsRef.current.forEach((pc) => {
-      try { pc.close(); } catch {}
-    });
-    peerConnectionsRef.current.clear();
-
-    // 2. Stop audio analyser interval
-    if (audioAnalyserIntervalRef.current) {
-      clearInterval(audioAnalyserIntervalRef.current);
-      audioAnalyserIntervalRef.current = null;
+    if (livekitRoomRef.current) {
+      try { livekitRoomRef.current.disconnect(); } catch {}
+      livekitRoomRef.current = null;
     }
-
-    // 3. Completely stop hardware microphone tracks so Windows releases mic
-    // (This guarantees Bluetooth earphones stay in 48kHz A2DP stereo!)
-    if (rawHardwareStreamRef.current) {
-      rawHardwareStreamRef.current.getTracks().forEach((track) => track.stop());
-      rawHardwareStreamRef.current = null;
+    if (localAudioTrackRef.current) {
+      try { localAudioTrackRef.current.stop(); } catch {}
+      localAudioTrackRef.current = null;
     }
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-    }
-    localAudioTrackRef.current = null;
-
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    audioNodesRef.current = null;
-
-    // 4. Clean up remote audio elements
     remoteAudioElementsRef.current.forEach((el) => {
       try {
         el.pause();
@@ -1101,26 +888,45 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       } catch {}
     });
     remoteAudioElementsRef.current.clear();
-    pendingCandidatesRef.current.clear();
 
+    peerGainNodesRef.current.forEach((entry) => {
+      try {
+        if (entry.source) entry.source.disconnect();
+        if (entry.gainNode) entry.gainNode.disconnect();
+        if (entry.merger) entry.merger.disconnect();
+        if (entry.ctx && entry.ctx.state !== 'closed') entry.ctx.close().catch(() => {});
+      } catch {}
+    });
+    peerGainNodesRef.current.clear();
+
+    if (audioAnalyserIntervalRef.current) {
+      clearInterval(audioAnalyserIntervalRef.current);
+      audioAnalyserIntervalRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
     isVoiceConnectedRef.current = false;
     setIsVoiceConnected(false);
+    isMutedRef.current = true;
+    setIsMuted(true);
     setIsLocalSpeaking(false);
     isLocalSpeakingRef.current = false;
     setMicLevel(0);
     setIsNoiseGateOpen(false);
-
+    setRemotePeers(new Map());
     socketRef.current?.emit('voice:leave');
-    socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
-    playAudioChirp('mute');
-    showToast('Microphone off', <MicOff size={15} color="#9ca3af" />);
+    playAudioChirp('disconnect');
+    showToast('Microphone disconnected', <MicOff size={15} color="#9ca3af" />);
   }
 
   const joinVoiceChat = startMicrophone;
 
-  function handleToggleMute() {
-    if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) {
-      startMicrophone();
+  // Toggle Mute without disconnecting: partners can always hear each other
+  async function handleToggleMute() {
+    if (!localAudioTrackRef.current) {
+      await publishLocalMic();
       return;
     }
 
@@ -1128,27 +934,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     isMutedRef.current = nextMuted;
     setIsMuted(nextMuted);
     if (localAudioTrackRef.current) {
-      localAudioTrackRef.current.enabled = !nextMuted;
+      if (nextMuted) {
+        await localAudioTrackRef.current.mute().catch(() => {});
+      } else {
+        await localAudioTrackRef.current.unmute().catch(() => {});
+      }
     }
-    if (rawHardwareStreamRef.current) {
-      rawHardwareStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !nextMuted; });
-    }
-
+    socketRef.current?.emit('voice:track_state', { isMuted: nextMuted, hasVideo: false });
     playAudioChirp(nextMuted ? 'mute' : 'unmute');
-    showToast(
-      nextMuted ? 'Microphone muted' : 'Microphone live',
-      nextMuted ? <MicOff size={15} color="#ef4444" /> : <Mic size={15} color="var(--pink-primary)" />
-    );
-
-    socketRef.current?.emit('voice:track_state', {
-      isMuted: nextMuted,
-      hasVideo: false
-    });
+    showToast(nextMuted ? 'Microphone Muted' : 'Microphone Live', nextMuted ? <MicOff size={15} color="#ef4444" /> : <Mic size={15} color="var(--pink-primary)" />);
   }
 
   function handleMicButtonClick() {
-    if (!isVoiceConnected) {
-      startMicrophone();
+    if (!localAudioTrackRef.current) {
+      publishLocalMic();
     } else {
       handleToggleMute();
     }
@@ -1158,47 +957,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setSelectedAudioInput(deviceId);
     localStorage.setItem('wt_pref_mic', deviceId);
 
-    if (!isVoiceConnectedRef.current) return;
+    if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) return;
 
     try {
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: isMobile
-          ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          : {
-              deviceId: deviceId ? { ideal: deviceId } : undefined,
-              echoCancellation: true,
-              noiseSuppression: noiseSuppressionMode !== 'raw',
-              autoGainControl: true
-            },
-        video: false
+      await localAudioTrackRef.current.restartTrack({
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: isEchoCancellationEnabledRef.current,
+        noiseSuppression: (noiseSuppressionModeRef.current || 'rnnoise') !== 'raw' && (noiseSuppressionModeRef.current || 'rnnoise') !== 'bypass',
+        autoGainControl: true,
       });
-
-      if (rawHardwareStreamRef.current) {
-        rawHardwareStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      rawHardwareStreamRef.current = newStream;
-
-      const processedStream = setupAudioProcessing(newStream);
-      localStreamRef.current = processedStream;
-
-      const newAudioTrack = processedStream.getAudioTracks()[0] || newStream.getAudioTracks()[0];
-      newAudioTrack.enabled = !isMutedRef.current;
-      localAudioTrackRef.current = newAudioTrack;
-
-      peerConnectionsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-        if (sender) {
-          sender.replaceTrack(newAudioTrack).catch(() => {});
-        } else {
-          try { pc.addTrack(newAudioTrack, processedStream); } catch {}
-        }
-      });
-
+      setupAnalyser(localAudioTrackRef.current.mediaStreamTrack);
       showToast('Switched microphone source', <Sliders size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Failed to switch audio input:', err);
-      showToast('Failed to switch mic: ' + err.message, <AlertCircle size={15} color="#ef4444" />);
+      showToast('Failed to switch microphone: ' + (err.message || 'Error'), <AlertCircle size={15} color="#ef4444" />);
     }
   }
 
@@ -1249,14 +1021,31 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
       // Push-To-Talk: Hold 'V'
       if ((e.key === 'v' || e.key === 'V') && !e.repeat) {
-        if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
-          if (isMutedRef.current) {
-            isPushToTalkingRef.current = true;
-            setIsPushToTalking(true);
-            localAudioTrackRef.current.enabled = true;
-            playAudioChirp('unmute');
-            socket?.emit('voice:track_state', { isMuted: false, hasVideo: false });
-          }
+        e.preventDefault();
+        if (!isVoiceConnectedRef.current) {
+          startMicrophone().then(() => {
+            if (localAudioTrackRef.current) {
+              isPushToTalkingRef.current = true;
+              setIsPushToTalking(true);
+              localAudioTrackRef.current.unmute().catch(() => {});
+              isMutedRef.current = false;
+              setIsMuted(false);
+              playAudioChirp('unmute');
+              socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
+              showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
+            }
+          }).catch(() => {});
+          return;
+        }
+        if (localAudioTrackRef.current) {
+          isPushToTalkingRef.current = true;
+          setIsPushToTalking(true);
+          localAudioTrackRef.current.unmute().catch(() => {});
+          isMutedRef.current = false;
+          setIsMuted(false);
+          playAudioChirp('unmute');
+          socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
+          showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
         }
       }
     }
@@ -1269,11 +1058,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         if (isPushToTalkingRef.current && localAudioTrackRef.current) {
           isPushToTalkingRef.current = false;
           setIsPushToTalking(false);
-          if (isMutedRef.current) {
-            localAudioTrackRef.current.enabled = false;
-            playAudioChirp('mute');
-            socket?.emit('voice:track_state', { isMuted: true, hasVideo: false });
-          }
+          isMutedRef.current = true;
+          setIsMuted(true);
+          localAudioTrackRef.current.mute().catch(() => {});
+          playAudioChirp('mute');
+          socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
+          showToast('Push-to-Talk ended (Muted)', <MicOff size={15} color="#9ca3af" />);
         }
       }
     }
@@ -1735,15 +1525,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         onConsumeInitialMedia?.();
       }
       showToast('Connected to Lounge', <Sparkles size={15} color="var(--pink-primary)" />);
+      // Auto-connect to lounge LiveKit room as subscriber so you hear anyone talking with zero refresh
+      connectVoiceRoom({ publishMic: false }).catch(() => {});
     });
 
     s.on('user:joined', ({ user, users }) => {
       if (users) {
         setConnectedUsers(users);
         connectedUsersRef.current = users;
-      }
-      if (isVoiceConnectedRef.current && localStreamRef.current && user && user.id !== s.id) {
-        getOrCreatePeerConnection(user.id, true);
       }
       showToast(`${user.username} joined`, <Users size={15} color="var(--pink-primary)" />);
     });
@@ -1752,9 +1541,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (users) {
         setConnectedUsers(users);
         connectedUsersRef.current = users;
-      }
-      if (userId) {
-        cleanupPeer(userId);
       }
       showToast(`${username || 'User'} left the lounge`, <LogOut size={15} color="#9ca3af" />);
     });
@@ -1904,90 +1690,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       }
     });
 
-    // ------------------------------------------------------------------------
-    // WebRTC Native Socket.IO Mesh Signaling Handlers
-    // ------------------------------------------------------------------------
-    s.on('voice:peer_joined', ({ peerId, username, hasAudio }) => {
-      console.log(`🎙️ Peer joined voice: ${username} (${peerId})`);
-      if (isVoiceConnectedRef.current && localStreamRef.current) {
-        const pc = peerConnectionsRef.current.get(peerId);
-        if (pc) {
-          const senders = pc.getSenders();
-          const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
-          if (!hasAudioSender && localAudioTrackRef.current) {
-            try {
-              pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
-            } catch (e) {}
-          }
-          renegotiatePeer(pc, peerId);
-        } else {
-          getOrCreatePeerConnection(peerId, true);
-        }
-      }
-    });
-
-    s.on('voice:signal', async ({ senderPeerId, signalData }) => {
-      if (!senderPeerId || !signalData) return;
-      try {
-        if (signalData.desc) {
-          const { desc } = signalData;
-          if (desc.type === 'offer') {
-            const pc = getOrCreatePeerConnection(senderPeerId, false);
-            // CRITICAL FOR FULL DUPLEX TWO-WAY AUDIO:
-            if (localStreamRef.current && localAudioTrackRef.current) {
-              const senders = pc.getSenders();
-              const hasAudioSender = senders.some((s) => s.track && s.track.kind === 'audio');
-              if (!hasAudioSender) {
-                try {
-                  pc.addTrack(localAudioTrackRef.current, localStreamRef.current);
-                } catch (e) {
-                  console.warn('Track add on offer error:', e);
-                }
-              }
-            }
-
-            await pc.setRemoteDescription(new RTCSessionDescription(desc));
-
-            const queued = pendingCandidatesRef.current.get(senderPeerId) || [];
-            for (const cand of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
-            }
-            pendingCandidatesRef.current.delete(senderPeerId);
-
-            const answer = await pc.createAnswer();
-            answer.sdp = boostOpusSDP(answer.sdp);
-            await pc.setLocalDescription(answer);
-
-            s.emit('voice:signal', {
-              targetPeerId: senderPeerId,
-              signalData: { desc: pc.localDescription }
-            });
-          } else if (desc.type === 'answer') {
-            const pc = peerConnectionsRef.current.get(senderPeerId);
-            if (pc) {
-              await pc.setRemoteDescription(new RTCSessionDescription(desc));
-              const queued = pendingCandidatesRef.current.get(senderPeerId) || [];
-              for (const cand of queued) {
-                await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
-              }
-              pendingCandidatesRef.current.delete(senderPeerId);
-            }
-          }
-        } else if (signalData.candidate) {
-          const pc = peerConnectionsRef.current.get(senderPeerId);
-          if (pc && pc.remoteDescription && pc.remoteDescription.type) {
-            await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate)).catch(() => {});
-          } else {
-            const list = pendingCandidatesRef.current.get(senderPeerId) || [];
-            list.push(signalData.candidate);
-            pendingCandidatesRef.current.set(senderPeerId, list);
-          }
-        }
-      } catch (err) {
-        console.warn('WebRTC signal handling error:', err);
-      }
-    });
-
+    // LiveKit SFU handles media routing directly
     s.on('voice:speaking', ({ peerId, isSpeaking }) => {
       setRemotePeers((prev) => {
         const next = new Map(prev);
@@ -2016,7 +1719,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
     s.on('voice:peer_left', ({ peerId, username }) => {
       console.log(`Peer left voice: ${peerId}`);
-      cleanupPeer(peerId);
       if (username) showToast(`${username} left Voice Chat`, <MicOff size={15} color="#9ca3af" />);
     });
 
@@ -3029,10 +2731,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   }
 
-  // Toggle Chat Sidebar cleanly
-  // If not in fullscreen: enters true fullscreen on player AND opens side chat
-  // If already in fullscreen: toggles side chat without exiting fullscreen
+  // Toggle Chat Sidebar cleanly (C shortcut & minimal docked trigger)
+  // If sidebar is open: closes it cleanly without exiting fullscreen
+  // If sidebar is closed: enters true cinema fullscreen on player (if not already) and opens sidebar
   const handleToggleSideChat = useCallback(() => {
+    if (isChatSidebarOpenRef.current) {
+      setIsChatSidebarOpen(false);
+      return;
+    }
+
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
     if (!isFs) {
       const targetEl = theaterCanvasRef.current || document.documentElement;
@@ -3041,19 +2748,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       } else if (targetEl.webkitRequestFullscreen) {
         targetEl.webkitRequestFullscreen();
       }
-      setIsChatSidebarOpen(true);
-      handleMarkChatSeen();
-      setUnreadChatCount(0);
-    } else {
-      setIsChatSidebarOpen((prev) => {
-        const next = !prev;
-        if (next) {
-          handleMarkChatSeen();
-          setUnreadChatCount(0);
-        }
-        return next;
-      });
     }
+    setIsChatSidebarOpen(true);
+    handleMarkChatSeen();
+    setUnreadChatCount(0);
   }, [handleMarkChatSeen]);
 
   useEffect(() => {
@@ -3856,19 +3554,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         className="pouf-popover-shell"
         style={{
           position: 'absolute',
-          bottom: 'calc(100% + 12px)',
-          right: 0,
-          width: '290px',
+          bottom: 'calc(100% + 10px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '310px',
           maxHeight: '380px',
           overflowY: 'auto',
-          background: 'rgba(12, 9, 18, 0.96)',
+          background: 'rgba(15, 10, 22, 0.98)',
           backdropFilter: 'blur(24px)',
           WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid rgba(244, 114, 182, 0.28)',
+          border: '1.5px solid rgba(244, 114, 182, 0.35)',
           borderRadius: '16px',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(244, 114, 182, 0.12)',
+          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.95), 0 0 25px rgba(244, 114, 182, 0.18)',
           padding: '12px 14px',
-          zIndex: 65,
+          zIndex: 1000,
           color: '#fff',
           display: 'flex',
           flexDirection: 'column',
@@ -4686,6 +4385,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             canControl={true}
             isChitChatMode={isChitChatMode}
             onToggleChat={handleToggleSideChat}
+            onToggleFullscreen={toggleVideoFullscreen}
             onEnterChat={() => {
               const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
               if (!isSidebarActive) {
@@ -4869,9 +4569,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </div>
 
           {/* Group 2: Unified Voice & Hardware Dock */}
-          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', border: '1px solid rgba(244, 114, 182, 0.22)', padding: '2px', backdropFilter: 'blur(12px)' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', border: '1px solid rgba(244, 114, 182, 0.22)', padding: '2px', backdropFilter: 'blur(12px)' }}>
             <button
-              onClick={handleMicButtonClick}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMicButtonClick();
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4915,7 +4618,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             <div style={{ width: '1px', height: '18px', background: 'rgba(255, 255, 255, 0.12)', margin: '0 2px' }} />
 
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 setShowVoiceSettings((prev) => {
                   const next = !prev;
                   if (next) refreshMediaDevices();
@@ -5174,6 +4878,157 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         }}
         defaultRoom={roomId}
       />
+
+      {/* 1. Microphone Permission Help Modal */}
+      {showMicPermissionModal && (
+        <div className="pink-modal-backdrop" onClick={() => setShowMicPermissionModal(false)}>
+          <div className="pink-modal-card" style={{ maxWidth: '480px', padding: '1.75rem' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1rem' }}>
+              <div style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1.5px solid rgba(239, 68, 68, 0.4)'
+              }}>
+                <MicOff size={22} color="#ef4444" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)' }}>Microphone Access Blocked</h3>
+                <span style={{ fontSize: '0.8rem', color: '#ef4444', fontWeight: 700 }}>Permission Required</span>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.45', margin: '0 0 1.25rem 0' }}>
+              Your browser or Windows has blocked microphone permissions for Watch Together. Follow these quick steps so everyone in the lounge can hear you:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(244, 114, 182, 0.08)', borderRadius: '14px', padding: '14px', border: '1px solid rgba(244, 114, 182, 0.2)' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <span style={{ background: 'var(--pink-primary)', color: 'white', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 900, flexShrink: 0 }}>1</span>
+                <span style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                  Look at your browser address bar at the top (near <strong>https://...</strong>). Click the <strong>🔒 Lock icon</strong> or <strong>🎙️ Camera/Mic icon</strong>.
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <span style={{ background: 'var(--pink-primary)', color: 'white', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 900, flexShrink: 0 }}>2</span>
+                <span style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                  Switch <strong>Microphone</strong> from <em>Block</em> to <strong>Allow</strong>.
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <span style={{ background: 'var(--pink-primary)', color: 'white', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 900, flexShrink: 0 }}>3</span>
+                <span style={{ fontSize: '0.84rem', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                  <strong>Windows Laptops:</strong> Open Windows Settings → <em>Privacy & Security</em> → <em>Microphone</em> → Turn on <em>"Let apps access your microphone"</em>.
+                </span>
+              </div>
+            </div>
+
+            {micPermissionErrorMsg && (
+              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '10px', wordBreak: 'break-word' }}>
+                Technical error: {micPermissionErrorMsg}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                className="pink-btn-secondary"
+                onClick={() => setShowMicPermissionModal(false)}
+                style={{ padding: '0.55rem 1.1rem', fontSize: '0.88rem' }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="pink-btn-primary"
+                onClick={() => {
+                  setShowMicPermissionModal(false);
+                  startMicrophone();
+                }}
+                style={{ padding: '0.55rem 1.25rem', fontSize: '0.88rem' }}
+              >
+                Try Again Now 🎙️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Zero-Input Mic Silence Warning Banner */}
+      {isVoiceConnected && isMicSilentWarning && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '72px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(23, 15, 32, 0.94)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(245, 158, 11, 0.45)',
+            borderRadius: '16px',
+            padding: '12px 18px',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.6), 0 0 20px rgba(245, 158, 11, 0.25)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            maxWidth: '520px',
+            width: 'calc(100% - 32px)',
+            animation: 'slideUpSmooth 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}
+        >
+          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertCircle size={20} color="#f59e0b" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: 'var(--text-main)' }}>
+              No Audio Detected from Mic 🔇
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.25' }}>
+              Your mic is unmuted, but input level is zero. Check your laptop physical mute button (Fn key) or switch mic device.
+            </div>
+            {/* Live Meter Bar */}
+            <div style={{ width: '100%', height: '4px', background: 'rgba(0,0,0,0.08)', borderRadius: '999px', marginTop: '6px', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, micLevel * 2)}%`, height: '100%', background: 'linear-gradient(90deg, #10b981, #f59e0b)', transition: 'width 0.1s ease' }} />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowVoiceSettings(true);
+              refreshMediaDevices();
+            }}
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, var(--pink-primary), var(--pink-hover))',
+              color: 'white',
+              border: 'none',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Fix & Test Mic
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDismissedSilenceWarning(true);
+              setIsMicSilentWarning(false);
+            }}
+            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '4px' }}
+            title="Dismiss"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
