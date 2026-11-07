@@ -1602,53 +1602,50 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
 
     // Synchronized Seek Barrier (Ready Gate: eliminates freezes, lag, and desync across long seeks)
-    s.on('player:sync_barrier_seek', ({ currentTime, wasPlaying, sender, totalUsers }) => {
+    s.on('player:sync_barrier_seek', ({ currentTime, wasPlaying, sender, totalUsers, readyCount }) => {
       setBarrierState({
         active: true,
         targetTime: currentTime,
         wasPlaying,
         sender,
-        readyCount: 0,
+        readyCount: readyCount || 1,
         totalUsers: totalUsers || 2
       });
 
       isSeekingRef.current = true;
-      setRemoteLock(6000);
-
-      // Pause playback while seeking/buffering
-      UnifiedPlayer.pause();
-      UnifiedPlayer.seek(currentTime);
+      setRemoteLock(1200);
 
       const v = document.querySelector('.pouf-player-container video');
-      const a = document.querySelector('.pouf-player-container audio');
+      const isAlreadyNear = v && typeof currentTime === 'number' && Math.abs(v.currentTime - currentTime) < 0.5;
+
+      // Pause playback while buffering
+      UnifiedPlayer.pause();
+      if (!isAlreadyNear) {
+        UnifiedPlayer.seek(currentTime);
+      }
 
       let reported = false;
       function checkAndReportReady() {
         if (reported) return;
-        const vReady = !v || v.readyState >= 2;
-        const aReady = !a || !a.src || a.readyState >= 2;
-
-        if (vReady && aReady) {
-          reported = true;
-          if (s) {
-            s.emit('player:client_ready', { currentTime });
-          }
+        reported = true;
+        if (s) {
+          s.emit('player:client_ready', { currentTime });
         }
       }
 
-      checkAndReportReady();
-
-      if (!reported && v) {
+      if (isAlreadyNear || !v || v.readyState >= 2 || v.seeking === false) {
+        checkAndReportReady();
+      } else {
         const onReadyEvent = () => {
-          v.removeEventListener('canplay', onReadyEvent);
           v.removeEventListener('seeked', onReadyEvent);
+          v.removeEventListener('canplay', onReadyEvent);
           checkAndReportReady();
         };
-        v.addEventListener('canplay', onReadyEvent, { once: true });
         v.addEventListener('seeked', onReadyEvent, { once: true });
+        v.addEventListener('canplay', onReadyEvent, { once: true });
 
-        // Safety timeout fallback: report ready after 1.5s
-        setTimeout(checkAndReportReady, 1500);
+        // Snappy safety fallback: report ready within 350ms max
+        setTimeout(checkAndReportReady, 350);
       }
     });
 

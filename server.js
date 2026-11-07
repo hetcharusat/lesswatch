@@ -2790,6 +2790,8 @@ io.on('connection', (socket) => {
 
     const totalActiveUsers = room.users.size;
     const readyUsers = new Set();
+    // The user who initiated the scrub already loaded/dragged to this frame locally
+    readyUsers.add(socket.id);
 
     function releaseBarrier() {
       if (!room.barrier || !room.barrier.active) return;
@@ -2807,6 +2809,12 @@ io.on('connection', (socket) => {
       broadcastLiveStatus();
     }
 
+    // Solo viewer: zero delay release
+    if (totalActiveUsers <= 1) {
+      releaseBarrier();
+      return;
+    }
+
     room.barrier = {
       active: true,
       targetTime,
@@ -2815,17 +2823,18 @@ io.on('connection', (socket) => {
       totalUsers: totalActiveUsers,
       releaseBarrier,
       timeoutId: setTimeout(() => {
-        // Fallback: If any client's connection is slow, release after 6s max
+        // Fast fallback: release within 1200ms max so scrubbing is never sluggish
         releaseBarrier();
-      }, 6000)
+      }, 1200)
     };
 
-    // Broadcast barrier seek to ALL users in room (including the scrub initiator)
+    // Broadcast barrier seek to all users in room
     io.to(currentRoomId).emit('player:sync_barrier_seek', {
       currentTime: targetTime,
       wasPlaying: shouldPlay,
       sender: currentUser?.username || 'Someone',
-      totalUsers: totalActiveUsers
+      totalUsers: totalActiveUsers,
+      readyCount: 1
     });
 
     broadcastLiveStatus();
