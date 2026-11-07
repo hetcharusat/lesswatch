@@ -61,6 +61,7 @@ import {
  * - Microsecond Dual-Track Audio Sync Engine for 0ms zero-lag streaming
  */
 export function PoufPlayer({
+  socket = null,
   url,
   title = 'Video Stream',
   audioTracks = [],
@@ -108,6 +109,13 @@ export function PoufPlayer({
   const [showControls, setShowControls] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
   const [centerAnimation, setCenterAnimation] = useState(null);
+
+  // Autoplay recovery & black screen watchdog
+  const [needsUnmutePrompt, setNeedsUnmutePrompt] = useState(false);
+  const [isPlaybackStalled, setIsPlaybackStalled] = useState(false);
+  const pendingSeekRef = useRef(null);
+  const lastProgressTimeRef = useRef(Date.now());
+  const lastRecordedTimeRef = useRef(0);
 
   // Scrubber Hover Tooltip
   const [hoverTime, setHoverTime] = useState(null);
@@ -371,7 +379,100 @@ export function PoufPlayer({
     return `${pMins}:${pSecs}`;
   }
 
-  // Mount Direct Stream to Video
+  // Robust Safe Play with Muted Autoplay Fallback (Zero Black Screen Guarantee)
+  const safePlayVideo = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      await video.play();
+      setNeedsUnmutePrompt(false);
+      setIsPlaybackStalled(false);
+    } catch (err) {
+      console.warn('[PoufPlayer] Direct play blocked by browser autoplay policy:', err?.message || err);
+      // Auto-fallback: Mute video immediately so browser decodes and paints frames without black screen!
+      try {
+        video.muted = true;
+        await video.play();
+        setNeedsUnmutePrompt(true);
+        setIsPlaybackStalled(false);
+      } catch (e2) {
+        console.warn('[PoufPlayer] Muted play also failed:', e2?.message || e2);
+      }
+    }
+  }, []);
+
+  const handleUnmuteAudio = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      if (!shouldUseAudioElement) {
+        video.muted = isMuted;
+        video.volume = isMuted ? 0 : volume;
+      }
+    }
+    if (audioRef.current && shouldUseAudioElement) {
+      audioRef.current.muted = isMuted;
+      audioRef.current.volume = isMuted ? 0 : volume;
+      if (isPlaying && audioRef.current.paused) {
+        audioRef.current.play().catch(() => { });
+      }
+    }
+    setNeedsUnmutePrompt(false);
+  }, [isMuted, volume, shouldUseAudioElement, isPlaying]);
+
+  // One-Click Stream Reset & Black Screen Kickstart
+  const handleFixBlackScreen = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !directStreamUrl) return;
+
+    const targetTime = (typeof currentTime === 'number' && !isNaN(currentTime) && currentTime > 0)
+      ? currentTime
+      : (video.currentTime || 0);
+    const shouldPlay = isPlaying;
+
+    setIsBuffering(true);
+    setIsPlaybackStalled(false);
+
+    try {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    } catch { }
+
+    setTimeout(() => {
+      video.src = directStreamUrl;
+      video.load();
+
+      const onReady = () => {
+        try {
+          if (targetTime > 0) {
+            video.currentTime = targetTime;
+          }
+          if (shouldPlay) {
+            safePlayVideo();
+          }
+        } catch { }
+        setIsBuffering(false);
+      };
+
+      if (video.readyState >= 1) {
+        onReady();
+      } else {
+        video.addEventListener('loadedmetadata', onReady, { once: true });
+      }
+    }, 60);
+
+    // If dual-track audio element is active, reload it cleanly too
+    if (audioRef.current && shouldUseAudioElement && activeAudioUrl) {
+      try {
+        audioRef.current.pause();
+        const targetSs = Math.floor(targetTime);
+        audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
+        audioRef.current.load();
+      } catch { }
+    }
+  }, [directStreamUrl, currentTime, isPlaying, safePlayVideo, shouldUseAudioElement, activeAudioUrl]);
+
+  // Mount Direct Stream to Video safely without premature seeking
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !directStreamUrl) return;
@@ -379,13 +480,19 @@ export function PoufPlayer({
     if (video.src !== directStreamUrl && !video.src.endsWith(directStreamUrl)) {
       video.src = directStreamUrl;
       if (currentTime > 0) {
-        video.currentTime = currentTime;
+        pendingSeekRef.current = currentTime;
       }
-      if (isPlaying) {
-        video.play().catch(() => { });
+      if (video.readyState >= 1) {
+        if (currentTime > 0) {
+          video.currentTime = currentTime;
+          pendingSeekRef.current = null;
+        }
+        if (isPlaying) {
+          safePlayVideo();
+        }
       }
     }
-  }, [directStreamUrl]);
+  }, [directStreamUrl, safePlayVideo]);
 
   // Apply playback speed
   useEffect(() => {
@@ -397,7 +504,7 @@ export function PoufPlayer({
     }
   }, [playbackSpeed]);
 
-  // Dual-Track Audio Sync Engine
+  // Dual-Track Audio Sync Engine with Fast -ss live start & auto-cache detection
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
@@ -414,9 +521,12 @@ export function PoufPlayer({
     } else {
       video.muted = true;
       if (audio) {
-        const fullUrl = new URL(activeAudioUrl, window.location.href).href;
+        const curTarget = video.currentTime || currentTime || 0;
+        const targetSs = Math.floor(curTarget);
+        const urlWithSs = `${activeAudioUrl}&ss=${targetSs}`;
+        const fullUrl = new URL(urlWithSs, window.location.href).href;
         if (audio.src !== fullUrl) {
-          audio.src = activeAudioUrl;
+          audio.src = urlWithSs;
         }
         audio.volume = isMuted ? 0 : volume;
         audio.muted = isMuted;
@@ -444,6 +554,32 @@ export function PoufPlayer({
       }
     }
   }, [activeAudioIndex, activeAudioUrl, shouldUseAudioElement]);
+
+  // Audio status update listener via socket to switch to seekable cached .m4a once ready
+  useEffect(() => {
+    const s = socket || (typeof window !== 'undefined' ? window.wtSocket : null);
+    if (!s || !cleanFilename) return;
+
+    const handleAudioStatusUpdate = (data) => {
+      if (data && data.filename === cleanFilename && data.track === activeAudioIndex && data.isReady) {
+        const audio = audioRef.current;
+        const video = videoRef.current;
+        if (audio && shouldUseAudioElement && video) {
+          const curTime = audio.currentTime || video.currentTime || 0;
+          const wasPlaying = !audio.paused && !video.paused;
+          audio.src = `/api/media/audio/${encodeURIComponent(cleanFilename)}?track=${activeAudioIndex}&cb=${Date.now()}`;
+          audio.load();
+          audio.addEventListener('canplay', () => {
+            audio.currentTime = curTime;
+            if (wasPlaying) audio.play().catch(() => { });
+          }, { once: true });
+        }
+      }
+    };
+
+    s.on('audio:status_update', handleAudioStatusUpdate);
+    return () => s.off('audio:status_update', handleAudioStatusUpdate);
+  }, [socket, cleanFilename, activeAudioIndex, shouldUseAudioElement]);
 
   // Sync external playback state
   useEffect(() => {
@@ -744,20 +880,24 @@ export function PoufPlayer({
     setDuration(video.duration || 0);
 
     // Initial seek to target currentTime once video metadata is ready
-    if (currentTime > 0 && Math.abs(video.currentTime - currentTime) > 0.4) {
-      video.currentTime = currentTime;
+    const seekTarget = pendingSeekRef.current !== null ? pendingSeekRef.current : currentTime;
+    if (typeof seekTarget === 'number' && seekTarget > 0 && Math.abs(video.currentTime - seekTarget) > 0.4) {
+      video.currentTime = seekTarget;
       if (shouldUseAudioElement && audioRef.current) {
-        audioRef.current.currentTime = currentTime;
+        audioRef.current.currentTime = seekTarget;
       }
     }
+    pendingSeekRef.current = null;
+
     if (isPlaying && video.paused) {
-      video.play().catch(() => { });
+      safePlayVideo();
     }
   }
 
   function handlePlayEvent() {
     setLocalPlaying(true);
     setIsBuffering(false);
+    setIsPlaybackStalled(false);
     triggerCenterAnimation('play');
     if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
       audioRef.current.currentTime = videoRef.current?.currentTime || 0;
@@ -804,8 +944,35 @@ export function PoufPlayer({
 
   function handleVideoClick(e) {
     if (e && e.defaultPrevented) return;
+    if (needsUnmutePrompt) {
+      handleUnmuteAudio();
+      return;
+    }
     togglePlayPause();
   }
+
+  // Stall watchdog: If isPlaying is true, verify that currentTime is actively advancing
+  useEffect(() => {
+    if (!isPlaying) {
+      setIsPlaybackStalled(false);
+      return;
+    }
+    const checkInterval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      const cur = video.currentTime;
+      if (Math.abs(cur - lastRecordedTimeRef.current) < 0.05) {
+        if (Date.now() - lastProgressTimeRef.current > 3800) {
+          setIsPlaybackStalled(true);
+        }
+      } else {
+        lastRecordedTimeRef.current = cur;
+        lastProgressTimeRef.current = Date.now();
+        setIsPlaybackStalled(false);
+      }
+    }, 1500);
+    return () => clearInterval(checkInterval);
+  }, [isPlaying]);
 
   function handleSeekRelative(deltaSeconds) {
     if (isLocked) {
@@ -1129,7 +1296,10 @@ export function PoufPlayer({
         onCanPlay={() => setIsBuffering(false)}
         onSeeking={() => setIsBuffering(true)}
         onSeeked={() => setIsBuffering(false)}
-        onError={() => setIsBuffering(false)}
+        onError={() => {
+          setIsBuffering(false);
+          setIsPlaybackStalled(true);
+        }}
         style={{
           width: '100%',
           height: '100%',
@@ -1223,6 +1393,69 @@ export function PoufPlayer({
           </div>
         </div>
       </div>
+
+      {/* Autoplay Audio Muted Banner - Click to Unmute */}
+      {needsUnmutePrompt && (
+        <div
+          onClick={handleUnmuteAudio}
+          style={{
+            position: 'absolute',
+            top: '64px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 65,
+            background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.95), rgba(219, 39, 119, 0.95))',
+            color: '#ffffff',
+            padding: '8px 18px',
+            borderRadius: '9999px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.80rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            boxShadow: '0 8px 30px rgba(236, 72, 153, 0.6), 0 0 16px rgba(255, 255, 255, 0.4)',
+            backdropFilter: 'blur(16px)',
+            pointerEvents: 'auto'
+          }}
+          title="Click to unmute"
+        >
+          <VolumeX size={15} />
+          <span>Sound paused by browser — Tap anywhere to unmute!</span>
+        </div>
+      )}
+
+      {/* Stalled Playback / Black Screen Kickstart Banner */}
+      {isPlaybackStalled && (
+        <div
+          onClick={handleFixBlackScreen}
+          style={{
+            position: 'absolute',
+            top: needsUnmutePrompt ? '112px' : '64px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 65,
+            background: 'rgba(20, 15, 30, 0.94)',
+            border: '1.5px solid rgba(244, 114, 182, 0.85)',
+            color: '#fce7f3',
+            padding: '8px 18px',
+            borderRadius: '9999px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.80rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(236, 72, 153, 0.4)',
+            backdropFilter: 'blur(16px)',
+            pointerEvents: 'auto'
+          }}
+          title="Kickstart Video Stream"
+        >
+          <Sparkles size={15} color="#f472b6" />
+          <span>Screen black or video stalled? Tap here to Kickstart Stream ⚡</span>
+        </div>
+      )}
 
       {/* 4. Subtitle Display Layer with Live Customization */}
       {currentCueText && (
@@ -1642,6 +1875,16 @@ export function PoufPlayer({
                   transition: 'transform 0.3s ease'
                 }}
               />
+            </button>
+
+            {/* Quick Stream Fix / Kickstart */}
+            <button
+              onClick={handleFixBlackScreen}
+              className="pouf-dock-icon-btn"
+              title="⚡ Fix Black Screen / Kickstart Video Stream"
+              style={{ color: '#f472b6' }}
+            >
+              <Sparkles size={15} color="#f472b6" />
             </button>
 
             {/* Picture-in-Picture */}
@@ -2152,6 +2395,20 @@ export function PoufPlayer({
                     {aspectRatio === 'contain' ? '16:9' : aspectRatio === 'cover' ? 'Zoom' : 'Stretch'}
                   </span>
                   <ChevronRight size={14} style={{ color: '#9ca3af' }} />
+                </div>
+
+                {/* Quick Stream Fix / Kickstart */}
+                <div
+                  onClick={() => {
+                    handleFixBlackScreen();
+                    setShowSettingsMenu(false);
+                  }}
+                  className="pouf-yt-menu-item"
+                  style={{ marginTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', color: '#f472b6' }}
+                  title="Reload stream decoder, unfreeze frame, and kickstart playback"
+                >
+                  <Sparkles size={15} color="#f472b6" />
+                  <span style={{ fontWeight: 700 }}>⚡ Fix Black Screen</span>
                 </div>
               </>
             )}

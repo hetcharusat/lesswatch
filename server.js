@@ -1843,6 +1843,10 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': mimeType,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Accept-Encoding, Accept, Origin, Content-Type',
+        'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length',
         'Cache-Control': 'public, max-age=3600'
       };
 
@@ -1860,6 +1864,10 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         'Content-Length': fileSize,
         'Content-Type': mimeType,
         'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Accept-Encoding, Accept, Origin, Content-Type',
+        'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length',
         'Cache-Control': 'public, max-age=3600'
       };
       res.writeHead(200, headers);
@@ -2102,6 +2110,8 @@ app.get(['/api/media/audio/:filename', '/api/media/audio/*'], async (req, res) =
   res.setHeader('Content-Type', 'audio/aac');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Encoding, Accept, Origin, Content-Type');
 
   const liveFfmpeg = spawn('ffmpeg', [
     '-ss', String(ss),
@@ -2770,8 +2780,7 @@ io.on('connection', (socket) => {
   socket.on('player:change_audio_track', ({ audioTrack, currentTime, isPlaying }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
-    if (!canControl(room)) return;
-
+    // Audio track selection is always permitted for any lounge participant so both can listen together
     if (!room.media) return;
     const trackIdx = parseInt(audioTrack, 10) || 0;
     room.media.audioTrack = trackIdx;
@@ -2821,7 +2830,7 @@ io.on('connection', (socket) => {
   });
 
   // Media Change Event
-  socket.on('media:change', ({ url, title, type, videoId }) => {
+  socket.on('media:change', ({ url, title, type, videoId, audioTrack }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
     if (!canControl(room)) return;
@@ -2841,7 +2850,8 @@ io.on('connection', (socket) => {
       type: resolvedType,
       url: detected.cleanUrl || url,
       videoId: videoId || detected.videoId || null,
-      title: title || (detected.type === 'youtube' ? 'YouTube Stream' : 'Video Item')
+      title: title || (detected.type === 'youtube' ? 'YouTube Stream' : 'Video Item'),
+      audioTrack: typeof audioTrack === 'number' ? audioTrack : 0
     };
 
     room.playback.isPlaying = true;

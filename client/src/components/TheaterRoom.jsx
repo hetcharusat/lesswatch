@@ -1762,7 +1762,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setCurrentUrl(media.url);
     setActivePlayerType(resolvedType);
     pendingPlaybackRef.current = playback || null;
-    setActiveAudioIndex(0);
+    setActiveAudioIndex(typeof media.audioTrack === 'number' ? media.audioTrack : 0);
 
     setRemoteLock(1500);
     loadMediaTracks(media.url);
@@ -4269,6 +4269,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         {activePlayerType !== 'youtube' && activePlayerType !== 'neko' && (
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2 }}>
             <PoufPlayer
+            socket={socket}
             url={currentUrl}
             title={currentTitle}
             type={activePlayerType === 'hls' || currentUrl.includes('.m3u8') ? 'hls' : 'direct'}

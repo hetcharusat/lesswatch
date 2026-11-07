@@ -3,7 +3,7 @@
 }
 
 letswatch.atmyhome.tech {
-    @notMedia not path /api/media/stream/*
+    @notMedia not path /api/media/stream/* /api/media/audio/* /api/media/hls/* /api/media/subtitles/*
     encode @notMedia gzip zstd
 
     # LiveKit WebSocket signaling proxy (strips /livekit prefix)
@@ -16,7 +16,7 @@ letswatch.atmyhome.tech {
 }
 
 :80 {
-    @notMedia not path /api/media/stream/*
+    @notMedia not path /api/media/stream/* /api/media/audio/* /api/media/hls/* /api/media/subtitles/*
     encode @notMedia gzip zstd
 
     handle_path /livekit* {
