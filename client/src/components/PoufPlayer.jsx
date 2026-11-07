@@ -1308,34 +1308,34 @@ export function PoufPlayer({
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Compact Top Title Overlay with Hard Glassmorphic Blurred Transparent Gradient */}
+      {/* 3. Ultra-Slim Top Title Overlay (Soft Cinema Vignette Gradient, Minimal Height, Zero Blur Band) */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          padding: isChitChatMode ? '1.1rem 5.6rem 2.5rem 1.4rem' : '1.1rem 1.4rem 2.5rem',
-          background: 'linear-gradient(180deg, rgba(14, 10, 24, 0.88) 0%, rgba(14, 10, 24, 0.45) 60%, transparent 100%)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          padding: isChitChatMode ? '0.45rem 4.5rem 0.65rem 1.1rem' : '0.45rem 1.1rem 0.65rem 1.1rem',
+          background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.22) 55%, transparent 100%)',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           zIndex: 40,
           opacity: !isLocked && showControls ? 1 : 0,
-          transform: !isLocked && showControls ? 'translateY(0)' : 'translateY(-12px)',
-          transition: 'all 0.25s cubic-bezier(0.16,1,0.3,1)',
+          transform: !isLocked && showControls ? 'translateY(0)' : 'translateY(-8px)',
+          transition: 'all 0.2s cubic-bezier(0.16,1,0.3,1)',
           pointerEvents: !isLocked && showControls ? 'auto' : 'none'
         }}
       >
-        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
-          <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff', margin: 0, textShadow: '0 2px 8px rgba(0,0,0,0.8), 0 0 12px rgba(244,114,182,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', maxWidth: '82%' }}>
+          <h2 style={{ fontSize: '0.88rem', fontWeight: 700, color: '#ffffff', margin: 0, textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 2px 10px rgba(0,0,0,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {title || 'Video Stream'}
           </h2>
-          <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ background: 'rgba(244, 114, 182, 0.22)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#f472b6', fontWeight: 700 }}>Direct Stream</span>
-          </div>
+          <span style={{ background: 'rgba(244, 114, 182, 0.20)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#f472b6', fontWeight: 700, fontSize: '0.68rem', flexShrink: 0, lineHeight: 1.4 }}>
+            Direct Stream
+          </span>
         </div>
 
         {/* Top-Right Badges & Controls */}
@@ -1343,10 +1343,10 @@ export function PoufPlayer({
           <div
             className="pouf-glass-card"
             style={{
-              padding: '4px 10px',
+              padding: '3px 9px',
               borderRadius: '9999px',
               color: '#fff',
-              fontSize: '0.74rem',
+              fontSize: '0.72rem',
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
