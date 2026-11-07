@@ -1413,40 +1413,41 @@ export function PoufPlayer({
         </div>
       )}
 
-      {/* Synchronized Seek Barrier HUD (Ready Gate for Zero-Desync Multi-Viewer Scrubbing) */}
-      {barrierState?.active && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '48%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 85,
-            background: 'rgba(18, 12, 28, 0.90)',
-            backdropFilter: 'blur(24px)',
-            WebkitBackdropFilter: 'blur(24px)',
-            border: '1.5px solid rgba(244, 114, 182, 0.45)',
-            borderRadius: '24px',
-            padding: '14px 26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '14px',
-            boxShadow: '0 16px 48px rgba(0, 0, 0, 0.75), 0 0 24px rgba(244, 114, 182, 0.35)',
-            color: '#ffffff',
-            pointerEvents: 'none'
-          }}
-        >
-          <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '3px solid rgba(244, 114, 182, 0.25)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fbcfe8', letterSpacing: '0.2px' }}>
-              {barrierState.sender ? `${barrierState.sender} scrubbed to ${formatTime(barrierState.targetTime)}` : `Buffering at ${formatTime(barrierState.targetTime)}`}
+      {/* Synchronized Seek Barrier HUD (Liquid Glass Ready Gate) */}
+      {barrierState?.active && (() => {
+        const readyCount = barrierState.readyCount || 0;
+        const totalUsers = barrierState.totalUsers || 2;
+        const isAllReady = readyCount >= totalUsers;
+        const sender = barrierState.sender || 'Syncing';
+        const formattedTime = formatTime(barrierState.targetTime);
+
+        return (
+          <div className="liquid-glass-barrier-card">
+            {/* Liquid Glow Spinner */}
+            <div className="liquid-spinner-wrap">
+              <div className="liquid-spinner-glow" />
+              <div className="liquid-spinner-ring" />
             </div>
-            <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: '2px' }}>
-              Syncing media buffers • Playing together ({barrierState.readyCount || 0}/{barrierState.totalUsers || 2} ready)...
+
+            {/* Concise Title & Timestamp */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.86rem', color: '#ffffff', letterSpacing: '-0.2px' }}>
+                {sender}
+              </span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.40)', fontSize: '0.75rem' }}>•</span>
+              <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#fbcfe8', fontVariantNumeric: 'tabular-nums' }}>
+                {formattedTime}
+              </span>
+            </div>
+
+            {/* Sleek Liquid Status Pill */}
+            <div className={`liquid-status-pill ${isAllReady ? 'ready' : 'syncing'}`}>
+              <span className={`liquid-status-dot ${isAllReady ? 'ready' : 'syncing'}`} />
+              <span>{readyCount}/{totalUsers} ready</span>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 4. Subtitle Display Layer with Live Customization */}
       {currentCueText && (
