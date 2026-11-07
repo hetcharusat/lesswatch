@@ -584,8 +584,9 @@ export function PoufPlayer({
     if (!video || typeof currentTime !== 'number' || isNaN(currentTime)) return;
     if (isDraggingScrubberRef.current) return;
 
+    // Relaxed 4s tolerance window: play naturally at 1.0x without chopping frames or artificial seeks
     const diff = Math.abs(video.currentTime - currentTime);
-    const threshold = video.paused ? 0.35 : 1.5;
+    const threshold = video.paused ? 0.4 : 4.0;
     if (diff > threshold) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
@@ -823,22 +824,16 @@ export function PoufPlayer({
 
     setPlayProgress(video.currentTime);
 
-    // Smooth Dual-Track Sync (only on seekable range-cached audio to prevent infinite seek stalls on live streams)
+    // Smooth Dual-Track Sync (natural 4s window: zero rate throttling, 100% smooth GPU video decoding)
     if (shouldUseAudioElement && audio && !video.paused && !audio.paused && !audio.seeking && !video.seeking) {
       if (!audio.src.includes('&ss=')) {
-        const drift = audio.currentTime - video.currentTime;
-        const absDrift = Math.abs(drift);
-
-        if (absDrift > 0.25 && absDrift < 2.0) {
-          audio.playbackRate = video.playbackRate * (drift > 0 ? 0.96 : 1.04);
-        } else if (absDrift >= 2.0) {
+        const drift = Math.abs(audio.currentTime - video.currentTime);
+        if (drift > 4.0) {
           audio.currentTime = video.currentTime;
-          audio.playbackRate = video.playbackRate;
-        } else {
-          if (audio.playbackRate !== video.playbackRate) {
-            audio.playbackRate = video.playbackRate;
-          }
         }
+      }
+      if (audio.playbackRate !== video.playbackRate) {
+        audio.playbackRate = video.playbackRate;
       }
     }
 

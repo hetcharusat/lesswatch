@@ -1218,10 +1218,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return;
     }
 
-    const drift = clientTime - authTime;
+    const drift = Math.abs(clientTime - authTime);
 
-    // Sub-second precision threshold matrix
-    if (Math.abs(drift) <= 0.4) {
+    // Relaxed 4.0s natural co-watching window: within 4 seconds, let both players play smoothly at 1.0x with zero frame chops
+    if (drift <= 4.0) {
       if (UnifiedPlayer.getRate() !== 1.0) {
         UnifiedPlayer.setRate(1.0);
       }
@@ -1229,24 +1229,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       return;
     }
 
-    if (Math.abs(drift) <= 3.0) {
-      // Gentle micro rate nudging (3% speed difference) - smooth, imperceptible, zero frame skips!
-      if (drift < 0) {
-        UnifiedPlayer.setRate(1.03);
-        setSyncStatus('Catching Up');
-      } else {
-        UnifiedPlayer.setRate(0.97);
-        setSyncStatus('Aligning');
-      }
-    } else {
-      // Significant drift (> 3.0s): Re-align to authoritative timestamp
-      setRemoteLock(1000);
-      isSeekingRef.current = true;
-      UnifiedPlayer.seek(authTime);
-      UnifiedPlayer.setRate(1.0);
-      setTimeout(() => { isSeekingRef.current = false; }, 1000);
-      setSyncStatus('In Sync');
-    }
+    // Only re-align if drift is genuinely large (> 4.0 seconds)
+    setRemoteLock(1500);
+    isSeekingRef.current = true;
+    UnifiedPlayer.seek(authTime);
+    UnifiedPlayer.setRate(1.0);
+    setTimeout(() => { isSeekingRef.current = false; }, 1500);
+    setSyncStatus('In Sync');
   }
 
   // Continuous Metronome Drift Watchdog Timer
@@ -1570,7 +1559,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       const drift = Math.abs(clientTime - authTime);
 
       setRoomPlaybackState((prev) => {
-        if (prev.isPlaying !== Boolean(isPlaying) || drift > 1.5) {
+        // Relaxed 4s tolerance window: only force-align if play/pause state changed or drift > 4.0s
+        if (prev.isPlaying !== Boolean(isPlaying) || drift > 4.0) {
           return { currentTime: authTime, isPlaying: Boolean(isPlaying) };
         }
         return prev;
@@ -1895,12 +1885,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           const currentAuth = getAuthoritativeTime() || targetTime;
           if (v) {
             if (v.readyState >= 1) {
-              if (Math.abs(v.currentTime - currentAuth) > 0.35) {
+              if (Math.abs(v.currentTime - currentAuth) > 1.5) {
                 v.currentTime = currentAuth;
               }
             }
             if (shouldPlay && v.paused) {
-              v.play().catch(() => setNeedsUserClickToPlay(true));
+              v.play().catch(async () => {
+                try {
+                  v.muted = true;
+                  await v.play();
+                } catch (e2) {
+                  setNeedsUserClickToPlay(true);
+                }
+              });
             } else if (!shouldPlay && !v.paused) {
               v.pause();
             }
