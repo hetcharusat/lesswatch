@@ -1147,14 +1147,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       } else {
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
+        isSeekingRef.current = true;
         if (v) {
-          isSeekingRef.current = true;
           v.currentTime = seconds;
-          if (a && a.src) {
-            a.currentTime = seconds;
-          }
-          setTimeout(() => { isSeekingRef.current = false; }, 200);
         }
+        if (a && a.src) {
+          a.currentTime = seconds;
+        }
+        setTimeout(() => { isSeekingRef.current = false; }, 200);
       }
     },
     getTime() {
@@ -1885,10 +1885,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
         const syncDirect = () => {
           const v = document.querySelector('.pouf-player-container video');
+          const a = document.querySelector('.pouf-player-container audio');
           const currentAuth = getAuthoritativeTime() || targetTime;
           if (v) {
             if (v.readyState >= 1) {
-              if (Math.abs(v.currentTime - currentAuth) > 1.5) {
+              if (Math.abs(v.currentTime - currentAuth) > 1.0) {
                 v.currentTime = currentAuth;
               }
             }
@@ -1897,12 +1898,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 try {
                   v.muted = true;
                   await v.play();
-                } catch (e2) {
-                  setNeedsUserClickToPlay(true);
-                }
+                } catch (e2) { }
               });
             } else if (!shouldPlay && !v.paused) {
               v.pause();
+            }
+          }
+          if (a && a.src) {
+            if (a.readyState >= 1) {
+              if (Math.abs(a.currentTime - currentAuth) > 1.0) {
+                a.currentTime = currentAuth;
+              }
+            }
+            if (shouldPlay && a.paused) {
+              a.play().catch(() => { });
+            } else if (!shouldPlay && !a.paused) {
+              a.pause();
             }
           }
           isBufferingRef.current = false;

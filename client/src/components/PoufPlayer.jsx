@@ -480,7 +480,7 @@ export function PoufPlayer({
     }
   }, [playbackSpeed]);
 
-  // Dual-Track Audio Sync Engine with Fast -ss live start & auto-cache detection
+  // Dual-Track Audio Sync Engine with direct Range-Seekable .m4a pipeline
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
@@ -497,21 +497,19 @@ export function PoufPlayer({
     } else {
       video.muted = true;
       if (audio) {
-        const curTarget = video.currentTime || currentTime || 0;
-        const targetSs = Math.floor(curTarget);
-        const urlWithSs = `${activeAudioUrl}&ss=${targetSs}`;
-        const fullUrl = new URL(urlWithSs, window.location.href).href;
-        if (audio.src !== fullUrl) {
-          audio.src = urlWithSs;
+        if (audio.src !== activeAudioUrl && !audio.src.endsWith(activeAudioUrl)) {
+          audio.src = activeAudioUrl;
+          audio.load();
         }
         audio.volume = isMuted ? 0 : volume;
         audio.muted = isMuted;
         audio.playbackRate = video.playbackRate;
 
-        const onAudioReady = () => {
+        const syncAudioPosition = () => {
           if (!videoRef.current || !audioRef.current) return;
-          if (Math.abs(audioRef.current.currentTime - videoRef.current.currentTime) > 0.4) {
-            audioRef.current.currentTime = videoRef.current.currentTime;
+          const target = videoRef.current.currentTime || currentTime || 0;
+          if (typeof target === 'number' && Math.abs(audioRef.current.currentTime - target) > 0.4) {
+            audioRef.current.currentTime = target;
           }
           audioRef.current.playbackRate = videoRef.current.playbackRate;
           if (!videoRef.current.paused) {
@@ -524,9 +522,12 @@ export function PoufPlayer({
           if (videoRef.current && activeAudioIndex === 0) videoRef.current.muted = false;
         };
 
-        audio.addEventListener('canplay', onAudioReady, { once: true });
+        audio.addEventListener('loadedmetadata', syncAudioPosition);
+        audio.addEventListener('canplay', syncAudioPosition);
         audio.addEventListener('error', onAudioError, { once: true });
-        audio.load();
+
+        // Immediate check in case audio is already buffered
+        syncAudioPosition();
       }
     }
   }, [activeAudioIndex, activeAudioUrl, shouldUseAudioElement]);
@@ -590,14 +591,7 @@ export function PoufPlayer({
     if (diff > threshold) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
-        if (!audio.src.includes('&ss=')) {
-          audio.currentTime = currentTime;
-        } else {
-          const targetSs = Math.floor(currentTime);
-          audio.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
-          audio.load();
-          if (!video.paused) audio.play().catch(() => {});
-        }
+        audio.currentTime = currentTime;
       }
     }
   }, [currentTime, shouldUseAudioElement]);
@@ -824,13 +818,11 @@ export function PoufPlayer({
 
     setPlayProgress(video.currentTime);
 
-    // Smooth Dual-Track Sync (natural 4s window: zero rate throttling, 100% smooth GPU video decoding)
+    // Smooth Dual-Track Sync: keep secondary audio tightly locked to video
     if (shouldUseAudioElement && audio && !video.paused && !audio.paused && !audio.seeking && !video.seeking) {
-      if (!audio.src.includes('&ss=')) {
-        const drift = Math.abs(audio.currentTime - video.currentTime);
-        if (drift > 4.0) {
-          audio.currentTime = video.currentTime;
-        }
+      const drift = Math.abs(audio.currentTime - video.currentTime);
+      if (drift > 0.6) {
+        audio.currentTime = video.currentTime;
       }
       if (audio.playbackRate !== video.playbackRate) {
         audio.playbackRate = video.playbackRate;
@@ -969,14 +961,7 @@ export function PoufPlayer({
     const newTime = Math.max(0, Math.min(duration, video.currentTime + deltaSeconds));
     video.currentTime = newTime;
     if (shouldUseAudioElement && audioRef.current) {
-      if (!audioRef.current.src.includes('&ss=')) {
-        audioRef.current.currentTime = newTime;
-      } else {
-        const targetSs = Math.floor(newTime);
-        audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
-        audioRef.current.load();
-        if (!video.paused) audioRef.current.play().catch(() => {});
-      }
+      audioRef.current.currentTime = newTime;
     }
     if (onSeek) onSeek(newTime);
 
@@ -1019,14 +1004,7 @@ export function PoufPlayer({
         videoRef.current.currentTime = finalTime;
       }
       if (shouldUseAudioElement && audioRef.current) {
-        if (!audioRef.current.src.includes('&ss=')) {
-          audioRef.current.currentTime = finalTime;
-        } else {
-          const targetSs = Math.floor(finalTime);
-          audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
-          audioRef.current.load();
-          if (videoRef.current && !videoRef.current.paused) audioRef.current.play().catch(() => {});
-        }
+        audioRef.current.currentTime = finalTime;
       }
       if (onSeek) onSeek(finalTime);
       window.removeEventListener('mousemove', onMouseMove);
@@ -1430,12 +1408,12 @@ export function PoufPlayer({
             </div>
 
             {/* Concise Title & Timestamp */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontWeight: 700, fontSize: '0.86rem', color: '#ffffff', letterSpacing: '-0.2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.86rem', color: 'rgba(255, 255, 255, 0.95)', letterSpacing: '-0.2px' }}>
                 {sender}
               </span>
-              <span style={{ color: 'rgba(255, 255, 255, 0.40)', fontSize: '0.75rem' }}>•</span>
-              <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#fbcfe8', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: '0.75rem' }}>•</span>
+              <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#ffffff', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px' }}>
                 {formattedTime}
               </span>
             </div>
