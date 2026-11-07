@@ -367,6 +367,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const isBufferingRef = useRef(false);
   const isSeekingRef = useRef(false);
   const initialBufferDoneRef = useRef(false);
+  const [barrierState, setBarrierState] = useState(null); // Synchronized Seek Barrier (Ready Gate) state
 
   // Metronome & Drift Watchdog Refs
   const serverSyncStateRef = useRef({
@@ -1606,6 +1607,82 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       showToast(`${sender} paused`, <Pause size={14} color="var(--pink-primary)" fill="currentColor" />);
       UnifiedPlayer.seek(currentTime);
       UnifiedPlayer.pause();
+    });
+
+    // Synchronized Seek Barrier (Ready Gate: eliminates freezes, lag, and desync across long seeks)
+    s.on('player:sync_barrier_seek', ({ currentTime, wasPlaying, sender, totalUsers }) => {
+      setBarrierState({
+        active: true,
+        targetTime: currentTime,
+        wasPlaying,
+        sender,
+        readyCount: 0,
+        totalUsers: totalUsers || 2
+      });
+
+      isSeekingRef.current = true;
+      setRemoteLock(8000);
+
+      // Pause playback while seeking/buffering
+      UnifiedPlayer.pause();
+      UnifiedPlayer.seek(currentTime);
+
+      const v = document.querySelector('.pouf-player-container video');
+      const a = document.querySelector('.pouf-player-container audio');
+
+      let reported = false;
+      function checkAndReportReady() {
+        if (reported) return;
+        const vReady = !v || v.readyState >= 2;
+        const aReady = !a || !a.src || a.readyState >= 2;
+
+        if (vReady && aReady) {
+          reported = true;
+          if (s) {
+            s.emit('player:client_ready', { currentTime });
+          }
+        }
+      }
+
+      checkAndReportReady();
+
+      if (!reported && v) {
+        const onReadyEvent = () => {
+          v.removeEventListener('canplay', onReadyEvent);
+          v.removeEventListener('seeked', onReadyEvent);
+          checkAndReportReady();
+        };
+        v.addEventListener('canplay', onReadyEvent, { once: true });
+        v.addEventListener('seeked', onReadyEvent, { once: true });
+
+        // Safety timeout fallback: report ready after 1.5s
+        setTimeout(checkAndReportReady, 1500);
+      }
+    });
+
+    s.on('player:barrier_progress', ({ readyCount, totalUsers }) => {
+      setBarrierState((prev) => prev ? { ...prev, readyCount, totalUsers } : null);
+    });
+
+    s.on('player:barrier_release', ({ currentTime, isPlaying }) => {
+      setBarrierState(null);
+      isSeekingRef.current = false;
+      setRemoteLock(2000);
+
+      serverSyncStateRef.current = {
+        currentTime,
+        isPlaying: Boolean(isPlaying),
+        playbackRate: 1.0,
+        receivedAt: Date.now()
+      };
+      setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
+
+      UnifiedPlayer.seek(currentTime);
+      if (isPlaying) {
+        UnifiedPlayer.play();
+      } else {
+        UnifiedPlayer.pause();
+      }
     });
 
     s.on('player:sync_seek', ({ currentTime, isPlaying, sender }) => {
@@ -4349,20 +4426,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             onSeek={(t) => {
               if (isRemoteActionRef.current) return;
               const targetTime = typeof t === 'number' && !isNaN(t) ? t : 0;
-              serverSyncStateRef.current = {
-                currentTime: targetTime,
-                isPlaying: serverSyncStateRef.current.isPlaying,
-                playbackRate: 1.0,
-                receivedAt: Date.now()
-              };
-              setRoomPlaybackState((prev) => ({ ...prev, currentTime: targetTime }));
-              setRemoteLock(2500);
+              setRemoteLock(8000);
               isSeekingRef.current = true;
-              setTimeout(() => { isSeekingRef.current = false; }, 2500);
               if (socket) {
-                socket.emit('player:seek', { currentTime: targetTime });
+                socket.emit('player:seek', { currentTime: targetTime, wasPlaying: roomPlaybackState.isPlaying });
               }
             }}
+            barrierState={barrierState}
             onForceSyncAll={() => handleForceSync()}
             viewerCount={connectedUsers.length || 1}
             isHost={isHost}

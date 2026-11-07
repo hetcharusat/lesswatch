@@ -1830,18 +1830,13 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         return res.status(416).send('Requested Range Not Satisfiable');
       }
 
-      // High-performance streaming window:
-      // If the browser didn't specify an end byte (open-ended seek request like bytes=1000000-),
-      // deliver a fast, responsive 10 MB chunk instead of trying to pipe the entire multi-gigabyte file!
-      // This gives the browser immediate keyframes (~15ms) for instant scrubbing with zero socket lag.
-      const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB chunk window
-      let end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + DEFAULT_CHUNK_SIZE - 1, fileSize - 1);
+      // Natural, smooth byte range streaming without premature truncation
+      let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       if (isNaN(end) || end >= fileSize) {
         end = fileSize - 1;
       }
 
       const chunkSize = end - start + 1;
-      const fileStream = fs.createReadStream(filePath, { start, end });
       const headers = {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
@@ -1854,7 +1849,14 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         'Cache-Control': 'public, max-age=3600'
       };
 
+      // Instant 1ms HEAD response: return headers immediately without initiating file stream
+      if (req.method === 'HEAD') {
+        res.writeHead(206, headers);
+        return res.end();
+      }
+
       res.writeHead(206, headers);
+      const fileStream = fs.createReadStream(filePath, { start, end });
       fileStream.pipe(res);
 
       req.on('close', () => {
@@ -1874,6 +1876,12 @@ function streamFileWithRanges(req, res, filePath, mimeType) {
         'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length',
         'Cache-Control': 'public, max-age=3600'
       };
+
+      if (req.method === 'HEAD') {
+        res.writeHead(200, headers);
+        return res.end();
+      }
+
       res.writeHead(200, headers);
       const fileStream = fs.createReadStream(filePath);
       fileStream.pipe(res);
@@ -2762,22 +2770,84 @@ io.on('connection', (socket) => {
     broadcastLiveStatus();
   });
 
-  // Seek Event
-  socket.on('player:seek', ({ currentTime }) => {
+  // Synchronized Seek Barrier (Ready Gate: eliminates freezes, lag, and desync across long seeks)
+  socket.on('player:seek', ({ currentTime, wasPlaying }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
     if (!canControl(room)) return;
 
-    if (typeof currentTime === 'number' && !isNaN(currentTime)) {
-      room.playback.currentTime = Math.max(0, currentTime);
+    const targetTime = typeof currentTime === 'number' && !isNaN(currentTime) ? Math.max(0, currentTime) : 0;
+    const shouldPlay = typeof wasPlaying === 'boolean' ? wasPlaying : room.playback.isPlaying;
+
+    room.playback.currentTime = targetTime;
+    room.playback.isPlaying = false; // Hold while buffering
+    room.playback.updatedAt = Date.now();
+    saveRoomToDisk(currentRoomId, room);
+
+    if (room.barrier?.timeoutId) {
+      clearTimeout(room.barrier.timeoutId);
+    }
+
+    const totalActiveUsers = room.users.size;
+    const readyUsers = new Set();
+
+    function releaseBarrier() {
+      if (!room.barrier || !room.barrier.active) return;
+      if (room.barrier.timeoutId) clearTimeout(room.barrier.timeoutId);
+      room.barrier.active = false;
+      room.playback.currentTime = targetTime;
+      room.playback.isPlaying = shouldPlay;
       room.playback.updatedAt = Date.now();
       saveRoomToDisk(currentRoomId, room);
 
-      socket.to(currentRoomId).emit('player:sync_seek', {
-        currentTime: room.playback.currentTime,
-        isPlaying: room.playback.isPlaying,
-        sender: currentUser?.username || 'Someone'
+      io.to(currentRoomId).emit('player:barrier_release', {
+        currentTime: targetTime,
+        isPlaying: shouldPlay
       });
+      broadcastLiveStatus();
+    }
+
+    room.barrier = {
+      active: true,
+      targetTime,
+      wasPlaying: shouldPlay,
+      readyUsers,
+      totalUsers: totalActiveUsers,
+      releaseBarrier,
+      timeoutId: setTimeout(() => {
+        // Fallback: If any client's connection is slow, release after 6s max
+        releaseBarrier();
+      }, 6000)
+    };
+
+    // Broadcast barrier seek to ALL users in room (including the scrub initiator)
+    io.to(currentRoomId).emit('player:sync_barrier_seek', {
+      currentTime: targetTime,
+      wasPlaying: shouldPlay,
+      sender: currentUser?.username || 'Someone',
+      totalUsers: totalActiveUsers
+    });
+
+    broadcastLiveStatus();
+  });
+
+  // Client confirms it has buffered and decoded frames at targetTime and is ready to play
+  socket.on('player:client_ready', ({ currentTime }) => {
+    if (!currentRoomId || !rooms.has(currentRoomId)) return;
+    const room = rooms.get(currentRoomId);
+    if (!room.barrier || !room.barrier.active) return;
+
+    room.barrier.readyUsers.add(socket.id);
+    const readyCount = room.barrier.readyUsers.size;
+    const totalUsers = Math.max(room.barrier.totalUsers, room.users.size);
+
+    io.to(currentRoomId).emit('player:barrier_progress', {
+      readyCount,
+      totalUsers
+    });
+
+    if (readyCount >= totalUsers) {
+      room.barrier.releaseBarrier();
     }
   });
 
@@ -3150,6 +3220,14 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomId);
     room.users.delete(socket.id);
 
+    // If a seek barrier is active, check if all remaining users are ready
+    if (room.barrier?.active) {
+      room.barrier.readyUsers.delete(socket.id);
+      if (room.barrier.readyUsers.size >= room.users.size) {
+        room.barrier.releaseBarrier();
+      }
+    }
+
     // Reassign host if host left
     if (room.hostId === socket.id) {
       const remainingKeys = Array.from(room.users.keys());
@@ -3187,7 +3265,7 @@ server.on('upgrade', (req, socket, head) => {
 // Periodic Authoritative Playback Sync Heartbeat (Eliminates 1-2s drift across all browsers)
 setInterval(() => {
   for (const [roomId, room] of rooms.entries()) {
-    if (room.users.size > 0 && room.playback?.isPlaying && room.media?.type !== 'neko') {
+    if (room.users.size > 0 && room.playback?.isPlaying && room.media?.type !== 'neko' && !room.barrier?.active) {
       const authTime = getRoomCurrentTime(room);
       io.to(roomId).emit('player:sync_heartbeat', {
         currentTime: authTime,

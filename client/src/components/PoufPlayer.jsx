@@ -87,6 +87,7 @@ export function PoufPlayer({
   viewerCount = 1,
   isHost = false,
   canControl = true,
+  barrierState = null,
   isChitChatMode = false,
   className = '',
   style = {},
@@ -1410,6 +1411,41 @@ export function PoufPlayer({
         >
           <VolumeX size={15} />
           <span>Sound paused by browser — Tap anywhere to unmute!</span>
+        </div>
+      )}
+
+      {/* Synchronized Seek Barrier HUD (Ready Gate for Zero-Desync Multi-Viewer Scrubbing) */}
+      {barrierState?.active && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '48%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 85,
+            background: 'rgba(18, 12, 28, 0.90)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1.5px solid rgba(244, 114, 182, 0.45)',
+            borderRadius: '24px',
+            padding: '14px 26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            boxShadow: '0 16px 48px rgba(0, 0, 0, 0.75), 0 0 24px rgba(244, 114, 182, 0.35)',
+            color: '#ffffff',
+            pointerEvents: 'none'
+          }}
+        >
+          <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '3px solid rgba(244, 114, 182, 0.25)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fbcfe8', letterSpacing: '0.2px' }}>
+              {barrierState.sender ? `${barrierState.sender} scrubbed to ${formatSec(barrierState.targetTime)}` : `Buffering at ${formatSec(barrierState.targetTime)}`}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: '2px' }}>
+              Syncing media buffers • Playing together ({barrierState.readyCount || 0}/{barrierState.totalUsers || 2} ready)...
+            </div>
+          </div>
         </div>
       )}
 
