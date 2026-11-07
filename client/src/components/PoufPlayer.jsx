@@ -419,58 +419,33 @@ export function PoufPlayer({
     setNeedsUnmutePrompt(false);
   }, [isMuted, volume, shouldUseAudioElement, isPlaying]);
 
-  // One-Click Stream Reset & Black Screen Kickstart
+  // Smooth Stream Kickstart & Sync Nudge (Zero Reset Guarantee)
   const handleFixBlackScreen = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !directStreamUrl) return;
+    if (!video) return;
 
     const targetTime = (typeof currentTime === 'number' && !isNaN(currentTime) && currentTime > 0)
       ? currentTime
       : (video.currentTime || 0);
-    const shouldPlay = isPlaying;
-
-    setIsBuffering(true);
-    setIsPlaybackStalled(false);
 
     try {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+      if (Math.abs(video.currentTime - targetTime) > 0.5) {
+        video.currentTime = targetTime;
+      }
+      video.play().catch(async () => {
+        video.muted = true;
+        await video.play().catch(() => { });
+        setNeedsUnmutePrompt(true);
+      });
     } catch { }
 
-    setTimeout(() => {
-      video.src = directStreamUrl;
-      video.load();
-
-      const onReady = () => {
-        try {
-          if (targetTime > 0) {
-            video.currentTime = targetTime;
-          }
-          if (shouldPlay) {
-            safePlayVideo();
-          }
-        } catch { }
-        setIsBuffering(false);
-      };
-
-      if (video.readyState >= 1) {
-        onReady();
-      } else {
-        video.addEventListener('loadedmetadata', onReady, { once: true });
-      }
-    }, 60);
-
-    // If dual-track audio element is active, reload it cleanly too
-    if (audioRef.current && shouldUseAudioElement && activeAudioUrl) {
+    if (audioRef.current && shouldUseAudioElement) {
       try {
-        audioRef.current.pause();
-        const targetSs = Math.floor(targetTime);
-        audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
-        audioRef.current.load();
+        audioRef.current.currentTime = video.currentTime;
+        if (!video.paused) audioRef.current.play().catch(() => { });
       } catch { }
     }
-  }, [directStreamUrl, currentTime, isPlaying, safePlayVideo, shouldUseAudioElement, activeAudioUrl]);
+  }, [currentTime, shouldUseAudioElement]);
 
   // Mount Direct Stream to Video safely without premature seeking
   useEffect(() => {
@@ -1333,17 +1308,17 @@ export function PoufPlayer({
       {/* 2. Hidden Secondary Audio Stream for Multi-Track Sync */}
       <audio ref={audioRef} preload="auto" playsInline style={{ display: 'none' }} />
 
-      {/* 3. Compact Top Title & Specs Overlay with Smooth 100-to-0 Gradient (Zero Blur Strip) */}
+      {/* 3. Compact Top Title Overlay with Hard Glassmorphic Blurred Transparent Gradient */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          padding: isChitChatMode ? '1rem 5.6rem 2.8rem 1.4rem' : '1rem 1.4rem 2.8rem',
-          background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0.15) 75%, transparent 100%)',
-          backdropFilter: 'none',
-          WebkitBackdropFilter: 'none',
+          padding: isChitChatMode ? '1.1rem 5.6rem 2.5rem 1.4rem' : '1.1rem 1.4rem 2.5rem',
+          background: 'linear-gradient(180deg, rgba(14, 10, 24, 0.88) 0%, rgba(14, 10, 24, 0.45) 60%, transparent 100%)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -1360,16 +1335,6 @@ export function PoufPlayer({
           </h2>
           <div style={{ fontSize: '0.72rem', color: '#e5e7eb', marginTop: '3px', fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center' }}>
             <span style={{ background: 'rgba(244, 114, 182, 0.22)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#f472b6', fontWeight: 700 }}>Direct Stream</span>
-            {audioTracks.length > 1 && (
-              <span style={{ color: '#fbcfe8', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                • <Volume2 size={11} color="#f472b6" /> Multi-Audio ({audioTracks.length})
-              </span>
-            )}
-            {allSubtitles.length > 0 && (
-              <span style={{ color: '#a7f3d0', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                • <Type size={11} color="#34d399" /> Subs ({allSubtitles.length})
-              </span>
-            )}
           </div>
         </div>
 
@@ -1422,38 +1387,6 @@ export function PoufPlayer({
         >
           <VolumeX size={15} />
           <span>Sound paused by browser — Tap anywhere to unmute!</span>
-        </div>
-      )}
-
-      {/* Stalled Playback / Black Screen Kickstart Banner */}
-      {isPlaybackStalled && (
-        <div
-          onClick={handleFixBlackScreen}
-          style={{
-            position: 'absolute',
-            top: needsUnmutePrompt ? '112px' : '64px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 65,
-            background: 'rgba(20, 15, 30, 0.94)',
-            border: '1.5px solid rgba(244, 114, 182, 0.85)',
-            color: '#fce7f3',
-            padding: '8px 18px',
-            borderRadius: '9999px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '0.80rem',
-            fontWeight: 800,
-            cursor: 'pointer',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(236, 72, 153, 0.4)',
-            backdropFilter: 'blur(16px)',
-            pointerEvents: 'auto'
-          }}
-          title="Kickstart Video Stream"
-        >
-          <Sparkles size={15} color="#f472b6" />
-          <span>Screen black or video stalled? Tap here to Kickstart Stream ⚡</span>
         </div>
       )}
 
@@ -1875,16 +1808,6 @@ export function PoufPlayer({
                   transition: 'transform 0.3s ease'
                 }}
               />
-            </button>
-
-            {/* Quick Stream Fix / Kickstart */}
-            <button
-              onClick={handleFixBlackScreen}
-              className="pouf-dock-icon-btn"
-              title="⚡ Fix Black Screen / Kickstart Video Stream"
-              style={{ color: '#f472b6' }}
-            >
-              <Sparkles size={15} color="#f472b6" />
             </button>
 
             {/* Picture-in-Picture */}

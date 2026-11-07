@@ -1116,7 +1116,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
         if (v && v.paused) {
-          v.play().catch(() => setNeedsUserClickToPlay(true));
+          v.play().catch(async () => {
+            try {
+              v.muted = true;
+              await v.play();
+            } catch (e2) {
+              setNeedsUserClickToPlay(true);
+            }
+          });
         }
         if (a && a.src && a.paused) {
           a.play().catch(() => {});
@@ -4087,8 +4094,22 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               setNeedsUserClickToPlay(false);
               setRemoteLock(3000);
               const targetTime = getAuthoritativeTime();
-              UnifiedPlayer.seek(targetTime);
-              UnifiedPlayer.play();
+              const v = document.querySelector('.pouf-player-container video');
+              const a = document.querySelector('.pouf-player-container audio');
+              if (v) {
+                if (typeof targetTime === 'number' && !isNaN(targetTime) && targetTime > 0) {
+                  v.currentTime = targetTime;
+                }
+                v.muted = false;
+                v.play().catch(async () => {
+                  v.muted = true;
+                  await v.play().catch(() => {});
+                });
+              }
+              if (a && a.src) {
+                a.muted = false;
+                a.play().catch(() => {});
+              }
               if (socket) {
                 socket.emit('sync:request');
               }
