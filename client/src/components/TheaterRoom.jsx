@@ -1554,6 +1554,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     });
 
     s.on('player:sync_heartbeat', ({ currentTime, isPlaying, playbackRate }) => {
+      // CRITICAL: NEVER overwrite client state while user or remote partner is seeking or remote action is locked!
+      if (isSeekingRef.current || isRemoteActionRef.current) return;
+
       serverSyncStateRef.current = {
         currentTime,
         isPlaying: Boolean(isPlaying),
@@ -4353,9 +4356,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 receivedAt: Date.now()
               };
               setRoomPlaybackState((prev) => ({ ...prev, currentTime: targetTime }));
-              setRemoteLock(1200);
+              setRemoteLock(2500);
               isSeekingRef.current = true;
-              setTimeout(() => { isSeekingRef.current = false; }, 1200);
+              setTimeout(() => { isSeekingRef.current = false; }, 2500);
               if (socket) {
                 socket.emit('player:seek', { currentTime: targetTime });
               }

@@ -588,7 +588,14 @@ export function PoufPlayer({
     if (diff > threshold) {
       video.currentTime = currentTime;
       if (shouldUseAudioElement && audio) {
-        audio.currentTime = currentTime;
+        if (!audio.src.includes('&ss=')) {
+          audio.currentTime = currentTime;
+        } else {
+          const targetSs = Math.floor(currentTime);
+          audio.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
+          audio.load();
+          if (!video.paused) audio.play().catch(() => {});
+        }
       }
     }
   }, [currentTime, shouldUseAudioElement]);
@@ -815,19 +822,21 @@ export function PoufPlayer({
 
     setPlayProgress(video.currentTime);
 
-    // Smooth Dual-Track Sync
+    // Smooth Dual-Track Sync (only on seekable range-cached audio to prevent infinite seek stalls on live streams)
     if (shouldUseAudioElement && audio && !video.paused && !audio.paused && !audio.seeking && !video.seeking) {
-      const drift = audio.currentTime - video.currentTime;
-      const absDrift = Math.abs(drift);
+      if (!audio.src.includes('&ss=')) {
+        const drift = audio.currentTime - video.currentTime;
+        const absDrift = Math.abs(drift);
 
-      if (absDrift > 0.25 && absDrift < 2.0) {
-        audio.playbackRate = video.playbackRate * (drift > 0 ? 0.96 : 1.04);
-      } else if (absDrift >= 2.0) {
-        audio.currentTime = video.currentTime;
-        audio.playbackRate = video.playbackRate;
-      } else {
-        if (audio.playbackRate !== video.playbackRate) {
+        if (absDrift > 0.25 && absDrift < 2.0) {
+          audio.playbackRate = video.playbackRate * (drift > 0 ? 0.96 : 1.04);
+        } else if (absDrift >= 2.0) {
+          audio.currentTime = video.currentTime;
           audio.playbackRate = video.playbackRate;
+        } else {
+          if (audio.playbackRate !== video.playbackRate) {
+            audio.playbackRate = video.playbackRate;
+          }
         }
       }
     }
@@ -960,7 +969,14 @@ export function PoufPlayer({
     const newTime = Math.max(0, Math.min(duration, video.currentTime + deltaSeconds));
     video.currentTime = newTime;
     if (shouldUseAudioElement && audioRef.current) {
-      audioRef.current.currentTime = newTime;
+      if (!audioRef.current.src.includes('&ss=')) {
+        audioRef.current.currentTime = newTime;
+      } else {
+        const targetSs = Math.floor(newTime);
+        audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
+        audioRef.current.load();
+        if (!video.paused) audioRef.current.play().catch(() => {});
+      }
     }
     if (onSeek) onSeek(newTime);
 
@@ -1003,7 +1019,14 @@ export function PoufPlayer({
         videoRef.current.currentTime = finalTime;
       }
       if (shouldUseAudioElement && audioRef.current) {
-        audioRef.current.currentTime = finalTime;
+        if (!audioRef.current.src.includes('&ss=')) {
+          audioRef.current.currentTime = finalTime;
+        } else {
+          const targetSs = Math.floor(finalTime);
+          audioRef.current.src = `${activeAudioUrl}&ss=${targetSs}&cb=${Date.now()}`;
+          audioRef.current.load();
+          if (videoRef.current && !videoRef.current.paused) audioRef.current.play().catch(() => {});
+        }
       }
       if (onSeek) onSeek(finalTime);
       window.removeEventListener('mousemove', onMouseMove);
