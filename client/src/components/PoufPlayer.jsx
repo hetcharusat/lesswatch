@@ -870,18 +870,14 @@ export function PoufPlayer({
     setLocalPlaying(true);
     setIsBuffering(false);
     setIsPlaybackStalled(false);
-    triggerCenterAnimation('play');
     if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
-      if (!audioRef.current.src.includes('&ss=')) {
-        audioRef.current.currentTime = videoRef.current?.currentTime || 0;
-      }
+      audioRef.current.currentTime = videoRef.current?.currentTime || 0;
       audioRef.current.play().catch(() => { });
     }
   }
 
   function handlePauseEvent() {
     setLocalPlaying(false);
-    triggerCenterAnimation('pause');
     if (shouldUseAudioElement && audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
     }
@@ -901,15 +897,15 @@ export function PoufPlayer({
     if (!video) return;
 
     if (video.paused) {
+      triggerCenterAnimation('play');
       video.play().catch(() => { });
       if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
-        if (!audioRef.current.src.includes('&ss=')) {
-          audioRef.current.currentTime = video.currentTime;
-        }
+        audioRef.current.currentTime = video.currentTime;
         audioRef.current.play().catch(() => { });
       }
       if (onPlay) onPlay(video.currentTime);
     } else {
+      triggerCenterAnimation('pause');
       video.pause();
       if (shouldUseAudioElement && audioRef.current && !audioRef.current.paused) {
         audioRef.current.pause();
@@ -1477,7 +1473,7 @@ export function PoufPlayer({
       )}
 
       {/* 5. Center Play/Pause Burst Animation (Frosted Glass Roundel) */}
-      {centerAnimation && (
+      {centerAnimation && !barrierState?.active && (
         <div style={{ position: 'absolute', pointerEvents: 'none', zIndex: 35, animation: 'poufPopIn 0.5s forwards' }}>
           <div
             style={{

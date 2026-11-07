@@ -1117,12 +1117,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
         if (v && v.paused) {
-          v.play().catch(async () => {
-            try {
-              v.muted = true;
-              await v.play();
-            } catch (e2) {
-              setNeedsUserClickToPlay(true);
+          v.play().catch(async (err) => {
+            if (err && err.name === 'NotAllowedError') {
+              try {
+                v.muted = true;
+                await v.play();
+              } catch (e2) {
+                setNeedsUserClickToPlay(true);
+              }
             }
           });
         }
@@ -1608,44 +1610,59 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         targetTime: currentTime,
         wasPlaying,
         sender,
-        readyCount: readyCount || 1,
+        readyCount: readyCount || 0,
         totalUsers: totalUsers || 2
       });
 
       isSeekingRef.current = true;
-      setRemoteLock(1200);
+      setRemoteLock(8000);
 
       const v = document.querySelector('.pouf-player-container video');
-      const isAlreadyNear = v && typeof currentTime === 'number' && Math.abs(v.currentTime - currentTime) < 0.5;
 
-      // Pause playback while buffering
+      // 1. Pause playback while buffering to prevent desynced sound or frame jumps
       UnifiedPlayer.pause();
-      if (!isAlreadyNear) {
-        UnifiedPlayer.seek(currentTime);
-      }
+
+      // 2. Seek video & secondary audio to the requested target time
+      UnifiedPlayer.seek(currentTime);
 
       let reported = false;
-      function checkAndReportReady() {
+      let safetyTimer = null;
+
+      function reportReady() {
         if (reported) return;
         reported = true;
+        if (safetyTimer) clearTimeout(safetyTimer);
+        if (v) {
+          v.removeEventListener('seeked', checkReady);
+          v.removeEventListener('canplay', checkReady);
+          v.removeEventListener('canplaythrough', checkReady);
+        }
         if (s) {
           s.emit('player:client_ready', { currentTime });
         }
       }
 
-      if (isAlreadyNear || !v || v.readyState >= 2 || v.seeking === false) {
-        checkAndReportReady();
-      } else {
-        const onReadyEvent = () => {
-          v.removeEventListener('seeked', onReadyEvent);
-          v.removeEventListener('canplay', onReadyEvent);
-          checkAndReportReady();
-        };
-        v.addEventListener('seeked', onReadyEvent, { once: true });
-        v.addEventListener('canplay', onReadyEvent, { once: true });
+      function checkReady() {
+        if (!v) {
+          reportReady();
+          return;
+        }
+        // Client is genuinely ready when the video is not seeking, is positioned near the target, and has frame data
+        const isNear = typeof currentTime === 'number' ? Math.abs(v.currentTime - currentTime) < 1.0 : true;
+        if (!v.seeking && isNear && v.readyState >= 2) {
+          reportReady();
+        }
+      }
 
-        // Snappy safety fallback: report ready within 350ms max
-        setTimeout(checkAndReportReady, 350);
+      if (v) {
+        v.addEventListener('seeked', checkReady);
+        v.addEventListener('canplay', checkReady);
+        v.addEventListener('canplaythrough', checkReady);
+        safetyTimer = setTimeout(reportReady, 6500);
+        // Immediate check in case target frame is already in memory buffer
+        checkReady();
+      } else {
+        reportReady();
       }
     });
 
@@ -1667,10 +1684,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       };
       setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
 
-      const clientTime = UnifiedPlayer.getTime();
-      if (typeof currentTime === 'number' && Math.abs(clientTime - currentTime) > 2.0) {
-        UnifiedPlayer.seek(currentTime);
+      // Tight alignment check: ensure video & secondary audio are right on target frame
+      const v = document.querySelector('.pouf-player-container video');
+      const a = document.querySelector('.pouf-player-container audio');
+      if (v && typeof currentTime === 'number' && Math.abs(v.currentTime - currentTime) > 0.6) {
+        v.currentTime = currentTime;
       }
+      if (a && a.src && typeof currentTime === 'number' && Math.abs(a.currentTime - currentTime) > 0.6) {
+        a.currentTime = currentTime;
+      }
+
       if (isPlaying) {
         UnifiedPlayer.play();
       } else {
