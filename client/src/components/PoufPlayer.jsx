@@ -1435,7 +1435,7 @@ export function PoufPlayer({
           <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '3px solid rgba(244, 114, 182, 0.25)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fbcfe8', letterSpacing: '0.2px' }}>
-              {barrierState.sender ? `${barrierState.sender} scrubbed to ${formatSec(barrierState.targetTime)}` : `Buffering at ${formatSec(barrierState.targetTime)}`}
+              {barrierState.sender ? `${barrierState.sender} scrubbed to ${formatTime(barrierState.targetTime)}` : `Buffering at ${formatTime(barrierState.targetTime)}`}
             </div>
             <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: '2px' }}>
               Syncing media buffers • Playing together ({barrierState.readyCount || 0}/{barrierState.totalUsers || 2} ready)...
