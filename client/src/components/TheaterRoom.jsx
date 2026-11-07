@@ -4155,64 +4155,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           </button>
         )}
 
-        {/* Browser Autoplay Block Overlay */}
-        {needsUserClickToPlay && (
-          <div
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onTouchStart={(e) => {
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setNeedsUserClickToPlay(false);
-              setRemoteLock(3000);
-              const targetTime = getAuthoritativeTime();
-              const v = document.querySelector('.pouf-player-container video');
-              const a = document.querySelector('.pouf-player-container audio');
-              if (v) {
-                if (typeof targetTime === 'number' && !isNaN(targetTime) && targetTime > 0) {
-                  v.currentTime = targetTime;
-                }
-                v.muted = false;
-                v.play().catch(async () => {
-                  v.muted = true;
-                  await v.play().catch(() => {});
-                });
-              }
-              if (a && a.src) {
-                a.muted = false;
-                a.play().catch(() => {});
-              }
-              if (socket) {
-                socket.emit('sync:request');
-              }
-            }}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              background: 'rgba(255, 240, 246, 0.75)',
-              backdropFilter: 'blur(12px)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 99,
-              cursor: 'pointer'
-            }}
-          >
-            <div className="btn-gold-shimmer" style={{ padding: '1rem 2.25rem', fontSize: '1.05rem', borderRadius: '9999px', gap: '10px' }}>
-              <Play size={22} fill="currentColor" />
-              <span>Tap to start watching in sync with {currentProfile.name === 'Het' ? 'Ria' : 'Het'}</span>
-            </div>
-          </div>
-        )}
+        {/* Browser Autoplay Block Overlay removed in favor of in-player muted playback & tap-to-unmute pill */}
 
         {/* Neko Virtual Shared Browser Container */}
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#0e0813', zIndex: 3, display: activePlayerType === 'neko' ? 'flex' : 'none', flexDirection: 'column' }}>
