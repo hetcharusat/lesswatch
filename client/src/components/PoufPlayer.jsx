@@ -880,7 +880,9 @@ export function PoufPlayer({
     setIsPlaybackStalled(false);
     triggerCenterAnimation('play');
     if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
-      audioRef.current.currentTime = videoRef.current?.currentTime || 0;
+      if (!audioRef.current.src.includes('&ss=')) {
+        audioRef.current.currentTime = videoRef.current?.currentTime || 0;
+      }
       audioRef.current.play().catch(() => { });
     }
   }
@@ -909,7 +911,9 @@ export function PoufPlayer({
     if (video.paused) {
       video.play().catch(() => { });
       if (shouldUseAudioElement && audioRef.current && audioRef.current.paused) {
-        audioRef.current.currentTime = video.currentTime;
+        if (!audioRef.current.src.includes('&ss=')) {
+          audioRef.current.currentTime = video.currentTime;
+        }
         audioRef.current.play().catch(() => { });
       }
       if (onPlay) onPlay(video.currentTime);

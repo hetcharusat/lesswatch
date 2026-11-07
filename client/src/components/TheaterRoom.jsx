@@ -1584,18 +1584,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     s.on('player:sync_play', ({ currentTime, sender }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: true, playbackRate: 1.0, receivedAt: Date.now() };
       setRoomPlaybackState({ currentTime, isPlaying: true });
-      setRemoteLock();
+      setRemoteLock(800);
       showToast(`${sender} resumed`, <Play size={14} color="var(--pink-primary)" fill="currentColor" />);
-      UnifiedPlayer.seek(currentTime);
+      const clientTime = UnifiedPlayer.getTime();
+      if (typeof currentTime === 'number' && Math.abs(clientTime - currentTime) > 2.0) {
+        UnifiedPlayer.seek(currentTime);
+      }
       UnifiedPlayer.play();
     });
 
     s.on('player:sync_pause', ({ currentTime, sender }) => {
       serverSyncStateRef.current = { currentTime, isPlaying: false, playbackRate: 1.0, receivedAt: Date.now() };
       setRoomPlaybackState({ currentTime, isPlaying: false });
-      setRemoteLock();
+      setRemoteLock(800);
       showToast(`${sender} paused`, <Pause size={14} color="var(--pink-primary)" fill="currentColor" />);
-      UnifiedPlayer.seek(currentTime);
       UnifiedPlayer.pause();
     });
 
@@ -1611,7 +1613,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       });
 
       isSeekingRef.current = true;
-      setRemoteLock(8000);
+      setRemoteLock(6000);
 
       // Pause playback while seeking/buffering
       UnifiedPlayer.pause();
@@ -1657,7 +1659,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     s.on('player:barrier_release', ({ currentTime, isPlaying }) => {
       setBarrierState(null);
       isSeekingRef.current = false;
-      setRemoteLock(2000);
+      isRemoteActionRef.current = false;
+      if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
 
       serverSyncStateRef.current = {
         currentTime,
@@ -1667,7 +1670,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       };
       setRoomPlaybackState({ currentTime, isPlaying: Boolean(isPlaying) });
 
-      UnifiedPlayer.seek(currentTime);
+      const clientTime = UnifiedPlayer.getTime();
+      if (typeof currentTime === 'number' && Math.abs(clientTime - currentTime) > 2.0) {
+        UnifiedPlayer.seek(currentTime);
+      }
       if (isPlaying) {
         UnifiedPlayer.play();
       } else {
@@ -4332,7 +4338,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             isPlaying={roomPlaybackState.isPlaying}
             currentTime={roomPlaybackState.currentTime}
             onPlay={(t) => {
-              if (isRemoteActionRef.current) return;
+              isRemoteActionRef.current = false;
+              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
               const video = document.querySelector('.pouf-player-container video');
               const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
               serverSyncStateRef.current = {
@@ -4342,13 +4350,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 receivedAt: Date.now()
               };
               setRoomPlaybackState({ currentTime: curTime, isPlaying: true });
-              setRemoteLock(500);
+              setRemoteLock(300);
               if (socket) {
                 socket.emit('player:play', { currentTime: curTime });
               }
             }}
             onPause={(t) => {
-              if (isRemoteActionRef.current) return;
+              isRemoteActionRef.current = false;
+              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
               const video = document.querySelector('.pouf-player-container video');
               const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
               serverSyncStateRef.current = {
@@ -4358,15 +4368,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 receivedAt: Date.now()
               };
               setRoomPlaybackState({ currentTime: curTime, isPlaying: false });
-              setRemoteLock(500);
+              setRemoteLock(300);
               if (socket) {
                 socket.emit('player:pause', { currentTime: curTime });
               }
             }}
             onSeek={(t) => {
-              if (isRemoteActionRef.current) return;
+              isRemoteActionRef.current = false;
+              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
               const targetTime = typeof t === 'number' && !isNaN(t) ? t : 0;
-              setRemoteLock(8000);
               isSeekingRef.current = true;
               if (socket) {
                 socket.emit('player:seek', { currentTime: targetTime, wasPlaying: roomPlaybackState.isPlaying });
