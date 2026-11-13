@@ -490,3 +490,4 @@ main().catch(err => {
   process.stdout.write(`\n  ${PINK}${BOLD}Error:${RESET} ${err.message}\n\n`);
   process.exit(1);
 });
+
