@@ -232,38 +232,42 @@ const livekitProxy = createProxyMiddleware({
   }
 });
 
-let isNekoStarting = false;
+let nekoStartupPromise = null;
 async function ensureNekoRunning() {
   if (!appConfig?.modules?.neko) return 'disabled';
-  if (isNekoStarting) return 'starting';
-  try {
-    const status = await checkNekoStatus();
-    if (status === 'not_found' || status === 'unavailable') return status;
-    if (status !== 'running') {
-      isNekoStarting = true;
-      console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
-      const startRes = await startNeko();
-      if (!startRes.success) {
-        isNekoStarting = false;
-        return 'failed';
+  if (nekoStartupPromise) return await nekoStartupPromise;
+
+  nekoStartupPromise = (async () => {
+    try {
+      const status = await checkNekoStatus();
+      if (status === 'not_found' || status === 'unavailable') return status;
+      if (status !== 'running') {
+        console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
+        const startRes = await startNeko();
+        if (!startRes.success) return 'failed';
       }
-      for (let i = 0; i < 12; i++) {
+
+      // Wait until Neko HTTP endpoint is actively accepting connections
+      for (let i = 0; i < 24; i++) {
+        try {
+          const res = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
+          if (res.status < 500) {
+            console.log('✅ [Neko] Virtual browser HTTP service is fully ready!');
+            return 'running';
+          }
+        } catch {}
         await new Promise(r => setTimeout(r, 500));
-        const s = await checkNekoStatus();
-        if (s === 'running') break;
       }
-      if (nekoStartTimer) clearTimeout(nekoStartTimer);
-      nekoStartTimer = setTimeout(() => {
-        isNekoStarting = false;
-        nekoStartTimer = null;
-      }, 5000);
       return 'running';
+    } catch (err) {
+      console.error('Neko startup error:', err);
+      return 'error';
+    } finally {
+      setTimeout(() => { nekoStartupPromise = null; }, 2000);
     }
-    return 'running';
-  } catch (err) {
-    isNekoStarting = false;
-    return 'error';
-  }
+  })();
+
+  return await nekoStartupPromise;
 }
 
 app.use('/neko', async (req, res, next) => {
@@ -364,7 +368,21 @@ const upload = multer({
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 

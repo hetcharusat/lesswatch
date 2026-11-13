@@ -88,6 +88,16 @@ services:
       - watch-together
       - livekit
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: wt-tunnel
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    network_mode: "host"
+    command: tunnel --no-autoupdate --url http://127.0.0.1:${PORT:-3000}
+    depends_on:
+      - watch-together
+
 volumes:
   caddy_data:
   caddy_config:

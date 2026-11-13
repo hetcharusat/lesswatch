@@ -573,6 +573,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
 
     const targetUrl = `/api/media/upload?folder=${encodeURIComponent(currentFolder || '')}`;
     xhr.open('POST', targetUrl, true);
+    xhr.withCredentials = true;
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }

@@ -444,28 +444,28 @@ if [ "$ENABLE_NEKO" = true ]; then
   fi
 fi
 
-# Optional Cloudflare Quick Tunnel setup
+# Optional Cloudflare Quick Tunnel setup (Docker-backed for 100% reliability)
 PUBLIC_TUNNEL_URL=""
 if [ "$ENABLE_TUNNEL" = true ]; then
-  spin_cmd "Establishing Cloudflare Quick Tunnel" "
-    if ! command -v cloudflared >/dev/null 2>&1; then
-      curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared 2>/dev/null || true
-      chmod +x /usr/local/bin/cloudflared 2>/dev/null || true
+  docker rm -f wt-tunnel 2>/dev/null || true
+  pkill -f 'cloudflared' 2>/dev/null || true
+
+  spin_cmd "Launching Cloudflare Quick Tunnel container" \
+    "docker run -d --name wt-tunnel --restart=unless-stopped --network=host cloudflare/cloudflared:latest tunnel --no-autoupdate --url http://127.0.0.1:${TARGET_PORT}"
+
+  echo -ne "  ${CYAN}⏳ Securing public HTTPS tunnel route...${RESET}"
+  for i in {1..30}; do
+    TUNNEL_MATCH=$(docker logs wt-tunnel 2>&1 | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n 1 || true)
+    if [ -n "$TUNNEL_MATCH" ]; then
+      PUBLIC_TUNNEL_URL="$TUNNEL_MATCH"
+      echo -e "\r  ${GREEN}✔ Cloudflare Tunnel Connected:${RESET} ${WHITE}${BOLD}${PUBLIC_TUNNEL_URL}${RESET}"
+      break
     fi
-    pkill -f 'cloudflared tunnel' 2>/dev/null || true
-    nohup cloudflared tunnel --url 'http://localhost:${TARGET_PORT}' > /tmp/cloudflared.log 2>&1 &
-    for i in {1..12}; do
-      TUNNEL_LINE=\$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log 2>/dev/null | tail -n 1 || true)
-      if [ -n \"\$TUNNEL_LINE\" ]; then
-        echo \"\$TUNNEL_LINE\" > /tmp/wt_tunnel_url
-        break
-      fi
-      sleep 1
-    done
-  "
-  if [ -f /tmp/wt_tunnel_url ]; then
-    PUBLIC_TUNNEL_URL=$(cat /tmp/wt_tunnel_url)
-    rm -f /tmp/wt_tunnel_url
+    sleep 1
+  done
+
+  if [ -z "$PUBLIC_TUNNEL_URL" ]; then
+    echo -e "\r  ${AMBER}ℹ Cloudflare tunnel is initializing in background. Check link with:${RESET} ${CYAN}docker logs wt-tunnel${RESET}"
   fi
 fi
 

@@ -20,6 +20,7 @@ export function Downloader() {
     try {
       const token = localStorage.getItem('wt_token');
       const res = await fetch('/api/downloads/active', {
+        credentials: 'include',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       const data = await res.json();
@@ -51,6 +52,7 @@ export function Downloader() {
       const token = localStorage.getItem('wt_token');
       const res = await fetch('/api/downloads/add', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -77,6 +79,7 @@ export function Downloader() {
       const token = localStorage.getItem('wt_token');
       await fetch('/api/downloads/cancel', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -95,6 +98,7 @@ export function Downloader() {
       const token = localStorage.getItem('wt_token');
       await fetch('/api/downloads/clear', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
