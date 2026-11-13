@@ -61,9 +61,12 @@ export function WatchPlanner({ onStartWatch }) {
   }
 
   async function handleTriggerDownload(id) {
-    const res = await fetch(`/api/planner/${id}/download`, { method: 'POST' });
+    const res = await fetch(`/api/planner/${id}/download`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${localStorage.getItem('wt_token') || ''}` }
+    });
     const data = await res.json();
-    alert(data.success ? '🚀 Download task started on EC2 via Aria2!' : 'Download failed');
+    alert(data.success ? '🚀 Download task started on server via Aria2!' : 'Download failed');
     fetchPlans();
   }
 
@@ -77,7 +80,7 @@ export function WatchPlanner({ onStartWatch }) {
             <span>Schedule Movie / Anime Date</span>
           </h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-            Plan ahead! You can put a Magnet link or direct video URL, and it will auto-download to the EC2 so it's ready when you watch.
+            Plan ahead! You can put a Magnet link or direct video URL, and it will auto-download to the server so it's ready when you watch.
           </p>
         </div>
 
@@ -161,7 +164,7 @@ export function WatchPlanner({ onStartWatch }) {
               onChange={(e) => setAutoDownload(e.target.checked)}
               style={{ accentColor: 'var(--pink-primary)' }}
             />
-            <span>Auto-download via Aria2 / Torrent on EC2 immediately</span>
+            <span>Auto-download via Aria2 / Torrent on server immediately</span>
           </label>
 
           <button type="submit" className="btn-pink-primary" style={{ justifyContent: 'center', marginTop: '0.4rem' }}>

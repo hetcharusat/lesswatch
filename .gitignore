@@ -10,5 +10,22 @@ update.tar.gz
 downloads/
 media/
 data/
+*-local-test/
 .env
+*.apk
+.impeccable/
+*.patch
+TheaterRoom_base.jsx
+test_login.json
+patch_*.py
+
+# Mobile & Android build caches
+**/build/
+**/.gradle/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+
+
+
 

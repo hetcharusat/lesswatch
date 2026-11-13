@@ -1,8 +1,8 @@
 {
-    email hetpatel.dev@gmail.com
+    email {$CADDY_EMAIL:admin@example.com}
 }
 
-letswatch.atmyhome.tech {
+{$CADDY_DOMAIN::80} {
     @notMedia not path /api/media/stream/* /api/media/audio/* /api/media/hls/* /api/media/subtitles/*
     encode @notMedia gzip zstd
 
@@ -11,18 +11,6 @@ letswatch.atmyhome.tech {
         reverse_proxy livekit:7880
     }
 
-    reverse_proxy /neko* 172.17.0.1:8080
-    reverse_proxy watch-together:3000
-}
-
-:80 {
-    @notMedia not path /api/media/stream/* /api/media/audio/* /api/media/hls/* /api/media/subtitles/*
-    encode @notMedia gzip zstd
-
-    handle_path /livekit* {
-        reverse_proxy livekit:7880
-    }
-
-    reverse_proxy /neko* 172.17.0.1:8080
+    # Main Watch Together app, /neko (auto-started & gated), and Socket.IO (/api/v1/sync)
     reverse_proxy watch-together:3000
 }

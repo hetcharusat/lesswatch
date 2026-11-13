@@ -8,6 +8,7 @@ import {
   Track,
   ParticipantEvent,
   createLocalAudioTrack,
+  LocalAudioTrack,
   AudioPresets,
 } from 'livekit-client';
 import {
@@ -120,7 +121,7 @@ function playAudioChirp(type = 'unmute') {
   } catch {}
 }
 
-export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia, onOpenAvatarModal }) {
+export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = null, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia, onOpenAvatarModal }) {
   const [socket, setSocket] = useState(null);
   const [syncStatus, setSyncStatus] = useState('In Sync');
   const [isHost, setIsHost] = useState(false);
@@ -202,7 +203,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (!clean || isProcessingAudio) return;
     setIsProcessingAudio(true);
     try {
-      await fetch(`/api/media/process-audio/${encodeURIComponent(clean)}`, { method: 'POST' });
+      const token = localStorage.getItem('wt_token') || '';
+      await fetch(`/api/media/process-audio/${encodeURIComponent(clean)}`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       fetchAudioStatus();
     } catch {}
     setTimeout(() => setIsProcessingAudio(false), 2000);
@@ -265,6 +270,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   // Chat System: Floating In-Video Overlay + Chit Chat Mode Split Screen + Persistent Sidebar
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
+  const [renderChatSidebar, setRenderChatSidebar] = useState(false);
+  const [isChatClosing, setIsChatClosing] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const isChatSidebarOpenRef = useRef(false);
@@ -348,13 +355,131 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   // In-Video Floating Chat Overlay (auto-fades with smooth transition)
   const [artPlayerDomEl, setArtPlayerDomEl] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [renderFloatingChat, setRenderFloatingChat] = useState(false);
+  const [isFloatingChatClosing, setIsFloatingChatClosing] = useState(false);
   const [chatInputText, setChatInputText] = useState('');
   const [showFloatingGiphy, setShowFloatingGiphy] = useState(false);
   const [recentMessages, setRecentMessages] = useState([]);
+  const floatingChatTimersRef = useRef(new Map());
+
+  useEffect(() => {
+    const timers = floatingChatTimersRef.current;
+    return () => {
+      timers.forEach(({ fadeTimer, removeTimer }) => {
+        clearTimeout(fadeTimer);
+        clearTimeout(removeTimer);
+      });
+      timers.clear();
+    };
+  }, []);
+  const [quickBubbleEmojis, setQuickBubbleEmojis] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('wt_quick_emojis') || 'null');
+      const list = Array.isArray(saved) && saved.length > 0 ? saved.filter((x) => typeof x === 'string' && x.trim()) : ['❤️', '🔥', '😂'];
+      const usage = JSON.parse(localStorage.getItem('wt_quick_emoji_usage') || '{}');
+      const hasUsage = list.some((em) => (Number(usage[em]) || 0) > 0);
+      const ranked = hasUsage
+        ? [...list].sort((a, b) => (Number(usage[b]) || 0) - (Number(usage[a]) || 0))
+        : list;
+      return ranked.slice(0, 3);
+    } catch {
+      return ['❤️', '🔥', '😂'];
+    }
+  });
+
+  useEffect(() => {
+    const syncTopEmojis = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('wt_quick_emojis') || 'null');
+        const list = Array.isArray(saved) && saved.length > 0 ? saved.filter((x) => typeof x === 'string' && x.trim()) : ['❤️', '🔥', '😂'];
+        const usage = JSON.parse(localStorage.getItem('wt_quick_emoji_usage') || '{}');
+        const hasUsage = list.some((em) => (Number(usage[em]) || 0) > 0);
+        const ranked = hasUsage
+          ? [...list].sort((a, b) => (Number(usage[b]) || 0) - (Number(usage[a]) || 0))
+          : list;
+        setQuickBubbleEmojis(ranked.slice(0, 3));
+      } catch {
+        setQuickBubbleEmojis(['❤️', '🔥', '😂']);
+      }
+    };
+    window.addEventListener('storage', syncTopEmojis);
+    window.addEventListener('wt_quick_emojis_updated', syncTopEmojis);
+    return () => {
+      window.removeEventListener('storage', syncTopEmojis);
+      window.removeEventListener('wt_quick_emojis_updated', syncTopEmojis);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (chatOpen) {
+      setRenderFloatingChat(true);
+      setIsFloatingChatClosing(false);
+      return undefined;
+    }
+    if (!renderFloatingChat) return undefined;
+    setIsFloatingChatClosing(true);
+    const closeTimer = setTimeout(() => {
+      setRenderFloatingChat(false);
+      setIsFloatingChatClosing(false);
+    }, 140);
+    return () => clearTimeout(closeTimer);
+  }, [chatOpen, renderFloatingChat]);
+
+  const handleFloatingEmojiTap = (em) => {
+    setChatInputText((prev) => prev + em);
+    resetChatInactivityTimer();
+    try {
+      const counts = JSON.parse(localStorage.getItem('wt_quick_emoji_usage') || '{}');
+      counts[em] = (Number(counts[em]) || 0) + 1;
+      localStorage.setItem('wt_quick_emoji_usage', JSON.stringify(counts));
+      window.dispatchEvent(new Event('wt_quick_emojis_updated'));
+    } catch {}
+    const visibleInputs = document.querySelectorAll('.floating-chat-input');
+    for (const el of visibleInputs) {
+      if (el.offsetParent !== null) {
+        el.focus();
+        return;
+      }
+    }
+    chatInputRef.current?.focus();
+  };
+
+  const closeFloatingBubbleChat = () => {
+    if (renderFloatingChat) setIsFloatingChatClosing(true);
+    setChatOpen(false);
+    setShowFloatingGiphy(false);
+    setChatInputText('');
+    if (activePlayerType === 'neko') {
+      setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
+    } else {
+      setTimeout(() => focusTheaterStage(), 10);
+    }
+  };
 
   // Refs
   const theaterWrapperRef = useRef(null);
   const theaterCanvasRef = useRef(null);
+  const theaterDeckRef = useRef(null);
+  const fsCurtainRef = useRef(null);
+  const ambientDeckCanvasRef = useRef(null);
+  const fsWasActiveRef = useRef(false);
+  const fsStageAnimRef = useRef(null);
+  const fsDeckAnimRef = useRef(null);
+  const fsDeckTimerRef = useRef(null);
+  const fsAuxAnimsRef = useRef([]);
+  const [ambientEnabled, setAmbientEnabled] = useState(() => {
+    try { return localStorage.getItem('wt_ambient_deck') !== 'false'; } catch { return true; }
+  });
+  const isLoungeScreen = roomId === 'lounge';
+  const isAmbientActive = ambientEnabled && isLoungeScreen;
+  const toggleAmbientMode = () => {
+    setAmbientEnabled((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('wt_ambient_deck', String(next)); } catch {}
+      try { window.dispatchEvent(new CustomEvent('wt_ambient_change', { detail: { enabled: next } })); } catch {}
+      return next;
+    });
+  };
   const artContainerRef = useRef(null);
   const artInstanceRef = useRef(null);
   const ytPlayerRef = useRef(null);
@@ -412,6 +537,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     isChatSidebarOpenRef.current = isChatSidebarOpen;
   }, [isChatSidebarOpen]);
 
+  useEffect(() => {
+    if (isChatSidebarOpen) {
+      setRenderChatSidebar(true);
+      setIsChatClosing(false);
+      return undefined;
+    }
+    if (!renderChatSidebar) return undefined;
+    setIsChatClosing(true);
+    const closeTimer = setTimeout(() => {
+      setRenderChatSidebar(false);
+      setIsChatClosing(false);
+    }, 260);
+    return () => clearTimeout(closeTimer);
+  }, [isChatSidebarOpen, renderChatSidebar]);
+
   // 1. Hardware Audio Device Enumeration (Mic, Headphones) with Anti-Bluetooth Hands-Free Guard
   async function refreshMediaDevices() {
     try {
@@ -450,7 +590,127 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
 
   // LiveKit SFU Studio Voice Engine
   // --------------------------------------------------------------------------
-  function setupAnalyser(mediaStreamTrack) {
+  function cleanupLocalAudioPipeline({ closeContext = false } = {}) {
+    if (audioNodesRef.current) {
+      const nodes = audioNodesRef.current;
+      try { nodes.source?.disconnect(); } catch {}
+      try { nodes.inputGain?.disconnect(); } catch {}
+      try { nodes.suppressor?.disconnect(); } catch {}
+      try { nodes.analyser?.disconnect(); } catch {}
+      try { nodes.gateGain?.disconnect(); } catch {}
+      try { nodes.dest?.disconnect(); } catch {}
+      try {
+        nodes.dest?.stream?.getTracks().forEach((t) => {
+          try { t.stop(); } catch {}
+        });
+      } catch {}
+      audioNodesRef.current = null;
+    }
+    if (rawHardwareStreamRef.current) {
+      try {
+        rawHardwareStreamRef.current.getTracks().forEach((t) => {
+          try { t.stop(); } catch {}
+        });
+      } catch {}
+      rawHardwareStreamRef.current = null;
+    }
+    if (closeContext && audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+  }
+
+  async function buildProcessedLocalAudio({ deviceId, mode = 'rnnoise', echoCancellation = true } = {}) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('WebAudio API not available');
+    }
+
+    cleanupLocalAudioPipeline({ closeContext: false });
+
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new AudioContextClass();
+    }
+    const ctx = audioContextRef.current;
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+
+    let supNode = null;
+    const wantsSuppressor = mode !== 'raw' && mode !== 'bypass' && mode !== 'off';
+    if (wantsSuppressor) {
+      try {
+        const sup = await createNoiseSuppressorNode(ctx, mode);
+        if (sup?.node) {
+          supNode = sup.node;
+        }
+      } catch (err) {
+        console.warn('Noise suppressor worklet unavailable, falling back to browser NS:', err);
+      }
+    }
+
+    const constraints = {
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: Boolean(echoCancellation),
+        // Avoid double-filtering when our AudioWorklet suppressor is active; fallback to browser NS if worklet failed
+        noiseSuppression: wantsSuppressor && !supNode,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+      video: false,
+    };
+
+    const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+    rawHardwareStreamRef.current = rawStream;
+
+    const source = ctx.createMediaStreamSource(rawStream);
+    const inputGain = ctx.createGain();
+    inputGain.gain.value = (micGainRef.current || 100) / 100;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.25;
+
+    const gateGain = ctx.createGain();
+    const initialThresh = noiseIntensityRef.current === 0 ? 0 : Math.max(1, Math.round(noiseIntensityRef.current * 0.55));
+    gateGain.gain.value = initialThresh === 0 ? 1 : 0;
+
+    const dest = ctx.createMediaStreamDestination();
+
+    source.connect(inputGain);
+    if (supNode) {
+      inputGain.connect(supNode);
+      supNode.connect(analyser);
+    } else {
+      inputGain.connect(analyser);
+    }
+    // Analyser sits upstream of gateGain so closed gate still detects speech onset
+    analyser.connect(gateGain);
+    gateGain.connect(dest);
+
+    audioNodesRef.current = { source, inputGain, suppressor: supNode, analyser, gateGain, dest };
+
+    const processedTrack = dest.stream.getAudioTracks()[0];
+    if (!processedTrack) {
+      throw new Error('Failed to create processed audio stream track');
+    }
+
+    return { track: processedTrack, analyser, ctx, constraints: constraints.audio };
+  }
+
+  async function rebuildLiveProcessedMicTrack({
+    deviceId = selectedAudioInput || undefined,
+    mode = noiseSuppressionModeRef.current || 'rnnoise',
+    echoCancellation = isEchoCancellationEnabledRef.current,
+  } = {}) {
+    if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) return;
+    const processed = await buildProcessedLocalAudio({ deviceId, mode, echoCancellation });
+    await localAudioTrackRef.current.replaceTrack(processed.track, true);
+    setupAnalyser(processed.analyser);
+  }
+
+  function setupAnalyser(analyserOrTrack) {
     if (audioAnalyserIntervalRef.current) {
       clearInterval(audioAnalyserIntervalRef.current);
       audioAnalyserIntervalRef.current = null;
@@ -467,28 +727,46 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         ctx.resume().catch(() => {});
       }
 
-      const stream = new MediaStream([mediaStreamTrack]);
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.25;
-      source.connect(analyser);
+      let analyser = null;
+      if (analyserOrTrack && typeof analyserOrTrack.getByteFrequencyData === 'function') {
+        analyser = analyserOrTrack;
+      } else if (analyserOrTrack) {
+        const stream = new MediaStream([analyserOrTrack]);
+        const source = ctx.createMediaStreamSource(stream);
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.25;
+        source.connect(analyser);
+      }
+      if (!analyser) return;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
       let silentTicks = 0;
+      let gateHoldTicks = 0;
+      let lastGateOpen = null;
 
       audioAnalyserIntervalRef.current = setInterval(() => {
+        const activeCtx = audioContextRef.current;
+        const gateNode = audioNodesRef.current?.gateGain;
+
         if (!isVoiceConnectedRef.current || isMutedRef.current) {
           silentTicks = 0;
+          gateHoldTicks = 0;
           setIsMicSilentWarning(false);
+          if (gateNode && activeCtx && activeCtx.state !== 'closed') {
+            gateNode.gain.setTargetAtTime(0, activeCtx.currentTime, 0.02);
+          }
           if (isLocalSpeakingRef.current) {
             isLocalSpeakingRef.current = false;
             setIsLocalSpeaking(false);
             socketRef.current?.emit('voice:speaking', { isSpeaking: false });
           }
           setMicLevel(0);
-          setIsNoiseGateOpen(false);
+          if (lastGateOpen !== false) {
+            lastGateOpen = false;
+            setIsNoiseGateOpen(false);
+          }
           return;
         }
 
@@ -498,7 +776,33 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         const avg = sum / dataArray.length;
         const levelPct = Math.min(100, Math.round((avg / 120) * 100));
         setMicLevel(levelPct);
-        setIsNoiseGateOpen(levelPct > 8);
+
+        // Apply Noise Gate with ~300ms hold tail to avoid clipping word endings
+        const sliderVal = noiseIntensityRef.current || 0;
+        const thresholdPct = sliderVal === 0 ? 0 : Math.max(1, Math.round(sliderVal * 0.55));
+        let gateOpen = true;
+        if (thresholdPct > 0) {
+          if (levelPct >= thresholdPct) {
+            gateHoldTicks = 6;
+            gateOpen = true;
+          } else if (gateHoldTicks > 0) {
+            gateHoldTicks--;
+            gateOpen = true;
+          } else {
+            gateOpen = false;
+          }
+        } else {
+          gateHoldTicks = 0;
+        }
+
+        if (gateNode && activeCtx && activeCtx.state !== 'closed') {
+          gateNode.gain.setTargetAtTime(gateOpen ? 1 : 0, activeCtx.currentTime, gateOpen ? 0.012 : 0.06);
+        }
+
+        if (lastGateOpen !== gateOpen) {
+          lastGateOpen = gateOpen;
+          setIsNoiseGateOpen(gateOpen);
+        }
 
         // Silence diagnosis tracking
         if (avg < 2.0) {
@@ -513,7 +817,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setIsMicSilentWarning(false);
         }
 
-        const isSpeakingNow = avg > 14;
+        const isSpeakingNow = gateOpen && avg > 12;
         if (isSpeakingNow) {
           speakingTicks = Math.min(speakingTicks + 1, 5);
         } else {
@@ -526,7 +830,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           setIsLocalSpeaking(active);
           socketRef.current?.emit('voice:speaking', { isSpeaking: active });
         }
-      }, 60);
+      }, 50);
     } catch (err) {
       console.warn('setupAnalyser error:', err);
     }
@@ -538,11 +842,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localStorage.setItem('wt_noise_supp_mode', newMode);
     if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
       try {
-        await localAudioTrackRef.current.restartTrack({
-          echoCancellation: isEchoCancellationEnabledRef.current,
-          noiseSuppression: newMode !== 'raw' && newMode !== 'bypass',
-          autoGainControl: true,
-        });
+        await rebuildLiveProcessedMicTrack({ mode: newMode });
         showToast(`Noise Suppression: ${newMode.toUpperCase()}`, <ShieldCheck size={15} color="var(--pink-primary)" />);
       } catch (err) {
         console.warn('Failed to update noise suppression mode:', err);
@@ -557,6 +857,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localStorage.setItem('wt_noise_intensity', String(num));
   }
 
+  function handleMicGainChange(val) {
+    const num = Math.max(50, Math.min(200, parseInt(val, 10) || 100));
+    setMicGain(num);
+    micGainRef.current = num;
+    localStorage.setItem('wt_mic_gain', String(num));
+    const nodes = audioNodesRef.current;
+    const ctx = audioContextRef.current;
+    if (nodes?.inputGain && ctx && ctx.state !== 'closed') {
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      nodes.inputGain.gain.setTargetAtTime(num / 100, ctx.currentTime, 0.02);
+    }
+  }
+
   async function handleEchoCancellationToggle() {
     const nextVal = !isEchoCancellationEnabled;
     setIsEchoCancellationEnabled(nextVal);
@@ -564,9 +877,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     localStorage.setItem('wt_echo_cancellation', String(nextVal));
     if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
       try {
-        await localAudioTrackRef.current.restartTrack({
-          echoCancellation: nextVal,
-        });
+        await rebuildLiveProcessedMicTrack({ echoCancellation: nextVal });
         showToast(nextVal ? 'Echo Cancellation Active' : 'Echo Cancellation Disabled', <ShieldCheck size={15} color="var(--pink-primary)" />);
       } catch (err) {
         console.warn('Error applying echo cancellation change:', err);
@@ -834,13 +1145,30 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         return;
       }
 
-      // 6. Create and publish local high-definition audio track
-      const audioTrack = await createLocalAudioTrack({
-        deviceId: selectedAudioInput || undefined,
-        echoCancellation: isEchoCancellationEnabledRef.current,
-        noiseSuppression: (noiseSuppressionModeRef.current || 'rnnoise') !== 'raw' && (noiseSuppressionModeRef.current || 'rnnoise') !== 'bypass',
-        autoGainControl: true,
-      });
+      const mode = noiseSuppressionModeRef.current || 'rnnoise';
+      const ecEnabled = isEchoCancellationEnabledRef.current;
+      let audioTrack = null;
+      let analyserNode = null;
+
+      try {
+        const processed = await buildProcessedLocalAudio({
+          deviceId: selectedAudioInput || undefined,
+          mode,
+          echoCancellation: ecEnabled,
+        });
+        audioTrack = new LocalAudioTrack(processed.track, processed.constraints, true, processed.ctx);
+        analyserNode = processed.analyser;
+      } catch (dspErr) {
+        console.warn('WebAudio DSP pipeline unavailable, falling back to raw LiveKit mic:', dspErr);
+        cleanupLocalAudioPipeline({ closeContext: false });
+        audioTrack = await createLocalAudioTrack({
+          deviceId: selectedAudioInput || undefined,
+          echoCancellation: ecEnabled,
+          noiseSuppression: mode !== 'raw' && mode !== 'bypass',
+          autoGainControl: true,
+        });
+      }
+
       localAudioTrackRef.current = audioTrack;
 
       await lkRoom.localParticipant.publishTrack(audioTrack, {
@@ -848,15 +1176,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         dtx: false,
       });
 
-      // 7. Setup VU Meter Analyser
-      setupAnalyser(audioTrack.mediaStreamTrack);
+      setupAnalyser(analyserNode || audioTrack.mediaStreamTrack);
 
       isVoiceConnectedRef.current = true;
       setIsVoiceConnected(true);
       isMutedRef.current = false;
       setIsMuted(false);
 
-      // Notify Socket.IO room of voice state
       socketRef.current?.emit('voice:join', { hasAudio: true, hasVideo: false });
       socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
 
@@ -865,6 +1191,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       showToast('Microphone live', <Mic size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Microphone start error:', err);
+      cleanupLocalAudioPipeline({ closeContext: false });
       setShowMicPermissionModal(true);
       setMicPermissionErrorMsg(err.message || 'Microphone access denied. Please allow permissions in browser or system settings.');
       showToast('Microphone access blocked', <AlertCircle size={15} color="#ef4444" />);
@@ -905,10 +1232,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       clearInterval(audioAnalyserIntervalRef.current);
       audioAnalyserIntervalRef.current = null;
     }
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
+    cleanupLocalAudioPipeline({ closeContext: true });
     isVoiceConnectedRef.current = false;
     setIsVoiceConnected(false);
     isMutedRef.current = true;
@@ -962,13 +1286,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) return;
 
     try {
-      await localAudioTrackRef.current.restartTrack({
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: isEchoCancellationEnabledRef.current,
-        noiseSuppression: (noiseSuppressionModeRef.current || 'rnnoise') !== 'raw' && (noiseSuppressionModeRef.current || 'rnnoise') !== 'bypass',
-        autoGainControl: true,
-      });
-      setupAnalyser(localAudioTrackRef.current.mediaStreamTrack);
+      await rebuildLiveProcessedMicTrack({ deviceId: deviceId || undefined });
       showToast('Switched microphone source', <Sliders size={15} color="var(--pink-primary)" />);
     } catch (err) {
       console.warn('Failed to switch audio input:', err);
@@ -1009,72 +1327,121 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   }
 
   // Camera Drag Event Handlers
-  // Hotkeys Listener (Hold 'V' for Push-to-Talk, 'M' to Toggle Mute)
-  useEffect(() => {
-    function handleKeyDown(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.isContentEditable) return;
+  const isTextEntryElement = (el) => {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return true;
+    if (tag === 'INPUT') {
+      const t = (el.getAttribute?.('type') || el.type || 'text').toLowerCase();
+      return !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'image'].includes(t);
+    }
+    return false;
+  };
 
-      // Toggle Mic Mute with 'M'
-      if ((e.key === 'm' || e.key === 'M') && !e.repeat) {
-        e.preventDefault();
-        handleToggleMute();
+  const isInteractiveActivationElement = (el) => {
+    if (!el || !el.closest) return false;
+    return Boolean(el.closest('button, a[href], summary, [role="button"], [role="menuitem"], [role="tab"], [role="option"], [role="switch"]'));
+  };
+
+  const pttKeyHeldRef = useRef(false);
+  const pttHandlersRef = useRef({ down: () => {}, up: () => {} });
+
+  // Push-to-Talk Hotkey Listener (ONLY Hold 'V' — 'M' mute shortcut removed; capture-phase & blur-safe)
+  useEffect(() => {
+    const startPtt = () => {
+      if (pttKeyHeldRef.current) return;
+      pttKeyHeldRef.current = true;
+
+      if (!isVoiceConnectedRef.current) {
+        startMicrophone().then(() => {
+          if (!pttKeyHeldRef.current) {
+            if (localAudioTrackRef.current) {
+              isPushToTalkingRef.current = false;
+              setIsPushToTalking(false);
+              localAudioTrackRef.current.mute().catch(() => {});
+              isMutedRef.current = true;
+              setIsMuted(true);
+              socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
+            }
+            return;
+          }
+          if (localAudioTrackRef.current) {
+            isPushToTalkingRef.current = true;
+            setIsPushToTalking(true);
+            localAudioTrackRef.current.unmute().catch(() => {});
+            isMutedRef.current = false;
+            setIsMuted(false);
+            playAudioChirp('unmute');
+            socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
+            showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
+          }
+        }).catch(() => {
+          pttKeyHeldRef.current = false;
+        });
         return;
       }
 
-      // Push-To-Talk: Hold 'V'
-      if ((e.key === 'v' || e.key === 'V') && !e.repeat) {
+      if (localAudioTrackRef.current) {
+        isPushToTalkingRef.current = true;
+        setIsPushToTalking(true);
+        localAudioTrackRef.current.unmute().catch(() => {});
+        isMutedRef.current = false;
+        setIsMuted(false);
+        playAudioChirp('unmute');
+        socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
+        showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
+      }
+    };
+
+    const stopPtt = () => {
+      if (!pttKeyHeldRef.current && !isPushToTalkingRef.current) return;
+      pttKeyHeldRef.current = false;
+      if (isPushToTalkingRef.current && localAudioTrackRef.current) {
+        isPushToTalkingRef.current = false;
+        setIsPushToTalking(false);
+        isMutedRef.current = true;
+        setIsMuted(true);
+        localAudioTrackRef.current.mute().catch(() => {});
+        playAudioChirp('mute');
+        socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
+        showToast('Push-to-Talk ended (Muted)', <MicOff size={15} color="#9ca3af" />);
+      }
+    };
+
+    pttHandlersRef.current = { down: startPtt, up: stopPtt };
+
+    function handleKeyDown(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const typing = isTextEntryElement(document.activeElement) || isTextEntryElement(e.target);
+      if (typing) return;
+
+      const isV = e.code === 'KeyV' || e.key?.toLowerCase() === 'v';
+      if (isV && !e.repeat) {
         e.preventDefault();
-        if (!isVoiceConnectedRef.current) {
-          startMicrophone().then(() => {
-            if (localAudioTrackRef.current) {
-              isPushToTalkingRef.current = true;
-              setIsPushToTalking(true);
-              localAudioTrackRef.current.unmute().catch(() => {});
-              isMutedRef.current = false;
-              setIsMuted(false);
-              playAudioChirp('unmute');
-              socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
-              showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
-            }
-          }).catch(() => {});
-          return;
-        }
-        if (localAudioTrackRef.current) {
-          isPushToTalkingRef.current = true;
-          setIsPushToTalking(true);
-          localAudioTrackRef.current.unmute().catch(() => {});
-          isMutedRef.current = false;
-          setIsMuted(false);
-          playAudioChirp('unmute');
-          socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
-          showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
-        }
+        startPtt();
       }
     }
 
     function handleKeyUp(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.isContentEditable) return;
-
-      // Release Push-To-Talk: 'V'
-      if (e.key === 'v' || e.key === 'V') {
-        if (isPushToTalkingRef.current && localAudioTrackRef.current) {
-          isPushToTalkingRef.current = false;
-          setIsPushToTalking(false);
-          isMutedRef.current = true;
-          setIsMuted(true);
-          localAudioTrackRef.current.mute().catch(() => {});
-          playAudioChirp('mute');
-          socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
-          showToast('Push-to-Talk ended (Muted)', <MicOff size={15} color="#9ca3af" />);
-        }
+      const isV = e.code === 'KeyV' || e.key?.toLowerCase() === 'v';
+      if (isV) {
+        stopPtt();
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    function handleVisibilityRelease() {
+      if (document.hidden) stopPtt();
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
+    window.addEventListener('blur', stopPtt);
+    document.addEventListener('visibilitychange', handleVisibilityRelease);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', stopPtt);
+      document.removeEventListener('visibilitychange', handleVisibilityRelease);
     };
   }, [socket]);
 
@@ -1476,10 +1843,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setSocket(s);
     socketRef.current = s;
 
-    const cleanName = (currentProfile.name || 'Het')
+    const cleanName = (currentProfile?.name || 'Guest')
       .replace(/^(jotaro|jolyne|joyeline)\s+/i, '')
-      .replace(/^riaa$/i, 'Ria')
-      .trim();
+      .trim() || 'Guest';
 
     s.emit('room:join', {
       roomId,
@@ -1777,20 +2143,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       if (!msg.isSystem && msg.sender !== 'System' && (msg.text || msg.image)) {
         const messageId = msg.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const item = { ...msg, id: messageId, fading: false };
-        setRecentMessages((prev) => [...prev.slice(-3), item]);
+        setRecentMessages((prev) => {
+          if (prev.length >= 4) {
+            prev.slice(0, prev.length - 3).forEach((evicted) => {
+              const stale = floatingChatTimersRef.current.get(evicted.id);
+              if (stale) {
+                clearTimeout(stale.fadeTimer);
+                clearTimeout(stale.removeTimer);
+                floatingChatTimersRef.current.delete(evicted.id);
+              }
+            });
+          }
+          return [...prev.slice(-3), item];
+        });
 
-        const charCount = (msg.text || '').length;
-        // Dynamic reading delay: GIFs stay visible longer for reaction appreciation
-        const fadeDelay = msg.image ? 6500 : Math.min(12000, Math.max(2600, 2000 + (charCount * 95)));
-        const removeDelay = fadeDelay + 600;
+        const trimmedText = typeof msg.text === 'string' ? msg.text.trim() : '';
+        const charCount = trimmedText.length;
+        // Very dynamic character-scaled visibility: snappy for tiny replies, generous for long messages
+        const textHoldMs = charCount <= 80
+          ? 1700 + (charCount * 85)
+          : 8500 + ((charCount - 80) * 60);
+        const fadeDelay = msg.image
+          ? Math.min(14000, Math.max(5200, 5200 + (charCount * 65)))
+          : Math.min(18000, Math.max(1750, textHoldMs));
+        const removeDelay = fadeDelay + 360;
 
-        setTimeout(() => {
-          setRecentMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, fading: true } : m));
+        const existingTimers = floatingChatTimersRef.current.get(messageId);
+        if (existingTimers) {
+          clearTimeout(existingTimers.fadeTimer);
+          clearTimeout(existingTimers.removeTimer);
+        }
+
+        const fadeTimer = setTimeout(() => {
+          setRecentMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, fading: true } : m)));
         }, fadeDelay);
 
-        setTimeout(() => {
+        const removeTimer = setTimeout(() => {
+          floatingChatTimersRef.current.delete(messageId);
           setRecentMessages((prev) => prev.filter((m) => m.id !== messageId));
         }, removeDelay);
+
+        floatingChatTimersRef.current.set(messageId, { fadeTimer, removeTimer });
       }
     });
 
@@ -2571,8 +2964,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   function resetChatInactivityTimer() {
     if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     chatFadeTimerRef.current = setTimeout(() => {
+      const wasInChatInput = document.activeElement === chatInputRef.current;
       setChatOpen(false);
       setChatInputText('');
+      if (wasInChatInput) {
+        setTimeout(() => focusTheaterStage(), 10);
+      }
     }, 4500);
   }
 
@@ -2585,12 +2982,133 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
   const nekoIframeRef = useRef(null);
 
   // Synchronize Theater Fullscreen State (HTML5 Element & F11 Window Fullscreen)
+  const captureFsMorphSource = useCallback((dir) => {
+    const wrapperEl = theaterWrapperRef.current;
+    if (!wrapperEl) return;
+    if (fsDeckTimerRef.current) clearTimeout(fsDeckTimerRef.current);
+    if (dir === 'in') {
+      wrapperEl.classList.add('fs-deck-fading');
+    } else {
+      wrapperEl.classList.remove('fs-deck-fading');
+    }
+  }, []);
+
+  const playFsMorphTransition = useCallback((enteringFs) => {
+    const wrapperEl = theaterWrapperRef.current;
+    const curtainEl = fsCurtainRef.current;
+    const deckEl = theaterDeckRef.current;
+
+    fsStageAnimRef.current?.cancel?.();
+    fsDeckAnimRef.current?.cancel?.();
+    fsAuxAnimsRef.current.forEach((a) => a?.cancel?.());
+    fsAuxAnimsRef.current = [];
+
+    if (!enteringFs && wrapperEl) {
+      if (fsDeckTimerRef.current) clearTimeout(fsDeckTimerRef.current);
+      wrapperEl.classList.remove('fs-deck-fading');
+    }
+
+    const prefersReduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (prefersReduced) {
+      wrapperEl?.classList.remove('fs-deck-fading');
+      if (curtainEl && typeof curtainEl.animate === 'function') {
+        fsStageAnimRef.current = curtainEl.animate(
+          [{ opacity: 0.7 }, { opacity: 0 }],
+          { duration: 180, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'none' }
+        );
+      }
+      return;
+    }
+
+    // Soft cinema veil across OS fullscreen flash — zero video scaling or distortion
+    if (curtainEl && typeof curtainEl.animate === 'function') {
+      fsStageAnimRef.current = curtainEl.animate(
+        [
+          { opacity: 0.94 },
+          { opacity: 0.88, offset: 0.16 },
+          { opacity: 0 }
+        ],
+        {
+          duration: enteringFs ? 420 : 380,
+          easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+          fill: 'none'
+        }
+      );
+    }
+
+    // Deck slides/fades away on fullscreen-in and glides upward back in on exit
+    if (enteringFs && wrapperEl && deckEl && typeof deckEl.animate === 'function') {
+      wrapperEl.classList.add('fs-deck-fading');
+      if (fsDeckTimerRef.current) clearTimeout(fsDeckTimerRef.current);
+      fsDeckAnimRef.current = deckEl.animate(
+        [
+          { transform: 'translate3d(0, 0px, 0)', opacity: 1 },
+          { transform: 'translate3d(0, 18px, 0)', opacity: 0 }
+        ],
+        {
+          duration: 320,
+          easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+          fill: 'forwards'
+        }
+      );
+      fsDeckAnimRef.current.onfinish = () => {
+        wrapperEl.classList.remove('fs-deck-fading');
+        fsDeckAnimRef.current?.cancel?.();
+      };
+      fsDeckTimerRef.current = setTimeout(() => {
+        wrapperEl.classList.remove('fs-deck-fading');
+      }, 360);
+    } else if (!enteringFs && deckEl && typeof deckEl.animate === 'function') {
+      window.requestAnimationFrame(() => {
+        fsDeckAnimRef.current = deckEl.animate(
+          [
+            { transform: 'translate3d(0, 18px, 0)', opacity: 0 },
+            { transform: 'translate3d(0, 0px, 0)', opacity: 1 }
+          ],
+          {
+            duration: 360,
+            delay: 40,
+            easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+            fill: 'backwards'
+          }
+        );
+      });
+    }
+
+    // Gently fade peripheral controls instead of snapping in
+    const auxEls = wrapperEl?.querySelectorAll('.pouf-hud-overlay:not(.is-hidden), .clay-docked-chat-trigger, .floating-chat-overlay');
+    if (auxEls?.length) {
+      auxEls.forEach((el) => {
+        if (typeof el.animate !== 'function') return;
+        const anim = el.animate(
+          [
+            { opacity: 0, transform: 'translate3d(0, 6px, 0)' },
+            { opacity: 1, transform: 'translate3d(0, 0px, 0)' }
+          ],
+          {
+            duration: 320,
+            delay: 110,
+            easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+            fill: 'backwards'
+          }
+        );
+        fsAuxAnimsRef.current.push(anim);
+      });
+    }
+  }, []);
+
   useEffect(() => {
     function checkFullscreen() {
       const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
       const isF11 = (window.innerHeight >= (screen.height - 4) && window.innerWidth >= (screen.width - 4));
       const isFs = !!fsEl || isF11;
+      const prevFs = fsWasActiveRef.current;
+      fsWasActiveRef.current = isFs;
       setIsTheaterFullscreen(isFs);
+
+      if (prevFs !== isFs) {
+        playFsMorphTransition(isFs);
+      }
 
       if (!isFs) {
         if ('keyboard' in navigator && navigator.keyboard?.unlock) {
@@ -2614,8 +3132,165 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       document.removeEventListener('fullscreenchange', checkFullscreen);
       document.removeEventListener('webkitfullscreenchange', checkFullscreen);
       window.removeEventListener('resize', checkFullscreen);
+      if (fsDeckTimerRef.current) clearTimeout(fsDeckTimerRef.current);
+      fsStageAnimRef.current?.cancel?.();
+      fsDeckAnimRef.current?.cancel?.();
+      fsAuxAnimsRef.current.forEach((a) => a?.cancel?.());
     };
-  }, []);
+  }, [playFsMorphTransition]);
+
+  // Real-time Last-Bottom-Pixels Blurred Ambient Renderer (Zero React re-renders; paints matching seam + deck canvases)
+  useEffect(() => {
+    const stageEl = theaterCanvasRef.current?.parentElement;
+    if (!stageEl) return;
+
+    const W = 64;
+    const H = 1;
+    const PX_COUNT = W * H;
+
+    if (!isAmbientActive) {
+      stageEl.style.setProperty('--amb-avg', 'rgb(18, 12, 22)');
+      ambientDeckCanvasRef.current?.getContext?.('2d')?.clearRect(0, 0, W, H);
+      return;
+    }
+
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = W;
+    sampleCanvas.height = H;
+    const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
+    if (!ctx) return;
+
+    const currentBuf = new Float32Array(PX_COUNT * 3);
+    const targetBuf = new Float32Array(PX_COUNT * 3);
+    for (let i = 0; i < PX_COUNT; i++) {
+      const o = i * 3;
+      currentBuf[o] = 12; currentBuf[o + 1] = 10; currentBuf[o + 2] = 16;
+      targetBuf[o] = 12; targetBuf[o + 1] = 10; targetBuf[o + 2] = 16;
+    }
+    const outImg = new ImageData(W, H);
+
+    let rafId = 0;
+    let lastSampleAt = 0;
+    let corsTainted = false;
+
+    const enhanceRgb = (r, g, b) => {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const boost = 1.24;
+      let er = lum + (r - lum) * boost;
+      let eg = lum + (g - lum) * boost;
+      let eb = lum + (b - lum) * boost;
+      const maxC = Math.max(er, eg, eb);
+      if (maxC > 228) {
+        const s = 224 / maxC;
+        er *= s;
+        eg *= s;
+        eb *= s;
+      }
+      return [
+        Math.max(8, Math.min(240, er)),
+        Math.max(8, Math.min(240, eg)),
+        Math.max(8, Math.min(240, eb))
+      ];
+    };
+
+    const getSourceElement = () => {
+      if (activePlayerType === 'neko') {
+        try {
+          const doc = nekoIframeRef.current?.contentDocument;
+          if (!doc) return null;
+          const vid = doc.querySelector('video');
+          if (vid && vid.readyState >= 2 && vid.videoWidth > 0) return vid;
+          const cvs = doc.querySelector('canvas');
+          if (cvs && cvs.width > 0 && cvs.height > 0) return cvs;
+        } catch {
+          return null;
+        }
+        return null;
+      }
+      if (activePlayerType === 'youtube') return null;
+      const vid = theaterCanvasRef.current?.querySelector('.pouf-player-container video');
+      return vid && vid.readyState >= 2 && vid.videoWidth > 0 ? vid : null;
+    };
+
+    const tick = (now) => {
+      if (now - lastSampleAt >= 48) {
+        lastSampleAt = now;
+        const srcEl = corsTainted ? null : getSourceElement();
+        if (srcEl) {
+          const sw = srcEl.videoWidth || srcEl.width || 0;
+          const sh = srcEl.videoHeight || srcEl.height || 0;
+          if (sw > 4 && sh > 4) {
+            try {
+              // Sample ONLY the last bottom 5–10 px edge strip into a 1D horizontal gradient
+              const sBand = Math.min(10, Math.max(5, Math.min(8, Math.floor(sh))));
+              const sy = Math.max(0, sh - sBand);
+              ctx.drawImage(srcEl, 0, sy, sw, sBand, 0, 0, W, H);
+              const data = ctx.getImageData(0, 0, W, H).data;
+              for (let i = 0; i < PX_COUNT; i++) {
+                const di = i * 4;
+                const ti = i * 3;
+                const [er, eg, eb] = enhanceRgb(data[di], data[di + 1], data[di + 2]);
+                targetBuf[ti] = er;
+                targetBuf[ti + 1] = eg;
+                targetBuf[ti + 2] = eb;
+              }
+            } catch {
+              corsTainted = true;
+            }
+          }
+        } else if (activePlayerType === 'youtube' || corsTainted) {
+          const t = now * 0.0011;
+          for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+              const ti = (y * W + x) * 3;
+              const u = x / (W - 1);
+              targetBuf[ti] = 26 + Math.sin(t + u * 3.4) * 14;
+              targetBuf[ti + 1] = 16 + Math.cos(t * 0.8 + u * 2.7) * 8;
+              targetBuf[ti + 2] = 28 + Math.sin(t * 1.1 - u * 3.1) * 14;
+            }
+          }
+        }
+      }
+
+      const alpha = 0.18;
+      let ar = 0;
+      let ag = 0;
+      let ab = 0;
+      const out = outImg.data;
+      for (let i = 0; i < PX_COUNT; i++) {
+        const ti = i * 3;
+        const oi = i * 4;
+        const nr = currentBuf[ti] + (targetBuf[ti] - currentBuf[ti]) * alpha;
+        const ng = currentBuf[ti + 1] + (targetBuf[ti + 1] - currentBuf[ti + 1]) * alpha;
+        const nb = currentBuf[ti + 2] + (targetBuf[ti + 2] - currentBuf[ti + 2]) * alpha;
+        currentBuf[ti] = nr;
+        currentBuf[ti + 1] = ng;
+        currentBuf[ti + 2] = nb;
+        ar += nr;
+        ag += ng;
+        ab += nb;
+        out[oi] = Math.round(nr);
+        out[oi + 1] = Math.round(ng);
+        out[oi + 2] = Math.round(nb);
+        out[oi + 3] = 255;
+      }
+
+      const deckCtx = ambientDeckCanvasRef.current?.getContext?.('2d', { alpha: false });
+      if (deckCtx) deckCtx.putImageData(outImg, 0, 0);
+
+      stageEl.style.setProperty(
+        '--amb-avg',
+        `rgb(${Math.round(ar / PX_COUNT)}, ${Math.round(ag / PX_COUNT)}, ${Math.round(ab / PX_COUNT)})`
+      );
+
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [isAmbientActive, isLoungeScreen, activePlayerType, isNekoReady, currentUrl]);
 
   // Hook Neko Iframe for Fullscreen Interception and Quick Chat Focus
   const handleNekoIframeLoad = () => {
@@ -2705,35 +3380,41 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         }
       }, true);
 
-      // 5. Forward keyboard shortcuts from inside Neko
+      // 5. Forward only supported room shortcuts (Hold V, F, C) & Escape from inside Neko
       win.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
         const activeInside = doc.activeElement;
-        const isTyping = activeInside && (
-          activeInside.tagName === 'INPUT' ||
-          activeInside.tagName === 'TEXTAREA' ||
-          activeInside.isContentEditable
-        );
+        const isTyping = isTextEntryElement(activeInside) || isTextEntryElement(e.target);
 
-        // Enter opens in-video floating chat if not typing inside a webpage form in Neko
-        if (e.key === 'Enter' && !isTyping) {
-          e.preventDefault();
-          e.stopPropagation();
-          setChatOpen(true);
-          resetChatInactivityTimer();
-          setTimeout(() => {
-            if (chatInputRef.current) chatInputRef.current.focus();
-          }, 40);
-        } else if (e.key === 'Escape') {
+        if (e.key === 'Escape') {
           setChatOpen(false);
-          if (document.fullscreenElement && document.exitFullscreen) {
+          const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+          if (fsEl && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
           }
-        } else if ((e.key === 'f' || e.key === 'F') && !isTyping && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        } else if ((e.code === 'KeyF' || e.key?.toLowerCase() === 'f') && !isTyping && !e.repeat) {
           e.preventDefault();
           e.stopPropagation();
           triggerTheaterFullscreen();
+        } else if ((e.code === 'KeyC' || e.key?.toLowerCase() === 'c') && !isTyping && !e.repeat) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleToggleSideChat();
+        } else if ((e.code === 'KeyV' || e.key?.toLowerCase() === 'v') && !isTyping && !e.repeat) {
+          e.preventDefault();
+          pttHandlersRef.current?.down?.();
         }
       }, true);
+
+      win.addEventListener('keyup', (e) => {
+        if (e.code === 'KeyV' || e.key?.toLowerCase() === 'v') {
+          pttHandlersRef.current?.up?.();
+        }
+      }, true);
+
+      win.addEventListener('blur', () => {
+        pttHandlersRef.current?.up?.();
+      });
     } catch (err) {
       console.warn('handleNekoIframeLoad note:', err);
     }
@@ -2745,6 +3426,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     async function checkAndWarmNeko() {
       if (activePlayerType !== 'neko') {
         setIsNekoReady(false);
+        return;
+      }
+      if (appConfig?.modules?.neko === false) {
+        setIsNekoReady(false);
+        setNekoStatusMsg('Shared Browser (Neko) module is disabled in Admin Settings.');
         return;
       }
 
@@ -2830,43 +3516,77 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     }
   };
 
-  // Cinema Video Fullscreen (fullscreen the entire theater wrapper edge-to-edge)
-  function toggleVideoFullscreen() {
-    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  const getFullscreenEl = () => (
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement ||
+    null
+  );
+
+  const focusTheaterStage = () => {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.blur) {
+      if (isTextEntryElement(active) || active.tagName === 'BUTTON' || active.tagName === 'INPUT') {
+        active.blur();
+      }
+    }
+    try {
+      theaterWrapperRef.current?.focus({ preventScroll: true });
+    } catch { /* ignore */ }
+  };
+
+  // Cinema Video Fullscreen (hardened: no double-fire, cleans focus, webkit/ms safe + FLIP morph)
+  const toggleVideoFullscreen = useCallback(async () => {
+    const fsEl = getFullscreenEl();
     const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
-    if (!isFs) {
-      if (targetEl.requestFullscreen) {
-        targetEl.requestFullscreen().then(() => {
+    if (!fsEl) {
+      captureFsMorphSource('in');
+      try {
+        if (targetEl.requestFullscreen) {
+          try {
+            await targetEl.requestFullscreen({ navigationUI: 'hide' });
+          } catch {
+            await targetEl.requestFullscreen();
+          }
           if ('keyboard' in navigator && navigator.keyboard?.lock) {
             navigator.keyboard.lock(['Escape']).catch(() => {});
           }
-        }).catch(() => {});
-      } else if (targetEl.webkitRequestFullscreen) {
-        targetEl.webkitRequestFullscreen();
-      }
+        } else if (targetEl.webkitRequestFullscreen) {
+          targetEl.webkitRequestFullscreen();
+        } else if (targetEl.msRequestFullscreen) {
+          targetEl.msRequestFullscreen();
+        }
+      } catch { /* ignore gesture lock rejections */ }
+      focusTheaterStage();
     } else {
-      if ('keyboard' in navigator && navigator.keyboard?.unlock) {
-        navigator.keyboard.unlock();
-      }
-      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      captureFsMorphSource('out');
+      try {
+        if ('keyboard' in navigator && navigator.keyboard?.unlock) {
+          navigator.keyboard.unlock();
+        }
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+      } catch { /* ignore */ }
+      focusTheaterStage();
     }
-  }
+  }, [captureFsMorphSource]);
 
-  // Toggle Chat Sidebar cleanly (C shortcut & minimal docked trigger)
-  // If sidebar is open: closes it cleanly without exiting fullscreen
-  // If sidebar is closed: enters true cinema fullscreen on theater wrapper (if not already) and opens sidebar
+  // Toggle Chat Sidebar cleanly (hardened C shortcut: preserves fullscreen & restores stage focus on close)
   const handleToggleSideChat = useCallback(() => {
     if (isChatSidebarOpenRef.current) {
       setIsChatSidebarOpen(false);
+      setTimeout(() => focusTheaterStage(), 10);
       return;
     }
 
-    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    if (!isFs) {
+    const fsEl = getFullscreenEl();
+    if (!fsEl) {
+      captureFsMorphSource('in');
       const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
       if (targetEl.requestFullscreen) {
-        targetEl.requestFullscreen().catch(() => {});
+        targetEl.requestFullscreen({ navigationUI: 'hide' }).catch(() => targetEl.requestFullscreen?.().catch(() => {}));
       } else if (targetEl.webkitRequestFullscreen) {
         targetEl.webkitRequestFullscreen();
       }
@@ -2874,17 +3594,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     setIsChatSidebarOpen(true);
     handleMarkChatSeen();
     setUnreadChatCount(0);
-  }, [handleMarkChatSeen]);
+  }, [handleMarkChatSeen, captureFsMorphSource]);
 
+  // Unified Capture-Phase Room Shortcuts (ONLY Hold V, F, C; Escape closes popovers/chat/fullscreen)
   useEffect(() => {
     function handleGlobalKeyDown(e) {
-      const activeEl = document.activeElement;
-      const isInInput = (
-        (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) ||
-        (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))
-      );
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      // ESCAPE key logic: closes modals, GIF picker, floating chat, or exits chitchat FIRST before browser exits fullscreen!
+      const activeEl = document.activeElement;
+      const isTyping = isTextEntryElement(activeEl) || isTextEntryElement(e.target);
+
+      // Escape: close popovers/floating chat/sidechat, or blur text field first before exiting fullscreen
       if (e.key === 'Escape') {
         if (showFloatingGiphy) {
           e.preventDefault();
@@ -2895,9 +3615,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         if (chatOpen) {
           e.preventDefault();
           e.stopPropagation();
-          setChatOpen(false);
-          setChatInputText('');
-          if (activeEl && isInInput) activeEl.blur();
+          closeFloatingBubbleChat();
+          return;
+        }
+        if (isTyping && activeEl?.blur) {
+          e.preventDefault();
+          e.stopPropagation();
+          activeEl.blur();
+          focusTheaterStage();
           return;
         }
         if (showAudioPopover || showSubtitlePopover || showVoiceSettings) {
@@ -2912,13 +3637,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
           e.preventDefault();
           e.stopPropagation();
           setIsChatSidebarOpen(false);
+          focusTheaterStage();
           return;
         }
-        // If nothing else is open, exit fullscreen cleanly if currently in fullscreen
-        const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+        const fsEl = getFullscreenEl();
         if (fsEl) {
           e.preventDefault();
           e.stopPropagation();
+          captureFsMorphSource('out');
           if ('keyboard' in navigator && navigator.keyboard?.unlock) {
             navigator.keyboard.unlock();
           }
@@ -2928,64 +3654,54 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
         }
       }
 
-      if (isInInput) {
-        resetChatInactivityTimer();
+      if (isTyping) {
+        if (chatOpen) resetChatInactivityTimer();
         return;
       }
 
-      // 'c' or 'C' toggles sidechat (c to open, c to close)
-      if (e.key === 'c' || e.key === 'C') {
-        e.preventDefault();
-        handleToggleSideChat();
-        return;
-      }
+      if (e.repeat) return;
 
-      // 'f' or 'F' toggles fullscreen
-      if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        toggleVideoFullscreen();
-        return;
-      }
-
-      // Space toggles play/pause
-      if (e.key === ' ') {
-        e.preventDefault();
-        if (activePlayerType === 'youtube') {
-          try {
-            const st = ytPlayerRef.current?.getPlayerState?.();
-            if (st === 1) UnifiedPlayer.pause();
-            else UnifiedPlayer.play();
-          } catch {}
-        } else if (artInstanceRef.current) {
-          artInstanceRef.current.toggle();
+      // 'Enter' opens instant floating in-video bubble chat when sidebar is closed
+      if (e.key === 'Enter' || e.code === 'NumpadEnter') {
+        if (isInteractiveActivationElement(activeEl) || isInteractiveActivationElement(e.target)) {
+          return;
         }
-        return;
-      }
-
-      // Enter opens floating chat typing input (if sidebar is not open)
-      if (e.key === 'Enter') {
         const isSidebarActive = (isChitChatModeRef.current && !isChatCollapsedRef.current) || isChatSidebarOpenRef.current;
-        if (!isSidebarActive) {
+        if (!isSidebarActive && !chatOpen) {
           e.preventDefault();
           e.stopPropagation();
           setChatOpen(true);
           resetChatInactivityTimer();
           setTimeout(() => {
-            if (chatInputRef.current) {
-              chatInputRef.current.focus();
-            }
+            chatInputRef.current?.focus();
           }, 40);
+          return;
         }
+      }
+
+      // 'C' toggles Chat Sidebar cleanly
+      if (e.code === 'KeyC' || e.key?.toLowerCase() === 'c') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleToggleSideChat();
+        return;
+      }
+
+      // 'F' toggles Fullscreen cleanly
+      if (e.code === 'KeyF' || e.key?.toLowerCase() === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleVideoFullscreen();
         return;
       }
     }
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => {
-      window.removeEventListener('keydown', handleGlobalKeyDown);
+      window.removeEventListener('keydown', handleGlobalKeyDown, true);
       if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     };
-  }, [activePlayerType, handleToggleSideChat, showFloatingGiphy, chatOpen, showAudioPopover, showSubtitlePopover, showVoiceSettings]);
+  }, [handleToggleSideChat, toggleVideoFullscreen, captureFsMorphSource, showFloatingGiphy, chatOpen, showAudioPopover, showSubtitlePopover, showVoiceSettings]);
 
   function handleSendChat(e, gifUrl = null) {
     if (e && e.preventDefault) e.preventDefault();
@@ -2993,26 +3709,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     const text = chatInputText.trim();
     if ((!text && !gifUrl) || !socket) {
-      setTimeout(() => {
-        setChatOpen(false);
-        setShowFloatingGiphy(false);
-        setChatInputText('');
-      }, 50);
-      if (activePlayerType === 'neko') {
-        setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
-      }
+      closeFloatingBubbleChat();
       return;
     }
 
+    if (renderFloatingChat) setIsFloatingChatClosing(true);
     socket.emit('chat:send_message', { text, image: gifUrl || null });
-    setTimeout(() => {
-      setChatInputText('');
-      setChatOpen(false);
-      setShowFloatingGiphy(false);
-      if (activePlayerType === 'neko') {
-        setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
-      }
-    }, 80);
+    setChatInputText('');
+    setChatOpen(false);
+    setShowFloatingGiphy(false);
+    if (activePlayerType === 'neko') {
+      setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
+    } else {
+      setTimeout(() => focusTheaterStage(), 50);
+    }
   }
 
   async function handlePlayNow() {
@@ -3071,156 +3781,121 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     if (isSidebarActive) return null;
 
     const overlay = (
-      <div
-        className="floating-chat-overlay"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          bottom: (isTheaterFullscreen || activePlayerType === 'neko') ? (chatOpen ? '72px' : '64px') : '72px'
-        }}
-      >
-        <div className="floating-chat-bubbles-stack">
-          {recentMessages.map((m) => (
-            m.image ? (
+          <div className="floating-chat-overlay" onClick={(e) => e.stopPropagation()}>
+            {recentMessages.length > 0 && (
+              <div className="floating-chat-bubbles-stack">
+                {recentMessages.map((m) => (
+                  <div key={m.id} className={`fc-row-slot ${m.fading ? 'fading' : ''}`}>
+                    <div className="fc-row-slot-inner">
+                      {m.image ? (
+                        <div
+                          className="floating-chat-media-card"
+                          onClick={() => {
+                            setIsChatSidebarOpen(true);
+                            setUnreadChatCount(0);
+                          }}
+                          title="Click to view full chat history in sidebar"
+                        >
+                          <div className="fc-media-head">
+                            <span className="fc-av">
+                              <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={22} showBorder={false} />
+                            </span>
+                            <span className="fc-sender">{m.sender}</span>
+                          </div>
+                          <img src={m.image} alt="GIF" className="floating-chat-media-img" />
+                        </div>
+                      ) : (
+                        <div
+                          className="floating-chat-pill"
+                          onClick={() => {
+                            setIsChatSidebarOpen(true);
+                            setUnreadChatCount(0);
+                          }}
+                          title="Click to view full chat history in sidebar"
+                        >
+                          <span className="fc-av">
+                            <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={24} showBorder={false} />
+                          </span>
+                          <span className="fc-sender">{m.sender}:</span>
+                          <span className="fc-text">{m.text}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showFloatingGiphy && chatOpen && (
               <div
-                key={m.id}
-                className={`floating-chat-media-card ${m.fading ? 'fading' : ''}`}
-                onClick={() => {
-                  setIsChatSidebarOpen(true);
-                  setUnreadChatCount(0);
-                }}
-                title="Click to view full chat history in sidebar"
-                style={{ cursor: 'pointer' }}
+                style={{ position: 'absolute', bottom: '48px', left: 0, width: '310px', pointerEvents: 'auto', zIndex: 1002 }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
-                  <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontSize: '0.78rem' }}>
-                    {m.sender}
-                  </span>
-                </div>
-                <img
-                  src={m.image}
-                  alt="GIF"
-                  className="floating-chat-media-img"
+                <GiphyPicker
+                  onSelectGif={(gifUrl) => {
+                    handleSendChat(null, gifUrl);
+                    setShowFloatingGiphy(false);
+                  }}
+                  onClose={() => setShowFloatingGiphy(false)}
+                  isDarkTheme={true}
                 />
               </div>
-            ) : (
-              <div
-                key={m.id}
-                className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
-                onClick={() => {
-                  setIsChatSidebarOpen(true);
-                  setUnreadChatCount(0);
-                }}
-                title="Click to view full chat history in sidebar"
-                style={{ cursor: 'pointer' }}
-              >
-                <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
-                <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
-                  {m.sender}:
-                </span>
-                <span>{m.text}</span>
-              </div>
-            )
-          ))}
-        </div>
+            )}
 
-        {/* Floating In-Video GIPHY Picker popup */}
-        {showFloatingGiphy && chatOpen && (
-          <div
-            style={{ width: '310px', marginBottom: '8px', pointerEvents: 'auto', zIndex: 1002 }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GiphyPicker
-              onSelectGif={(gifUrl) => {
-                handleSendChat(null, gifUrl);
-                setShowFloatingGiphy(false);
-              }}
-              onClose={() => setShowFloatingGiphy(false)}
-              isDarkTheme={true}
-            />
+            {renderFloatingChat && (
+              <form onSubmit={handleSendChat} className={`wfb-p3 ${isFloatingChatClosing ? 'is-closing' : ''}`}>
+                <UserAvatar user={currentProfile} size={26} showBorder={false} />
+                <button
+                  type="button"
+                  className={`wfb-gif-pill ${showFloatingGiphy ? 'active' : ''}`}
+                  onClick={() => setShowFloatingGiphy((prev) => !prev)}
+                  title="Send GIF"
+                >
+                  GIF
+                </button>
+                <div className="wfb-emoji-rack" title="Top 3 side-chat reactions">
+                  {quickBubbleEmojis.map((em) => (
+                    <button key={em} type="button" className="wfb-emoji-chip" onClick={() => handleFloatingEmojiTap(em)} title={`React ${em}`}>
+                      {em}
+                    </button>
+                  ))}
+                </div>
+                <span className="wfb-divider" />
+                <input
+                  ref={chatInputRef}
+                  type="text"
+                  value={chatInputText}
+                  onChange={(e) => {
+                    setChatInputText(e.target.value);
+                    resetChatInactivityTimer();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeFloatingBubbleChat();
+                    }
+                  }}
+                  placeholder="Message room..."
+                  className="floating-chat-input"
+                  autoFocus
+                />
+                <div className="wfb-actions">
+                  <button
+                    type="submit"
+                    className={`wfb-send ${chatInputText.trim() ? 'ready' : ''}`}
+                    title={chatInputText.trim() ? 'Send (Enter)' : 'Close (Enter)'}
+                  >
+                    <Send size={13} />
+                  </button>
+                  <button type="button" className="wfb-close" onClick={closeFloatingBubbleChat} title="Close (Esc)">
+                    <X size={13} />
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-        )}
-
-        {chatOpen && (
-          <form onSubmit={handleSendChat} className="floating-glass-chat-bar">
-            <UserAvatar user={currentProfile} size={24} showBorder={true} />
-
-            {/* Quick GIF Button */}
-            <button
-              type="button"
-              onClick={() => setShowFloatingGiphy((prev) => !prev)}
-              style={{
-                background: showFloatingGiphy ? 'linear-gradient(135deg, #ec4899, #db2777)' : 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(244, 114, 182, 0.35)',
-                borderRadius: '6px',
-                padding: '2px 5px',
-                cursor: 'pointer',
-                lineHeight: 1
-              }}
-              title="Send GIF"
-            >
-              <span style={{ fontSize: '0.62rem', fontWeight: 900, color: showFloatingGiphy ? '#ffffff' : '#f472b6' }}>
-                GIF
-              </span>
-            </button>
-
-            {/* Quick Emoji Reactions */}
-            {['❤️', '😂', '🍿'].map((em) => (
-              <button
-                key={em}
-                type="button"
-                onClick={() => setChatInputText((prev) => prev + em)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.92rem', padding: '1px 2px', lineHeight: 1 }}
-                title={`Insert ${em}`}
-              >
-                {em}
-              </button>
-            ))}
-
-            <input
-              ref={chatInputRef}
-              type="text"
-              value={chatInputText}
-              onChange={(e) => {
-                setChatInputText(e.target.value);
-                resetChatInactivityTimer();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setChatOpen(false);
-                  setShowFloatingGiphy(false);
-                  setChatInputText('');
-                  chatInputRef.current?.blur();
-                }
-              }}
-              placeholder={`Chat with ${currentProfile.name === 'Het' ? 'Ria' : 'Het'}... (Enter to send, Esc to close)`}
-              className="floating-chat-input"
-              autoFocus
-            />
-            <button type="submit" className="floating-chat-send-btn" title="Send (Enter)">
-              <Send size={13} />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setChatOpen(false);
-                setShowFloatingGiphy(false);
-                setChatInputText('');
-                if (activePlayerType === 'neko') {
-                  setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
-                }
-              }}
-              className="floating-chat-close-btn"
-              title="Close (Esc)"
-            >
-              <X size={14} />
-            </button>
-          </form>
-        )}
-      </div>
     );
 
     return overlay;
@@ -3666,478 +4341,176 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
     );
 
     const popover = (
-      <div
-        className="pouf-popover-shell"
-        style={{
-          position: 'absolute',
-          bottom: 'calc(100% + 10px)',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '310px',
-          maxHeight: '380px',
-          overflowY: 'auto',
-          background: 'rgba(15, 10, 22, 0.98)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          border: '1.5px solid rgba(244, 114, 182, 0.35)',
-          borderRadius: '16px',
-          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.95), 0 0 25px rgba(244, 114, 182, 0.18)',
-          padding: '12px 14px',
-          zIndex: 1000,
-          color: '#fff',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 800, fontSize: '0.88rem', color: '#fbcfe8' }}>
-            <Headphones size={15} color="var(--pink-primary)" />
-            <span>Voice Controls</span>
-          </div>
-          <button
-            onClick={() => setShowVoiceSettings(false)}
-            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '2px', display: 'flex' }}
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        {/* Mini Tab Switcher */}
-        <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '2px', gap: '3px' }}>
-          <button
-            type="button"
-            onClick={() => setVoiceSettingsTab('mic')}
-            style={{
-              flex: 1,
-              padding: '5px 0',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '0.74rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: voiceSettingsTab === 'mic' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
-              color: voiceSettingsTab === 'mic' ? '#ffffff' : '#9ca3af',
-              transition: 'all 0.18s ease'
-            }}
-          >
-            My Mic
-          </button>
-          <button
-            type="button"
-            onClick={() => setVoiceSettingsTab('peers')}
-            style={{
-              flex: 1,
-              padding: '5px 0',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '0.74rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: voiceSettingsTab === 'peers' ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'transparent',
-              color: voiceSettingsTab === 'peers' ? '#ffffff' : '#9ca3af',
-              transition: 'all 0.18s ease'
-            }}
-          >
-            Room Voice ({otherPeers.length})
-          </button>
-        </div>
-
-        {voiceSettingsTab === 'mic' ? (
-          <>
-            {/* Microphone Sourcing List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#fbcfe8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Active Mic
-                </span>
-                <button
-                  type="button"
-                  onClick={refreshMediaDevices}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--pink-primary)',
-                    fontSize: '0.68rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px'
-                  }}
-                  title="Rescan microphones"
-                >
-                  <RotateCcw size={10} /> Rescan
+          <div className="voice-studio-deck" onClick={(e) => e.stopPropagation()}>
+            <div className="vs-head">
+              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
+                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
+                  <span>My Mic</span>
+                </button>
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
+                  <span>Member Mics ({otherPeers.length})</span>
                 </button>
               </div>
+              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
+                <X size={13} />
+              </button>
+            </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '110px', overflowY: 'auto' }}>
-                {audioInputDevices.length === 0 ? (
-                  <div style={{ fontSize: '0.76rem', color: '#9ca3af', padding: '6px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px' }}>
-                    Default System Mic
+            {voiceSettingsTab === 'mic' ? (
+              <div className="vs-cols">
+                <div className="vs-col">
+                  <div className="vs-sec-head">
+                    <span>Microphone ({audioInputDevices.length || 1})</span>
+                    <button type="button" onClick={refreshMediaDevices} className="vs-rescan">
+                      <RotateCcw size={10} /> Rescan
+                    </button>
+                  </div>
+                  <div className="vs-mic-list">
+                    {audioInputDevices.length === 0 ? (
+                      <div style={{ fontSize: '0.71rem', opacity: 0.78, padding: '6px' }}>Default System Mic</div>
+                    ) : (
+                      audioInputDevices.map((dev, idx) => {
+                        const isSelected = dev.deviceId === selectedAudioInput;
+                        return (
+                          <button
+                            key={dev.deviceId || idx}
+                            type="button"
+                            onClick={() => switchAudioInput(dev.deviceId)}
+                            className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
+                            {isSelected && <Check size={12} color="#f472b6" style={{ flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="vs-action-pair">
+                    <button
+                      type="button"
+                      onClick={handleEchoCancellationToggle}
+                      className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}
+                      title={isEchoCancellationEnabled ? 'Echo Cancellation: On (Speaker safe)' : 'Echo Cancellation: Off (Headphones mode)'}
+                    >
+                      <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
+                    </button>
+                    {isVoiceConnected ? (
+                      <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
+                        <MicOff size={12} /> <span>Disconnect</span>
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
+                        <Mic size={12} /> <span>Connect</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="vs-col vs-col-right">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div className="vs-sec-head">
+                      <span>Suppression</span>
+                      <span className="vs-stat-pill" style={{ color: '#f9a8d4' }}>{noiseSuppressionMode.toUpperCase()}</span>
+                    </div>
+                    <div className="vs-seg3">
+                      {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
+                        <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
+                          {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <div className="vs-sec-head">
+                      <span>Noise Gate</span>
+                      <span className="vs-stat-pill" style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f9a8d4' }}>
+                        {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                      </span>
+                    </div>
+                    <div className="vs-meter">
+                      <div
+                        className="vs-meter-fill"
+                        style={{
+                          width: `${Math.min(100, micLevel)}%`,
+                          background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
+                        }}
+                      />
+                      {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
+                    </div>
+                    <input
+                      type="range" min="0" max="100" step="5" value={noiseIntensity}
+                      aria-label="Noise Gate threshold"
+                      className="vs-range"
+                      style={{ '--pct': `${noiseIntensity}%` }}
+                      onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <div className="vs-sec-head">
+                      <span>Mic Sensitivity</span>
+                      <span className="vs-stat-pill" style={{ color: '#f9a8d4' }}>
+                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="50" max="200" step="5" value={micGain}
+                      aria-label="Mic Sensitivity"
+                      className="vs-range"
+                      style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }}
+                      onChange={(e) => handleMicGainChange(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="vs-peers">
+                {otherPeers.length === 0 ? (
+                  <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.78)' }}>
+                    No other members connected in voice yet
                   </div>
                 ) : (
-                  audioInputDevices.map((dev, idx) => {
-                    const isSelected = dev.deviceId === selectedAudioInput;
-                    const cleanLabel = dev.label || `Mic ${idx + 1}`;
+                  otherPeers.map((user) => {
+                    const pId = user.id || user.peerId || user.socketId;
+                    const peerVol = peerVolumes.get(pId) ?? 100;
+                    const isPeerMuted = peerVol === 0;
                     return (
-                      <div
-                        key={dev.deviceId || idx}
-                        onClick={() => switchAudioInput(dev.deviceId)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          background: isSelected ? 'rgba(236, 72, 153, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                          border: isSelected ? '1px solid rgba(236, 72, 153, 0.45)' : '1px solid transparent',
-                          fontSize: '0.76rem',
-                          color: isSelected ? '#ffffff' : '#d1d5db'
-                        }}
-                      >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }}>
-                          {cleanLabel}
-                        </span>
-                        {isSelected && <Check size={13} color="#f472b6" />}
+                      <div key={pId || user.username} className="vs-peer-row">
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
+                        <span style={{ fontSize: '0.73rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
+                        <input
+                          type="range" min="0" max="200" step="5" value={peerVol}
+                          onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                          className="vs-range"
+                          style={{ width: '104px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
+                        />
+                        <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
+                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} className="vs-peer-mute" title={isPeerMuted ? 'Unmute member' : 'Mute member'}>
+                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                        </button>
                       </div>
                     );
                   })
                 )}
               </div>
-            </div>
-
-            {/* Multi-Engine Noise Cancellation (Deep AI vs Speex DSP vs Raw) */}
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(244, 114, 182, 0.18)',
-              borderRadius: '10px',
-              padding: '8px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
-                  Suppression Engine
-                </span>
-                <span style={{ fontSize: '0.64rem', color: '#f472b6', fontWeight: 700 }}>
-                  {noiseSuppressionMode === 'rnnoise' ? 'AI Neural' : noiseSuppressionMode === 'speex' ? 'DSP Filter' : 'Raw Bypass'}
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                {[
-                  { id: 'rnnoise', label: 'AI Neural', desc: 'RNNoise' },
-                  { id: 'speex', label: 'Acoustic', desc: 'Speex DSP' },
-                  { id: 'raw', label: 'Studio Raw', desc: 'Bypass' }
-                ].map((mode) => {
-                  const isAct = noiseSuppressionMode === mode.id;
-                  return (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => handleNoiseModeChange(mode.id)}
-                      style={{
-                        padding: '5px 2px',
-                        borderRadius: '7px',
-                        border: isAct ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.08)',
-                        background: isAct ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.35), rgba(219, 39, 119, 0.25))' : 'rgba(255, 255, 255, 0.04)',
-                        color: isAct ? '#ffffff' : '#9ca3af',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        lineHeight: 1.15,
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.68rem', fontWeight: isAct ? 800 : 600 }}>{mode.label}</span>
-                      <span style={{ fontSize: '0.58rem', opacity: 0.75 }}>{mode.desc}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
-                {noiseSuppressionMode === 'rnnoise'
-                  ? 'Deep RNN suppresses background fans, keyboard clicks & TV noise.'
-                  : noiseSuppressionMode === 'speex'
-                  ? 'Fast acoustic DSP noise suppression with ultra-low latency.'
-                  : 'Bypasses AI/DSP noise suppression for uncolored studio audio.'}
-              </div>
-            </div>
-
-            {/* Studio Noise Gate & Intensity */}
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(244, 114, 182, 0.18)',
-              borderRadius: '10px',
-              padding: '8px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
-                  Noise Gate
-                </span>
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: isNoiseGateOpen ? '#34d399' : '#f472b6' }}>
-                  {noiseIntensity === 0 ? 'Off (Open)' : isNoiseGateOpen ? 'Open' : 'Gated'}
-                </span>
-              </div>
-
-              {/* Live VU meter */}
-              <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '9999px', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, micLevel)}%`,
-                    background: isNoiseGateOpen ? '#34d399' : '#ec4899',
-                    transition: 'width 0.06s ease'
-                  }}
-                />
-              </div>
-
-              {/* Slider */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={noiseIntensity}
-                  onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f472b6', minWidth: '32px', textAlign: 'right' }}>
-                  {noiseIntensity}%
-                </span>
-              </div>
-              <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
-                {noiseIntensity === 0 ? 'Gate is off: 100% full speech transmission' : 'Silences room rumble & fan noise between words'}
-              </div>
-            </div>
-
-            {/* Mic Input Gain / Sensitivity Boost */}
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(244, 114, 182, 0.18)',
-              borderRadius: '10px',
-              padding: '8px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.70rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#fbcfe8' }}>
-                  Mic Sensitivity
-                </span>
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f472b6' }}>
-                  {micGain}%
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="range"
-                  min="50"
-                  max="200"
-                  step="5"
-                  value={micGain}
-                  onChange={(e) => handleMicGainChange(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                />
-              </div>
-              <div style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
-                {micGain > 100 ? 'Boosts quiet microphones before WebRTC transmission' : 'Normal sensitivity level'}
-              </div>
-            </div>
-
-            {/* Echo Cancellation Mode Toggle */}
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(244, 114, 182, 0.18)',
-              borderRadius: '10px',
-              padding: '8px 10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '6px'
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f1f5f9' }}>
-                  Echo Cancellation
-                </span>
-                <span style={{ fontSize: '0.64rem', color: '#9ca3af' }}>
-                  {isEchoCancellationEnabled ? 'On (Safe for Speakers)' : 'Off (Studio Mode for Headphones)'}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleEchoCancellationToggle}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '9999px',
-                  border: isEchoCancellationEnabled ? '1px solid rgba(236, 72, 153, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
-                  background: isEchoCancellationEnabled ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)' : 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  fontSize: '0.70rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                {isEchoCancellationEnabled ? 'Enabled' : 'Disabled'}
-              </button>
-            </div>
-
-            {/* Mic Toggle Button */}
-            {isVoiceConnected ? (
-              <button
-                onClick={leaveVoiceChat}
-                style={{
-                  padding: '7px',
-                  borderRadius: '8px',
-                  background: 'rgba(239, 68, 68, 0.2)',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
-                  color: '#fca5a5',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '0.76rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-              >
-                <MicOff size={13} color="#fca5a5" />
-                <span>Disconnect Mic</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => startMicrophone()}
-                style={{
-                  padding: '7px',
-                  borderRadius: '8px',
-                  background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '0.76rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)'
-                }}
-              >
-                <Mic size={13} color="#ffffff" />
-                <span>Connect Mic</span>
-              </button>
-            )}
-          </>
-        ) : (
-          /* Tab 2: Discord-Style Per-Peer Volume Controls */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-            {otherPeers.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '0.78rem', padding: '16px 8px' }}>
-                No other members in room
-              </div>
-            ) : (
-              otherPeers.map((user) => {
-                const pId = user.id || user.peerId || user.socketId;
-                const peerVol = peerVolumes.get(pId) ?? 100;
-                const isMuted = peerVol === 0;
-
-                return (
-                  <div
-                    key={pId || user.username}
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.04)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '10px',
-                      padding: '8px 10px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px'
-                    }}
-                  >
-                    {/* User Info Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
-                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fce7f3' }}>
-                          {user.username || user.name || 'Friend'}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span
-                          style={{
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            color: peerVol > 100 ? '#f59e0b' : '#34d399',
-                            fontFamily: 'monospace'
-                          }}
-                        >
-                          {peerVol}% {peerVol > 100 ? '⚡' : ''}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handlePeerVolume(pId, isMuted ? 100 : 0)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: '2px',
-                            color: isMuted ? '#f87171' : '#f472b6',
-                            display: 'flex'
-                          }}
-                          title={isMuted ? 'Unmute' : 'Mute'}
-                        >
-                          {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Discord-Style Volume Slider (0% - 200% Boost) */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="range"
-                        min="0"
-                        max="200"
-                        step="5"
-                        value={peerVol}
-                        onChange={(e) => handlePeerVolume(pId, e.target.value)}
-                        style={{
-                          flex: 1,
-                          accentColor: peerVol > 100 ? '#f59e0b' : '#ec4899',
-                          height: '4px',
-                          cursor: 'pointer'
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
             )}
           </div>
-        )}
-      </div>
     );
 
     return popover;
   }
 
   return (
-    <div ref={theaterWrapperRef} className={`theater-view-wrapper ${isChatSidebarOpen ? 'chat-expanded' : ''}`}>
+    <div ref={theaterWrapperRef} tabIndex={-1} style={{ outline: 'none' }} className={`theater-view-wrapper ${isChatSidebarOpen ? 'chat-expanded' : ''}`}>
+      {/* Non-scaling Cinema Transition Curtain for smooth native Fullscreen enter/exit */}
+      <div ref={fsCurtainRef} className="wt-fs-curtain" aria-hidden="true" />
       {/* Hidden WebRTC Remote Audio Hub */}
       <div id="wt-remote-audio-hub" style={{ display: 'none' }} aria-hidden="true" />
 
       {/* Left Column: Video Stage + Bottom Control Deck */}
-      <div className="theater-stage-column">
+      <div className="theater-stage-column" data-ambient={isAmbientActive ? 'on' : 'off'}>
       {/* Video Canvas */}
       <div
         ref={theaterCanvasRef}
@@ -4323,7 +4696,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                   ref={nekoIframeRef}
                   onLoad={handleNekoIframeLoad}
                   key={nekoIframeKey}
-                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=${(currentProfile?.role === 'admin' || currentProfile?.name?.toLowerCase() === 'het' || currentProfile?.name?.toLowerCase() === 'ria' || currentProfile?.name?.toLowerCase() === 'riaa') ? 'admin' : 'neko'}&embed=1`}
+                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.name || 'Viewer')}&pwd=${currentProfile?.role === 'admin' ? 'admin' : 'neko'}&embed=1`}
                   title="Shared Virtual Browser (Neko)"
                   allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
                   style={{
@@ -4542,140 +4915,104 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       </div>
 
       {/* Glittering Pink Theater Control Deck (Bottom bar) */}
-      <div className="theater-deck">
-        <div className="theater-deck-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Group 1: Media & Sync Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {/* Main Force Sync Button */}
+      <div ref={theaterDeckRef} className="theater-deck" data-ambient={isAmbientActive ? 'on' : 'off'}>
+        <div className="amb-blur-backdrop" aria-hidden="true">
+          <canvas ref={ambientDeckCanvasRef} width={64} height={1} className="amb-blur-canvas" />
+        </div>
+        <div className="amb-row">
+          <div className="amb-dock-group">
             <button
               onClick={handleForceSync}
-              className="btn-gold-shimmer"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '0.48rem 1.05rem',
-                fontSize: '0.82rem',
-                fontWeight: 800
-              }}
+              className="btn-gold-shimmer amb-sync-cta"
               title="Snap both users to exact timestamp"
             >
-              <ClaySparkle size={17} />
+              <ClaySparkle size={15} />
               <span>Sync Both</span>
             </button>
-
-            {/* Choose / Change Media */}
             <button
               onClick={() => setCreateModalOpen(true)}
-              className="btn-pink-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.92rem', fontSize: '0.80rem' }}
+              className="btn-pink-secondary amb-btn-sm"
             >
-              <ClayPopcorn size={16} />
+              <ClayPopcorn size={15} />
               <span>Change Media</span>
             </button>
-
-            {/* Media Library */}
             <button
               onClick={openLibrary}
-              className="btn-pink-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.90rem', fontSize: '0.80rem' }}
+              className="btn-pink-secondary amb-btn-sm"
             >
-              <ClayFolder size={16} />
+              <ClayFolder size={15} />
               <span>Library</span>
             </button>
           </div>
 
-          {/* Group 2: Unified Voice & Hardware Dock */}
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '12px', border: '1px solid rgba(244, 114, 182, 0.22)', padding: '2px', backdropFilter: 'blur(12px)' }}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMicButtonClick();
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '0.46rem 0.85rem',
-                fontSize: '0.80rem',
-                fontWeight: 700,
-                borderRadius: '10px',
-                cursor: 'pointer',
-                border: 'none',
-                background: !isVoiceConnected
-                  ? 'transparent'
-                  : isLocalSpeaking && !isMuted
-                    ? 'rgba(236, 72, 153, 0.35)'
-                    : isMuted
-                      ? 'rgba(239, 68, 68, 0.22)'
-                      : 'rgba(236, 72, 153, 0.2)',
-                color: !isVoiceConnected ? '#cbd5e1' : (isMuted ? '#fca5a5' : '#ffffff'),
-                transition: 'all 0.2s ease'
-              }}
-              title={!isVoiceConnected ? "Turn Mic On (Press 'M')" : (isMuted ? "Unmute Mic (M)" : "Mute Mic (M)")}
-            >
-              {!isVoiceConnected ? (
-                <>
-                  <Mic size={14} color="#f472b6" />
-                  <span>Mic Off</span>
-                </>
-              ) : isMuted ? (
-                <>
-                  <MicOff size={14} color="#ef4444" />
-                  <span>Muted</span>
-                </>
-              ) : (
-                <>
-                  <Mic size={14} color="#34d399" />
-                  <span>Live</span>
-                </>
-              )}
-            </button>
-
-            <div style={{ width: '1px', height: '18px', background: 'rgba(255, 255, 255, 0.12)', margin: '0 2px' }} />
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowVoiceSettings((prev) => {
-                  const next = !prev;
-                  if (next) refreshMediaDevices();
-                  return next;
-                });
-                setShowSubtitlePopover(false);
-                setShowAudioPopover(false);
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '0.46rem 0.75rem',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                borderRadius: '10px',
-                border: 'none',
-                background: showVoiceSettings ? 'rgba(244, 114, 182, 0.25)' : 'transparent',
-                color: '#fbcfe8',
-                cursor: 'pointer',
-                maxWidth: '180px',
-                transition: 'all 0.2s ease'
-              }}
-              title="Voice & Audio Settings"
-            >
-              <Sliders size={13} color="var(--pink-primary)" />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
-              </span>
-              <ChevronDown size={12} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
-            </button>
-
-            {/* Docked Microphone Settings Popover directly above button */}
-            {renderVoiceSettingsPopover()}
+          <div className="amb-dock-group">
+            <div className="amb-voice-dock">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMicButtonClick();
+                }}
+                className="amb-voice-btn"
+                style={{
+                  background: !isVoiceConnected
+                    ? undefined
+                    : isLocalSpeaking && !isMuted
+                      ? 'rgba(236, 72, 153, 0.38)'
+                      : isMuted
+                        ? 'rgba(239, 68, 68, 0.26)'
+                        : 'rgba(236, 72, 153, 0.24)',
+                  color: !isVoiceConnected ? '#fff5fa' : (isMuted ? '#fca5a5' : '#ffffff')
+                }}
+                title={!isVoiceConnected ? "Turn Mic On (Hold V for Push-to-Talk)" : (isMuted ? "Unmute Mic (Hold V for Push-to-Talk)" : "Mute Mic")}
+              >
+                {!isVoiceConnected ? (
+                  <>
+                    <Mic size={13} color="#f472b6" />
+                    <span>Mic Off</span>
+                  </>
+                ) : isMuted ? (
+                  <>
+                    <MicOff size={13} color="#ef4444" />
+                    <span>Muted</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={13} color="#34d399" />
+                    <span>Live</span>
+                  </>
+                )}
+              </button>
+              <div className="amb-dock-divider" />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowVoiceSettings((prev) => {
+                    const next = !prev;
+                    if (next) refreshMediaDevices();
+                    return next;
+                  });
+                  setShowSubtitlePopover(false);
+                  setShowAudioPopover(false);
+                }}
+                className="amb-voice-btn"
+                style={{
+                  background: showVoiceSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
+                  color: '#fff5fa',
+                  maxWidth: '150px'
+                }}
+                title="Voice & Audio Settings"
+              >
+                <Sliders size={12} color="var(--pink-primary)" />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
+                </span>
+                <ChevronDown size={11} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
+              </button>
+              {renderVoiceSettingsPopover()}
+            </div>
           </div>
 
-          {/* Group 3: Lounge Social & Viewport Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {/* Hidden File Input for External Subtitle Upload from Player Settings */}
+          <div className="amb-dock-group">
             <input
               ref={subtitleFileInputRef}
               type="file"
@@ -4684,58 +5021,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
               onChange={handleCustomSubtitleUpload}
             />
 
-            {/* CHIT CHAT MODE TOGGLE BUTTON */}
-            <button
-              onClick={handleToggleSideChat}
-              className={isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '0.48rem 0.95rem',
-                fontSize: '0.80rem',
-                position: 'relative'
-              }}
-              title="Toggle Chit Chat Split Screen (Shortcut: C)"
-            >
-              <ClayChat size={16} />
-              <span>Chit Chat Mode</span>
-              {unreadChatCount > 0 && !isChatSidebarOpen && (
-                <span className="clay-unread-badge" style={{ marginLeft: '4px' }}>
-                  {unreadChatCount}
-                </span>
-              )}
-            </button>
-
-            {/* SINGLE Theater Fullscreen Button (Clean & Aesthetic) */}
-            <button
-              onClick={toggleVideoFullscreen}
-              className="btn-pink-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 0.90rem', fontSize: '0.80rem' }}
-              title="Toggle Fullscreen (Shortcut: F)"
-            >
-              <Maximize size={14} color="var(--pink-primary)" />
-              <span>Fullscreen</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Deck Bottom Status Bar - Voice Presence Only (Removed duplicate bottom title text) */}
-        <div className="theater-deck-between" style={{ marginTop: '2px', justifyContent: 'flex-end' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            {/* Live Voice Indicator and Connected Peers */}
             {isVoiceConnected && (
               <span
                 onClick={() => setShowVoiceSettings(true)}
+                className="amb-status-pill"
                 style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '3px 10px',
-                  borderRadius: '999px',
-                  background: isMuted ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.14)',
+                  background: isMuted ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)',
                   border: isMuted ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(16, 185, 129, 0.35)',
                   color: isMuted ? '#f87171' : 'var(--emerald-accent)',
                   cursor: 'pointer'
@@ -4743,61 +5034,97 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
                 title="Click to open Voice Hardware Settings"
               >
                 <span className="status-dot" style={{ background: isMuted ? '#ef4444' : 'var(--emerald-accent)' }}></span>
-                <span>{isMuted ? 'Voice Muted (M)' : 'Studio Voice (128k)'}</span>
+                <span className="amb-status-text">{isMuted ? 'Muted' : 'Voice'}</span>
               </span>
             )}
 
-            {/* Remote Peer Voice Status */}
             {Array.from(remotePeers.entries()).map(([pId, p]) => (
               <span
                 key={pId}
+                className="amb-status-pill"
                 style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '3px 9px',
-                  borderRadius: '999px',
                   background: p.isSpeaking ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255, 255, 255, 0.08)',
-                  border: p.isSpeaking ? `1px solid ${p.color || '#10b981'}` : '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#fff',
-                  boxShadow: p.isSpeaking ? `0 0 10px ${p.color || '#10b981'}` : undefined
+                  border: p.isSpeaking ? `1px solid ${p.color || '#10b981'}` : '1px solid rgba(255, 255, 255, 0.14)',
+                  color: '#fff'
                 }}
                 title={p.isSpeaking ? `${p.username} is speaking` : `${p.username} in voice`}
               >
-                <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={16} showBorder={false} />
-                <span>{p.username}</span>
-                {p.isMuted ? <MicOff size={11} color="#f87171" /> : p.isSpeaking ? <Radio size={11} color="#10b981" /> : <Mic size={11} color="#9ca3af" />}
+                <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
+                <span className="amb-status-text">{p.username}</span>
+                {p.isMuted ? <MicOff size={10} color="#f87171" /> : p.isSpeaking ? <Radio size={10} color="#10b981" /> : <Mic size={10} color="#fbcfe8" />}
               </span>
             ))}
 
-            <span style={{
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '3px 10px',
-              borderRadius: '999px',
-              background: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid rgba(16, 185, 129, 0.35)',
-              color: 'var(--emerald-accent)'
-            }}>
+            <span
+              className="amb-status-pill"
+              style={{
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.34)',
+                color: 'var(--emerald-accent)'
+              }}
+              title={syncStatus}
+            >
               <span className="status-dot" style={{ background: 'var(--emerald-accent)' }}></span>
-              <span>{syncStatus}</span>
+              <span className="amb-status-text">{syncStatus}</span>
             </span>
+
+            <div className="amb-dock-divider" />
+
+            <button
+              onClick={handleToggleSideChat}
+              className={`${isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'} amb-btn-sm`}
+              style={{ position: 'relative' }}
+              title="Toggle Chit Chat Split Screen (Shortcut: C)"
+            >
+              <ClayChat size={15} />
+              <span>Chit Chat</span>
+              {unreadChatCount > 0 && !isChatSidebarOpen && (
+                <span className="clay-unread-badge" style={{ marginLeft: '2px' }}>
+                  {unreadChatCount}
+                </span>
+              )}
+            </button>
+
+            {isLoungeScreen && (
+              <button
+                type="button"
+                aria-pressed={ambientEnabled}
+                aria-label="Toggle Ambient Glow"
+                data-active={ambientEnabled ? 'true' : 'false'}
+                onClick={toggleAmbientMode}
+                className="amb-icon-keycap"
+                title={ambientEnabled ? 'Ambient Glow: On' : 'Ambient Glow: Off'}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="4" y="6" width="16" height="12" rx="3" fill={ambientEnabled ? 'currentColor' : 'none'} fillOpacity={ambientEnabled ? '0.24' : '0'} />
+                  <path d="M8 2.75h8M8 21.25h8M1.75 9.5v5M22.25 9.5v5" />
+                </svg>
+              </button>
+            )}
+
+            <button
+              onClick={toggleVideoFullscreen}
+              className="btn-pink-secondary amb-btn-sm"
+              title="Toggle Fullscreen (Shortcut: F)"
+            >
+              <Maximize size={13} color="var(--pink-primary)" />
+              <span>Fullscreen</span>
+            </button>
           </div>
         </div>
       </div>
       </div>
 
       {/* Dedicated Split-Screen Chat Sidebar in ALL scenarios */}
-      {isChatSidebarOpen && (
-        <div className="theater-chat-sidebar-container">
+      {renderChatSidebar && (
+        <div className={`theater-chat-sidebar-container ${isChatClosing ? 'is-closing' : 'is-open'}`}>
           <ChatSidebar
             isOpen={true}
-            onClose={() => setIsChatSidebarOpen(false)}
+            isClosing={isChatClosing}
+            onClose={() => {
+              setIsChatSidebarOpen(false);
+              setTimeout(() => focusTheaterStage(), 10);
+            }}
             messages={chatMessages}
             onSendMessage={(text, image) => {
               socket?.emit('chat:send_message', { text, image, isDanmaku: true });
@@ -4827,7 +5154,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '360px', overflowY: 'auto' }}>
               {libraryFiles.length === 0 ? (
                 <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.85rem' }}>
-                  No media files in server storage. Het can download MKVs or episodes via Server Downloader!
+                  No media files in server storage. Admins can download MKVs or episodes via Server Downloader!
                 </div>
               ) : (
                 libraryFiles.map((f) => (
@@ -4863,6 +5190,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, initialMedia, i
       <CreateRoomModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
+        appConfig={appConfig}
         onLaunchMedia={(mediaConfig) => {
           socket?.emit('media:change', {
             url: mediaConfig.url,

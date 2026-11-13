@@ -5,7 +5,6 @@ import {
   ClayFolderPlus,
   ClayTv,
   ClayPopcorn,
-  ClayPlay,
   ClaySearch,
   ClayRefresh,
   ClayUpload,
@@ -14,11 +13,9 @@ import {
   ClayMove,
   ClayClose,
   ClayCheck,
-  ClayArrow,
-  ClayHeadphones,
-  ClaySubtitles
+  ClayArrow
 } from './ClayIcons';
-import { LayoutGrid, List, AlertTriangle, HardDrive, Filter, X, Check } from 'lucide-react';
+import { LayoutGrid, List, AlertTriangle, HardDrive, Filter, X, Check, FolderOpen, Film, Play, Headphones, Captions, FolderInput, Pencil, Trash2 } from 'lucide-react';
 
 function FileRenameInput({ initialFilename, fileRelPath, onRename, onCancel, size = 'normal' }) {
   const [val, setVal] = useState(initialFilename);
@@ -248,7 +245,12 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     setProcessingFiles((p) => ({ ...p, [key]: 'processing' }));
     showToast(`⚡ Processing audio tracks for "${file.filename}"...`);
     try {
-      await fetch(`/api/media/process-audio/${encodeURIComponent(key)}`, { method: 'POST' });
+      await fetch(`/api/media/process-audio/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
+        }
+      });
       let attempts = 0;
       const interval = setInterval(async () => {
         attempts++;
@@ -270,8 +272,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
   };
 
-  // Full admin permissions for room management
-  const isAdmin = true;
+  const isAdmin = currentUser?.role === 'admin';
 
   async function fetchLibrary(folder = currentFolder) {
     try {
@@ -360,8 +361,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         },
         body: JSON.stringify({
           folderPath: folderRelPath,
@@ -393,8 +393,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         },
         body: JSON.stringify({
           path: folderRelPath,
@@ -424,8 +423,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         },
         body: JSON.stringify({
           filePath: (moveModalFile.relativePath || moveModalFile.filename || '').replace(/\\/g, '/'),
@@ -456,8 +454,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         },
         body: JSON.stringify({
           filePath: fileRelPath,
@@ -489,8 +486,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
       const res = await fetch(`/api/library/file?path=${encodeURIComponent(cleanPath)}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         }
       });
       const data = await res.json();
@@ -601,20 +597,11 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         {/* Top Hub Row: Title + Storage Info + Action Buttons */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '46px',
-                height: '46px',
-                borderRadius: '16px',
-                background: 'linear-gradient(135deg, #f472b6 0%, #db2777 100%)',
-                boxShadow: '0 6px 16px rgba(219, 39, 119, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff'
-              }}
-            >
-              <ClayFilm size={24} />
+            <div className="ml-icon-badge">
+              <FolderOpen />
+              <span className="ml-icon-pip" aria-hidden="true">
+                <Film size={10} strokeWidth={2.5} />
+              </span>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1081,448 +1068,146 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
       )}
 
       {/* 4. MEDIA FILES SECTION */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '0.76rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9d174d', background: '#fce7f3', padding: '3px 10px', borderRadius: '9999px', border: '1px solid #fbcfe8' }}>
-            Media Files ({filteredFiles.length})
-          </span>
-        </div>
+      <div className="ml-sec">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="ml-hdr-pill">Media Files ({filteredFiles.length})</span>
+            </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#9d174d', fontWeight: 700 }}>
-            <ClayPopcorn size={40} />
-            <div style={{ marginTop: '0.8rem', fontSize: '0.94rem' }}>Loading media files...</div>
-          </div>
-        ) : filteredFiles.length === 0 ? (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '3.5rem 1rem',
-              background: '#ffffff',
-              borderRadius: '24px',
-              border: '1.5px dashed rgba(244, 114, 182, 0.4)',
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.03)'
-            }}
-          >
-            <ClayFilm size={44} />
-            <h4 style={{ margin: '0.8rem 0 0.3rem 0', color: '#831843', fontWeight: 800 }}>No media files in this folder</h4>
-            <p style={{ margin: 0, fontSize: '0.84rem', color: '#9d174d', fontWeight: 500 }}>
-              Upload files above or download torrents/magnet links in the Downloads page 🍿
-            </p>
-          </div>
-        ) : viewMode === 'grid' ? (
-          /* GRID VIEW */
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '1.1rem' }}>
-            {filteredFiles.map((file) => {
-              const isEditing = editingFileRelPath === file.relativePath;
-              const ext = file.filename.split('.').pop()?.toUpperCase() || 'MEDIA';
-              const isSub = ['SRT', 'VTT', 'ASS'].includes(ext);
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#9d174d', fontWeight: 700 }}>
+                <ClayPopcorn size={40} />
+                <div style={{ marginTop: '0.8rem', fontSize: '0.94rem' }}>Loading media files...</div>
+              </div>
+            ) : filteredFiles.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', background: '#ffffff', borderRadius: '24px', border: '1.5px dashed rgba(244, 114, 182, 0.4)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.03)' }}>
+                <ClayFilm size={44} />
+                <h4 style={{ margin: '0.8rem 0 0.3rem 0', color: '#831843', fontWeight: 800 }}>No media files in this folder</h4>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: '#9d174d', fontWeight: 500 }}>Upload files above or download torrents/magnet links in the Downloads page</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              <div className="ml1-grid">
+                {filteredFiles.map((file) => {
+                  const isEditing = editingFileRelPath === file.relativePath;
+                  const ext = file.filename.split('.').pop()?.toUpperCase() || 'MEDIA';
+                  const isSub = ['SRT', 'VTT', 'ASS'].includes(ext);
+                  const cleanTitle = (file.filename || '').replace(/^\d{10,14}_/, '');
+                  const audioStatus = processingFiles[file.relativePath || file.filename];
 
-              return (
-                <div
-                  key={file.relativePath}
-                  style={{
-                    background: 'linear-gradient(180deg, #ffffff 0%, #fff7fb 100%)',
-                    borderRadius: '22px',
-                    padding: '1.15rem 1.25rem',
-                    border: '1.5px solid rgba(244, 114, 182, 0.32)',
-                    boxShadow: '0 8px 22px rgba(244, 114, 182, 0.12), inset 0 2px 0 rgba(255, 255, 255, 0.95)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: '0.9rem',
-                    transition: 'all 0.25s cubic-bezier(0.32, 0.72, 0, 1)'
-                  }}
-                >
-                  <div>
-                    {/* Top Badges */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-                      <span
-                        style={{
-                          fontSize: '0.72rem',
-                          fontWeight: 800,
-                          padding: '3px 10px',
-                          borderRadius: '9999px',
-                          background: isSub
-                            ? 'linear-gradient(180deg, #fed7aa 0%, #f97316 100%)'
-                            : ext === 'MKV'
-                            ? 'linear-gradient(180deg, #fbcfe8 0%, #f472b6 100%)'
-                            : 'linear-gradient(180deg, #a7f3d0 0%, #10b981 100%)',
-                          color: '#ffffff',
-                          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.08)'
-                        }}
-                      >
-                        {ext}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '0.74rem',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '9999px',
-                          background: 'rgba(244, 114, 182, 0.12)',
-                          color: '#831843'
-                        }}
-                      >
-                        {file.sizeFormatted}
-                      </span>
-                    </div>
+                  return (
+                    <div key={file.relativePath} className="ml1-card">
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                          <span className={`ml1-ext ${isSub ? 'is-sub' : ext === 'MKV' ? 'is-mkv' : 'is-vid'}`}>{ext}</span>
+                          <span className="ml1-size">{file.sizeFormatted}</span>
+                        </div>
 
-                    {/* File Title */}
-                    {isEditing ? (
-                      <FileRenameInput
-                        initialFilename={file.filename}
-                        fileRelPath={file.relativePath}
-                        onRename={handleRenameFile}
-                        onCancel={() => setEditingFileRelPath(null)}
-                      />
-                    ) : (
-                      <h4
-                        style={{
-                          fontSize: '0.92rem',
-                          fontWeight: 800,
-                          color: '#831843',
-                          margin: '0 0 0.6rem 0',
-                          wordBreak: 'break-word',
-                          lineHeight: 1.35,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden'
-                        }}
-                        title={file.filename}
-                      >
-                        {file.filename}
-                      </h4>
-                    )}
-
-                    {/* Tech Badges (Multi-audio & Subtitles) */}
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {file.audioTracks && file.audioTracks.length > 0 && (
-                        file.audioTracks.length > 1 ? (
-                          <button
-                            onClick={() => handleProcessMediaAudio(file)}
-                            className="pouf-btn-tactile"
-                            style={{
-                              fontSize: '0.72rem',
-                              fontWeight: 800,
-                              padding: '3px 10px',
-                              borderRadius: '9999px',
-                              background: processingFiles[file.relativePath || file.filename] === 'ready'
-                                ? 'rgba(16, 185, 129, 0.16)'
-                                : processingFiles[file.relativePath || file.filename] === 'processing'
-                                ? 'rgba(251, 191, 36, 0.2)'
-                                : 'linear-gradient(135deg, rgba(244,114,182,0.18), rgba(236,72,153,0.18))',
-                              border: processingFiles[file.relativePath || file.filename] === 'ready'
-                                ? '1px solid rgba(16, 185, 129, 0.45)'
-                                : processingFiles[file.relativePath || file.filename] === 'processing'
-                                ? '1px solid rgba(251, 191, 36, 0.5)'
-                                : '1px solid rgba(244, 114, 182, 0.4)',
-                              color: processingFiles[file.relativePath || file.filename] === 'ready'
-                                ? '#059669'
-                                : processingFiles[file.relativePath || file.filename] === 'processing'
-                                ? '#b45309'
-                                : '#be185d',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px',
-                              cursor: 'pointer'
-                            }}
-                            title="Pre-extract & cache all audio tracks for instant multi-audio sync"
-                          >
-                            <ClayHeadphones size={13} />
-                            <span>
-                              {processingFiles[file.relativePath || file.filename] === 'processing'
-                                ? '⏳ Processing...'
-                                : processingFiles[file.relativePath || file.filename] === 'ready'
-                                ? '✓ Audio Ready'
-                                : `⚡ ${file.audioTracks.length} Audio Tracks`}
-                            </span>
-                          </button>
+                        {isEditing ? (
+                          <FileRenameInput initialFilename={file.filename} fileRelPath={file.relativePath} onRename={handleRenameFile} onCancel={() => setEditingFileRelPath(null)} />
                         ) : (
-                          <span
-                            style={{
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              padding: '3px 9px',
-                              borderRadius: '9999px',
-                              background: 'rgba(245, 158, 11, 0.12)',
-                              color: '#b45309',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <ClayHeadphones size={12} />
-                            <span>1 Audio Track</span>
-                          </span>
-                        )
-                      )}
+                          <h4 className="ml1-title" title={file.filename}>{cleanTitle}</h4>
+                        )}
 
-                      {file.subtitles && file.subtitles.length > 0 && (
-                        <span
-                          style={{
-                            fontSize: '0.72rem',
-                            fontWeight: 700,
-                            padding: '3px 9px',
-                            borderRadius: '9999px',
-                            background: 'rgba(236, 72, 153, 0.12)',
-                            color: '#be185d',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {file.audioTracks && file.audioTracks.length > 0 && (
+                            file.audioTracks.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleProcessMediaAudio(file)}
+                                className="pouf-btn-tactile"
+                                style={{
+                                  fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: '9999px',
+                                  background: audioStatus === 'ready' ? 'rgba(16, 185, 129, 0.14)' : audioStatus === 'processing' ? 'rgba(251, 191, 36, 0.18)' : 'rgba(236, 72, 153, 0.1)',
+                                  border: audioStatus === 'ready' ? '1px solid rgba(16, 185, 129, 0.45)' : audioStatus === 'processing' ? '1px solid rgba(251, 191, 36, 0.5)' : '1px solid rgba(244, 114, 182, 0.35)',
+                                  color: audioStatus === 'ready' ? '#047857' : audioStatus === 'processing' ? '#b45309' : '#9d174d',
+                                  display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer'
+                                }}
+                                title="Pre-extract & cache all audio tracks for instant multi-audio sync"
+                              >
+                                <Headphones size={13} strokeWidth={2.2} />
+                                <span>{audioStatus === 'processing' ? 'Processing...' : audioStatus === 'ready' ? 'Audio Ready' : `${file.audioTracks.length} Audio Tracks`}</span>
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '4px 9px', borderRadius: '9999px', background: 'rgba(245, 158, 11, 0.12)', color: '#92400e', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                <Headphones size={12} strokeWidth={2.2} />
+                                <span>1 Audio Track</span>
+                              </span>
+                            )
+                          )}
+                          {file.subtitles && file.subtitles.length > 0 && (
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '4px 9px', borderRadius: '9999px', background: 'rgba(236, 72, 153, 0.1)', color: '#9d174d', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <Captions size={13} strokeWidth={2.2} />
+                              <span>{file.subtitles.length} Subtitles</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => { if (onPlayMedia) onPlayMedia(file); else if (onStartWatch) onStartWatch(file.filename, file.streamUrl); }}
+                          className="ml1-play"
                         >
-                          <ClaySubtitles size={12} />
-                          <span>{file.subtitles.length} Subtitles</span>
-                        </span>
-                      )}
+                          <Play size={14} fill="currentColor" strokeWidth={2} />
+                          <span>Play in Lounge</span>
+                        </button>
+                        {isAdmin && (
+                          <div style={{ display: 'flex', gap: '5px' }}>
+                            <button type="button" onClick={() => { setMoveModalFile(file); setSelectedMoveTarget(currentFolder); }} className="ml1-icon-btn" style={{ borderColor: 'rgba(147, 51, 234, 0.3)', color: '#7e22ce' }} title="Move to another folder">
+                              <FolderInput size={14} strokeWidth={2.15} />
+                            </button>
+                            {!isEditing && (
+                              <button type="button" onClick={() => setEditingFileRelPath(file.relativePath)} className="ml1-icon-btn" style={{ color: '#be185d' }} title="Rename file">
+                                <Pencil size={14} strokeWidth={2.15} />
+                              </button>
+                            )}
+                            <button type="button" onClick={() => setConfirmDeleteFile({ path: file.relativePath, filename: file.filename })} className="ml1-icon-btn" style={{ borderColor: 'rgba(239, 68, 68, 0.35)', color: '#dc2626' }} title="Delete file permanently">
+                              <Trash2 size={14} strokeWidth={2.15} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-
-                  {/* Actions Deck */}
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                      onClick={() => {
-                        if (onPlayMedia) onPlayMedia(file);
-                        else if (onStartWatch) onStartWatch(file.filename, file.streamUrl);
-                      }}
-                      className="pouf-btn-tactile"
-                      style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        padding: '8px 16px',
-                        borderRadius: '9999px',
-                        background: 'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
-                        color: '#ffffff',
-                        border: 'none',
-                        boxShadow: '0 4px 14px rgba(190, 24, 93, 0.35)',
-                        fontWeight: 800,
-                        fontSize: '0.84rem',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <ClayPlay size={15} />
-                      <span>Play in Lounge</span>
-                    </button>
-
-                    {isAdmin && (
-                      <div style={{ display: 'flex', gap: '5px' }}>
-                        <button
-                          onClick={() => {
-                            setMoveModalFile(file);
-                            setSelectedMoveTarget(currentFolder);
-                          }}
-                          className="pouf-btn-tactile"
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '10px',
-                            background: '#ffffff',
-                            border: '1.5px solid rgba(168, 85, 247, 0.4)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer'
-                          }}
-                          title="Move to another folder"
-                        >
-                          <ClayMove size={15} />
-                        </button>
-
-                        {!isEditing && (
-                          <button
-                            onClick={() => {
-                              setEditingFileRelPath(file.relativePath);
-                            }}
-                            className="pouf-btn-tactile"
-                            style={{
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '10px',
-                              background: '#ffffff',
-                              border: '1.5px solid rgba(244, 114, 182, 0.4)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer'
-                            }}
-                            title="Rename file"
-                          >
-                            <ClayEdit size={14} />
-                          </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {filteredFiles.map((file) => {
+                  const isEditing = editingFileRelPath === file.relativePath;
+                  const ext = file.filename.split('.').pop()?.toUpperCase() || 'MEDIA';
+                  const isSub = ['SRT', 'VTT', 'ASS'].includes(ext);
+                  const cleanTitle = (file.filename || '').replace(/^\d{10,14}_/, '');
+                  return (
+                    <div key={file.relativePath} style={{ background: '#ffffff', borderRadius: '14px', padding: '10px 14px', border: '1px solid rgba(244, 114, 182, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px', minWidth: 0 }}>
+                        <span className={`ml1-ext ${isSub ? 'is-sub' : ext === 'MKV' ? 'is-mkv' : 'is-vid'}`}>{ext}</span>
+                        {isEditing ? (
+                          <FileRenameInput initialFilename={file.filename} fileRelPath={file.relativePath} onRename={handleRenameFile} onCancel={() => setEditingFileRelPath(null)} size="small" />
+                        ) : (
+                          <>
+                            <span style={{ fontWeight: 700, fontSize: '0.86rem', color: '#500724', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={file.filename}>{cleanTitle}</span>
+                            <span style={{ fontSize: '0.73rem', color: '#78345c', fontWeight: 700 }}>{file.sizeFormatted}</span>
+                          </>
                         )}
-
-                        <button
-                          onClick={() => setConfirmDeleteFile({ path: file.relativePath, filename: file.filename })}
-                          className="pouf-btn-tactile"
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '10px',
-                            background: '#ffffff',
-                            border: '1.5px solid rgba(239, 68, 68, 0.4)',
-                            color: '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer'
-                          }}
-                          title="Delete file permanently"
-                        >
-                          <ClayTrash size={14} />
-                        </button>
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* LIST VIEW */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {filteredFiles.map((file) => {
-              const ext = file.filename.split('.').pop()?.toUpperCase() || 'MEDIA';
-              const isSub = ['SRT', 'VTT', 'ASS'].includes(ext);
-
-              return (
-                <div
-                  key={file.relativePath}
-                  style={{
-                    background: '#ffffff',
-                    borderRadius: '16px',
-                    padding: '10px 16px',
-                    border: '1px solid rgba(244, 114, 182, 0.25)',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    flexWrap: 'wrap'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px', minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontSize: '0.7rem',
-                        fontWeight: 800,
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        background: isSub ? '#fed7aa' : ext === 'MKV' ? '#fbcfe8' : '#a7f3d0',
-                        color: isSub ? '#c2410c' : ext === 'MKV' ? '#9d174d' : '#065f46'
-                      }}
-                    >
-                      {ext}
-                    </span>
-                    {isEditing ? (
-                      <FileRenameInput
-                        initialFilename={file.filename}
-                        fileRelPath={file.relativePath}
-                        onRename={handleRenameFile}
-                        onCancel={() => setEditingFileRelPath(null)}
-                        size="small"
-                      />
-                    ) : (
-                      <>
-                        <span style={{ fontWeight: 700, fontSize: '0.86rem', color: '#831843', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={file.filename}>
-                          {file.filename}
-                        </span>
-                        <span style={{ fontSize: '0.72rem', color: '#9d174d', fontWeight: 600 }}>
-                          {file.sizeFormatted}
-                        </span>
-                      </>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => {
-                        if (onPlayMedia) onPlayMedia(file);
-                        else if (onStartWatch) onStartWatch(file.filename, file.streamUrl);
-                      }}
-                      className="pouf-btn-tactile"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '5px 14px',
-                        borderRadius: '9999px',
-                        background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.78rem',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <ClayPlay size={13} />
-                      <span>Play</span>
-                    </button>
-
-                    {isAdmin && (
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          onClick={() => {
-                            setMoveModalFile(file);
-                            setSelectedMoveTarget(currentFolder);
-                          }}
-                          style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '8px',
-                            background: '#ffffff',
-                            border: '1px solid rgba(168, 85, 247, 0.4)',
-                            cursor: 'pointer'
-                          }}
-                          title="Move"
-                        >
-                          <ClayMove size={13} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button type="button" onClick={() => { if (onPlayMedia) onPlayMedia(file); else if (onStartWatch) onStartWatch(file.filename, file.streamUrl); }} className="ml1-play" style={{ flex: 'none', padding: '6px 14px', fontSize: '0.78rem' }}>
+                          <Play size={13} fill="currentColor" /><span>Play</span>
                         </button>
-                        {!isEditing && (
-                          <button
-                            onClick={() => {
-                              setEditingFileRelPath(file.relativePath);
-                            }}
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '8px',
-                              background: '#ffffff',
-                              border: '1px solid rgba(244, 114, 182, 0.4)',
-                              cursor: 'pointer'
-                            }}
-                            title="Rename"
-                          >
-                            <ClayEdit size={13} />
-                          </button>
+                        {isAdmin && (
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button type="button" onClick={() => { setMoveModalFile(file); setSelectedMoveTarget(currentFolder); }} className="ml1-icon-btn" style={{ width: '30px', height: '30px', color: '#7e22ce' }} title="Move"><FolderInput size={13} /></button>
+                            {!isEditing && <button type="button" onClick={() => setEditingFileRelPath(file.relativePath)} className="ml1-icon-btn" style={{ width: '30px', height: '30px', color: '#be185d' }} title="Rename"><Pencil size={13} /></button>}
+                            <button type="button" onClick={() => setConfirmDeleteFile({ path: file.relativePath, filename: file.filename })} className="ml1-icon-btn" style={{ width: '30px', height: '30px', color: '#dc2626', borderColor: 'rgba(239,68,68,0.35)' }} title="Delete"><Trash2 size={13} /></button>
+                          </div>
                         )}
-                        <button
-                          onClick={() => setConfirmDeleteFile({ path: file.relativePath, filename: file.filename })}
-                          style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '8px',
-                            background: '#ffffff',
-                            border: '1px solid rgba(239, 68, 68, 0.4)',
-                            color: '#dc2626',
-                            cursor: 'pointer'
-                          }}
-                          title="Delete"
-                        >
-                          <ClayTrash size={13} />
-                        </button>
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
       </div>
 
       {/* 5. CONFIRM DELETE FOLDER MODAL */}

@@ -1,52 +1,92 @@
 services:
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - watch-together
-      - livekit
-
   watch-together:
     build: .
     container_name: watch-together
-    restart: always
-    expose:
-      - "3000"
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
     volumes:
-      - ./server.js:/app/server.js
-      - ./public:/app/public
-      - ./data:/app/data
-      - ./downloads:/app/downloads
+      - ${DATA_PATH:-./data}:/app/data
+      - ${DOWNLOADS_PATH:-./downloads}:/app/downloads
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - PORT=3000
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+      - PORT=${PORT:-3000}
       - NODE_ENV=production
-      - LIVEKIT_URL=ws://livekit:7880
-      - LIVEKIT_API_KEY=watchtogether
-      - LIVEKIT_API_SECRET=cinema2026livekit
+      - DATA_DIR=/app/data
+      - DOWNLOADS_DIR=/app/downloads
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://livekit:7880}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-watchtogether}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-change-this-to-a-long-random-secret-key}
+      - LIVEKIT_WS_URL=${LIVEKIT_WS_URL:-}
+      - VAULT_SECRET=${VAULT_SECRET:-}
+      - SUBDL_API_KEY=${SUBDL_API_KEY:-}
+      - NEKO_CONTAINER_NAME=${NEKO_CONTAINER_NAME:-neko}
+      - NEKO_URL=${NEKO_URL:-http://neko:8080}
+      - NEKO_PASSWORD=${NEKO_PASSWORD:-neko}
+      - NEKO_ADMIN_PASSWORD=${NEKO_ADMIN_PASSWORD:-admin}
+    depends_on:
+      - livekit
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${PORT:-3000}/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   livekit:
     image: livekit/livekit-server:latest
     container_name: livekit
-    restart: always
+    restart: unless-stopped
     ports:
       - "7880:7880"
       - "7881:7881"
       - "50000-50200:50000-50200/udp"
     volumes:
-      - ./livekit.yaml:/livekit.yaml
+      - ./livekit.yaml:/livekit.yaml:ro
     command: --config /livekit.yaml
     environment:
-      - LIVEKIT_API_KEY=watchtogether
-      - LIVEKIT_API_SECRET=cinema2026livekit
+      - LIVEKIT_KEYS=${LIVEKIT_API_KEY:-watchtogether}: ${LIVEKIT_API_SECRET:-change-this-to-a-long-random-secret-key}
+
+  neko:
+    image: m1k1o/neko:chromium
+    container_name: ${NEKO_CONTAINER_NAME:-neko}
+    profiles: ["neko"]
+    restart: "no"
+    shm_size: "2gb"
+    expose:
+      - "8080"
+    ports:
+      - "52000-52100:52000-52100/udp"
+    environment:
+      - NEKO_SCREEN=1920x1080@30
+      - NEKO_PASSWORD=${NEKO_PASSWORD:-neko}
+      - NEKO_PASSWORD_ADMIN=${NEKO_ADMIN_PASSWORD:-admin}
+      - NEKO_EPR=52000-52100
+      - NEKO_ICELITE=1
+      - NEKO_NAT1TO1=${NEKO_NAT1TO1:-}
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    profiles: ["caddy"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CADDY_DOMAIN=${CADDY_DOMAIN:-:80}
+      - CADDY_EMAIL=${CADDY_EMAIL:-admin@example.com}
+      - NEKO_UPSTREAM=${NEKO_UPSTREAM:-neko:8080}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - watch-together
+      - livekit
 
 volumes:
   caddy_data:

@@ -1,26 +1,174 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  AlertCircle,
+  ChevronRight,
+  Download,
+  FolderOpen,
+  Play,
+  RefreshCw,
+  Tv
+} from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { UserAvatar } from './JojoAvatar';
-import {
-  ClayTv,
-  ClayFilm,
-  ClayFolder,
-  ClayDownload,
-  ClayPlay,
-  ClaySparkle,
-  ClayPopcorn
-} from './ClayIcons';
+import { ClayTv, ClayPopcorn } from './ClayIcons';
 
-export function HomeDashboard({ currentUser, onNavigate, onLaunchMedia, liveData: propLiveData, onOpenAvatarModal }) {
+const MAX_RECENT_FILES = 6;
+const MAX_FOLDER_CHIPS = 5;
+
+function getGreeting(name) {
+  const hour = new Date().getHours();
+  const firstName = (name || 'Friend').trim().split(/\s+/)[0];
+  if (hour < 12) return `Good morning, ${firstName}`;
+  if (hour < 17) return `Good afternoon, ${firstName}`;
+  return `Good evening, ${firstName}`;
+}
+
+function getFileDisplayMeta(filename = '') {
+  const clean = String(filename);
+  const dotIdx = clean.lastIndexOf('.');
+  if (dotIdx <= 0 || dotIdx === clean.length - 1) {
+    return { title: clean, ext: 'VIDEO' };
+  }
+  return {
+    title: clean.slice(0, dotIdx),
+    ext: clean.slice(dotIdx + 1).toUpperCase()
+  };
+}
+
+function formatDuration(seconds) {
+  const total = Math.floor(Number(seconds) || 0);
+  if (total <= 0) return null;
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatRelativeDate(dateInput) {
+  if (!dateInput) return '';
+  const ts = new Date(dateInput).getTime();
+  if (Number.isNaN(ts)) return '';
+  const diffMins = Math.floor((Date.now() - ts) / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function buildFileSummaryLine(file, ext) {
+  const parts = [ext];
+  const durationLabel = formatDuration(file.duration);
+  if (durationLabel) parts.push(durationLabel);
+  if (file.sizeFormatted) parts.push(file.sizeFormatted);
+  const audioCount = file.audioTracks?.length || 0;
+  if (audioCount > 1) parts.push(`${audioCount} audio`);
+  const subCount = file.subtitles?.length || 0;
+  if (subCount > 0) parts.push(`${subCount} ${subCount === 1 ? 'sub' : 'subs'}`);
+  const relativeDate = formatRelativeDate(file.modifiedAt);
+  if (relativeDate) parts.push(relativeDate);
+  return parts.join(' · ');
+}
+
+export function HomeDashboard({
+  currentUser,
+  appConfig,
+  onNavigate,
+  onLaunchMedia,
+  liveData: propLiveData
+}) {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [liveData, setLiveData] = useState(propLiveData || null);
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
+
+  const [selectedFolder, setSelectedFolder] = useState('');
+  const [libraryState, setLibraryState] = useState({
+    loading: true,
+    error: '',
+    folders: [],
+    allFolders: [],
+    files: []
+  });
+
+  const [statusData, setStatusData] = useState({
+    storage: null,
+    health: null,
+    downloads: null,
+    diagnostics: null
+  });
+
+  const isAdmin = currentUser?.role === 'admin';
+  const showDownloader = isAdmin && appConfig?.modules?.downloader !== false;
+  const voiceEnabled = appConfig?.modules?.livekit !== false;
 
   useEffect(() => {
     if (propLiveData !== undefined) {
       setLiveData(propLiveData);
     }
   }, [propLiveData]);
+
+  const fetchLibraryShelf = useCallback(async (folder = '') => {
+    setLibraryState((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const url = folder
+        ? `/api/library?folder=${encodeURIComponent(folder)}`
+        : '/api/library';
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setLibraryState({
+        loading: false,
+        error: '',
+        folders: Array.isArray(data.folders) ? data.folders : [],
+        allFolders: Array.isArray(data.allFolders) ? data.allFolders : [],
+        files: Array.isArray(data.files) ? data.files : []
+      });
+    } catch (err) {
+      setLibraryState((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.message || 'Unable to reach media library'
+      }));
+    }
+  }, []);
+
+  const fetchStatusTelemetry = useCallback(async () => {
+    const token = localStorage.getItem('wt_token') || '';
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
+    const [storageRes, healthRes, downloadsRes, diagRes] = await Promise.allSettled([
+      fetch('/api/system/storage').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/health').then((r) => (r.ok ? r.json() : null)),
+      showDownloader
+        ? fetch('/api/downloads/active', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null))
+        : Promise.resolve(null),
+      isAdmin && token
+        ? fetch('/api/system/diagnostics', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null))
+        : Promise.resolve(null)
+    ]);
+
+    setStatusData({
+      storage: storageRes.status === 'fulfilled' ? storageRes.value : null,
+      health: healthRes.status === 'fulfilled' ? healthRes.value : null,
+      downloads: downloadsRes.status === 'fulfilled' ? downloadsRes.value : null,
+      diagnostics: diagRes.status === 'fulfilled' ? diagRes.value : null
+    });
+  }, [isAdmin, showDownloader]);
+
+  useEffect(() => {
+    fetchLibraryShelf(selectedFolder);
+  }, [fetchLibraryShelf, selectedFolder]);
+
+  useEffect(() => {
+    fetchStatusTelemetry();
+    const timer = setInterval(fetchStatusTelemetry, 15000);
+    return () => clearInterval(timer);
+  }, [fetchStatusTelemetry]);
 
   function handleModalLaunch(mediaConfig) {
     if (onLaunchMedia) {
@@ -30,248 +178,395 @@ export function HomeDashboard({ currentUser, onNavigate, onLaunchMedia, liveData
     }
   }
 
-  const isRoomActive = liveData?.isWatching;
-  const isOtherUserInRoom = liveData?.watchers?.some((w) => w.name?.toLowerCase() !== currentUser?.name?.toLowerCase());
+  function handlePlayLibraryFile(file) {
+    const type = file.mediaType || (file.streamUrl?.includes('.m3u8') ? 'hls' : 'direct');
+    handleModalLaunch({
+      type,
+      url: file.streamUrl,
+      title: file.filename,
+      subtitleUrl: file.subtitleUrl,
+      roomId: 'lounge'
+    });
+  }
+
+  const isRoomActive = Boolean(liveData?.isWatching);
+  const watchers = Array.isArray(liveData?.watchers) ? liveData.watchers : [];
+  const watcherCount = liveData?.totalUsers || watchers.length;
+  const activeStreamTitle =
+    liveData?.activeTitle ||
+    liveData?.media?.title ||
+    liveData?.title ||
+    'Common Room Stream';
+
+  const activeDownloadCount = statusData.downloads?.active?.length || 0;
+  const waitingDownloadCount = statusData.downloads?.waiting?.length || 0;
+  const diskFree = statusData.storage?.disk?.free || null;
+  const secureOrigin = typeof window !== 'undefined' ? window.isSecureContext : true;
+  const livekitDiag = statusData.diagnostics?.livekit;
+  const livekitHealthy = livekitDiag
+    ? Boolean(livekitDiag.configured && livekitDiag.reachable)
+    : undefined;
+
+  const voiceLabel = !voiceEnabled
+    ? { dot: 'is-muted', text: 'Voice off' }
+    : !secureOrigin
+      ? { dot: 'is-warn', text: 'Voice needs HTTPS' }
+      : livekitHealthy === false
+        ? { dot: 'is-warn', text: 'Check LiveKit' }
+        : { dot: 'is-ok', text: 'Voice ready' };
+
+  const serverOnline = statusData.health?.ok !== false;
+
+  const { folderChips, extraFolderCount } = useMemo(() => {
+    const rawList = libraryState.allFolders.length > 0
+      ? libraryState.allFolders
+      : libraryState.folders;
+
+    const uniquePaths = [];
+    const seen = new Set();
+    for (const item of rawList) {
+      const folderPath = typeof item === 'string'
+        ? item
+        : (item?.path ?? item?.relativePath ?? '');
+      if (!folderPath || seen.has(folderPath)) continue;
+      seen.add(folderPath);
+      uniquePaths.push(folderPath);
+    }
+
+    const chips = uniquePaths.slice(0, MAX_FOLDER_CHIPS);
+    return {
+      folderChips: chips,
+      extraFolderCount: Math.max(0, uniquePaths.length - chips.length)
+    };
+  }, [libraryState.allFolders, libraryState.folders]);
+
+  const visibleFiles = useMemo(
+    () => libraryState.files.slice(0, MAX_RECENT_FILES),
+    [libraryState.files]
+  );
 
   return (
-    <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      
-      {/* 1. Pinterest Aesthetic Welcome Card */}
-      <div className="holographic-card" style={{ padding: '2rem 2.25rem', background: '#ffffff', border: '1.5px solid rgba(244, 114, 182, 0.35)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <div
-              onClick={onOpenAvatarModal}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.3rem 0.85rem',
-                borderRadius: '9999px',
-                background: 'rgba(244,114,182,0.15)',
-                border: '1.5px solid var(--border-pink)',
-                marginBottom: '0.75rem',
-                cursor: 'pointer',
-                transition: 'transform 0.15s ease'
-              }}
-              title="Click to customize profile picture"
-            >
-              <UserAvatar user={currentUser} size={20} showBorder={true} />
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#be185d' }}>
-                {currentUser?.name || 'Friend'}
-              </span>
-            </div>
+    <div className="home-dashboard">
+      {/* 1. Common Room Hero + Inline Status */}
+      <section className={`home-hero ${isRoomActive ? 'is-live' : ''}`} aria-label="Common Room">
+        <div className="home-hero-main">
+          <div className="home-hero-emblem" aria-hidden="true">
+            <ClayTv size={28} />
+          </div>
 
-            <h1 style={{
-              fontSize: '2.1rem',
-              fontWeight: 800,
-              color: '#831843',
-              margin: '0 0 0.4rem 0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.6rem',
-              letterSpacing: '-0.02em'
-            }}>
-              <span>Hiee, {currentUser?.name || 'Friend'}</span>
-              <ClaySparkle size={26} />
+          <div className="home-hero-copy">
+            <h1 className="home-hero-title">
+              {isRoomActive ? activeStreamTitle : getGreeting(currentUser?.name)}
             </h1>
 
-            <p style={{ fontSize: '0.92rem', color: '#78345c', margin: 0, maxWidth: '620px', lineHeight: 1.5, fontWeight: 500 }}>
-              Your synchronized cinema is ready. Watch together in real-time, stream from cloud storage, or browse with the shared browser.
-            </p>
+            {isRoomActive ? (
+              <div className="home-watchers-row">
+                <span className="home-live-pill">
+                  <span className="home-status-dot is-live" />
+                  <span>{watcherCount} watching</span>
+                </span>
+                {watchers.map((w, idx) => (
+                  <span key={`${w.name || 'w'}-${idx}`} className="home-watcher-chip">
+                    <UserAvatar user={w} size={15} showBorder={false} />
+                    <span>{w.name}</span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="home-hero-sub">
+                Start a synced watch party from your library, a link, or the shared browser.
+              </p>
+            )}
+
+            <div className="home-meta-row" aria-label="System and room status">
+              <button
+                type="button"
+                className="home-meta-item is-link"
+                onClick={() => onNavigate('room', liveData?.activeRoom || 'lounge')}
+              >
+                <span className={`home-status-dot ${isRoomActive ? 'is-live' : 'is-muted'}`} />
+                <span>{isRoomActive ? 'Room live' : 'Room idle'}</span>
+              </button>
+
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="home-meta-item is-link"
+                  onClick={() => onNavigate('admin')}
+                >
+                  <span className={`home-status-dot ${voiceLabel.dot}`} />
+                  <span>{voiceLabel.text}</span>
+                </button>
+              ) : (
+                <span className="home-meta-item">
+                  <span className={`home-status-dot ${voiceLabel.dot}`} />
+                  <span>{voiceLabel.text}</span>
+                </span>
+              )}
+
+              {showDownloader && (
+                <button
+                  type="button"
+                  className="home-meta-item is-link"
+                  onClick={() => onNavigate('downloads')}
+                >
+                  <span className={`home-status-dot ${activeDownloadCount > 0 ? 'is-live' : 'is-muted'}`} />
+                  <span>
+                    {activeDownloadCount > 0
+                      ? `${activeDownloadCount} downloading`
+                      : waitingDownloadCount > 0
+                        ? `${waitingDownloadCount} queued`
+                        : 'No active downloads'}
+                  </span>
+                </button>
+              )}
+
+              <span className="home-meta-item">
+                <span className={`home-status-dot ${serverOnline ? 'is-ok' : 'is-warn'}`} />
+                <span>
+                  {!serverOnline
+                    ? 'Server offline'
+                    : diskFree
+                      ? `${diskFree} free`
+                      : 'Server healthy'}
+                </span>
+              </span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* 2. REAL-TIME COMMON ROOM STATE CARD */}
-      <div
-        className="holographic-card"
-        style={{
-          padding: '1.75rem 2rem',
-          border: isRoomActive ? '1.5px solid #ec4899' : '1.5px solid rgba(244, 114, 182, 0.35)',
-          background: isRoomActive
-            ? 'linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(251,207,232,0.55) 100%)'
-            : '#ffffff',
-          boxShadow: isRoomActive ? 'var(--shadow-glitter)' : '0 4px 16px rgba(244, 114, 182, 0.12)'
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flex: 1, minWidth: '260px' }}>
-            <div style={{
-              width: '56px',
-              height: '56px',
-              borderRadius: '16px',
-              background: isRoomActive
-                ? 'linear-gradient(135deg, rgba(236,72,153,0.2), rgba(244,114,182,0.3))'
-                : 'rgba(244,114,182,0.1)',
-              border: isRoomActive ? '1.5px solid var(--pink-rose)' : '1px solid var(--border-pink)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: isRoomActive ? '0 0 16px rgba(236,72,153,0.3)' : 'none'
-            }}>
-              <ClayTv size={32} />
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                <span className={isRoomActive ? 'pink-pulse-dot' : 'status-dot'} style={{ background: isRoomActive ? '#ec4899' : '#a25d88' }} />
-                <span style={{
-                  fontSize: '0.74rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: isRoomActive ? '#be185d' : '#78345c'
-                }}>
-                  {isRoomActive ? 'Live in Common Room' : 'Common Room Idle'}
-                </span>
-              </div>
-
-              <h2 style={{
-                fontSize: '1.25rem',
-                fontWeight: 800,
-                color: '#3b142d',
-                margin: '0 0 0.35rem 0'
-              }}>
-                {isRoomActive ? (liveData?.title || 'Active Movie/Video') : 'Nothing currently playing'}
-              </h2>
-
-              {isRoomActive && liveData?.watchers && liveData.watchers.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '0.76rem', color: '#78345c', fontWeight: 600 }}>Watching now:</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {liveData.watchers.map((w, idx) => (
-                      <span
-                        key={idx}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '2px 8px',
-                          borderRadius: '999px',
-                          background: 'rgba(244, 114, 182, 0.15)',
-                          fontSize: '0.74rem',
-                          fontWeight: 700,
-                          color: '#831843'
-                        }}
-                      >
-                        <UserAvatar user={w} size={15} showBorder={false} />
-                        <span>{w.name}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            {isRoomActive ? (
+        <div className="home-hero-actions">
+          {isRoomActive ? (
+            <>
               <button
-                onClick={() => onNavigate('room', 'lounge')}
-                className="btn-pink-primary"
-                style={{ padding: '0.75rem 1.6rem', fontSize: '0.92rem', fontWeight: 800, gap: '8px' }}
+                type="button"
+                onClick={() => onNavigate('room', liveData?.activeRoom || 'lounge')}
+                className="btn-pink-primary home-hero-cta"
               >
-                <ClayPlay size={18} />
+                <Play size={15} fill="currentColor" />
                 <span>Join Stream</span>
               </button>
-            ) : (
               <button
+                type="button"
                 onClick={() => setCreateModalOpen(true)}
-                className="btn-gold-shimmer"
-                style={{ padding: '0.75rem 1.6rem', fontSize: '0.92rem', fontWeight: 800, gap: '8px' }}
+                className="btn-pink-secondary home-hero-cta-sec"
               >
-                <ClayPopcorn size={18} />
+                <span>Switch Media</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setCreateModalOpen(true)}
+                className="btn-gold-shimmer home-hero-cta"
+              >
+                <ClayPopcorn size={17} />
                 <span>Start Watch Party</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('room', 'lounge')}
+                className="btn-pink-secondary home-hero-cta-sec"
+              >
+                <Tv size={15} />
+                <span>Enter Lounge</span>
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+
+      {/* 2. Flat Library Shelf */}
+      <section className="home-shelf" aria-label="Recently in Library">
+        <div className="home-shelf-header">
+          <div className="home-shelf-title-group">
+            <h2 className="home-shelf-title">
+              {selectedFolder ? `Library · ${selectedFolder}` : 'Recently in Library'}
+            </h2>
+            {!libraryState.loading && !libraryState.error && (
+              <span className="home-shelf-count">
+                {libraryState.files.length} {libraryState.files.length === 1 ? 'video' : 'videos'}
+              </span>
+            )}
+          </div>
+
+          <div className="home-shelf-controls">
+            <button
+              type="button"
+              onClick={() => fetchLibraryShelf(selectedFolder)}
+              className={`home-icon-btn ${libraryState.loading ? 'is-spinning' : ''}`}
+              aria-label="Refresh library"
+              title="Refresh library"
+            >
+              <RefreshCw size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('library')}
+              className="home-text-link"
+            >
+              <span>Full Library</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+
+        {folderChips.length > 0 && (
+          <div className="home-folder-bar" role="tablist" aria-label="Filter by folder">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selectedFolder === ''}
+              className={`home-folder-chip ${selectedFolder === '' ? 'active' : ''}`}
+              onClick={() => setSelectedFolder('')}
+            >
+              <FolderOpen size={13} />
+              <span>Root</span>
+            </button>
+            {folderChips.map((folderPath) => (
+              <button
+                key={folderPath}
+                type="button"
+                role="tab"
+                aria-selected={selectedFolder === folderPath}
+                className={`home-folder-chip ${selectedFolder === folderPath ? 'active' : ''}`}
+                onClick={() => setSelectedFolder(folderPath)}
+              >
+                <FolderOpen size={13} />
+                <span>{folderPath}</span>
+              </button>
+            ))}
+            {extraFolderCount > 0 && (
+              <button
+                type="button"
+                className="home-folder-chip"
+                onClick={() => onNavigate('library')}
+              >
+                <span>+{extraFolderCount} more</span>
               </button>
             )}
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* 3. Navigation Cards (Media Library & Downloads) */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isAdmin ? 'repeat(2, 1fr)' : '1fr',
-        gap: '1.25rem'
-      }}>
-        {/* Card 1: Cloud Media Library */}
-        <div className="holographic-card" style={{ padding: '1.6rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: '#ffffff', border: '1.5px solid rgba(244, 114, 182, 0.35)' }}>
-          <div>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '14px',
-              background: 'linear-gradient(135deg, rgba(251,191,36,0.18), rgba(245,158,11,0.22))',
-              border: '1px solid var(--gold-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '1rem'
-            }}>
-              <ClayFilm size={26} />
-            </div>
-            <h3 style={{ fontSize: '1.18rem', fontWeight: 800, color: '#831843', margin: '0 0 0.35rem 0' }}>
-              Media Library
-            </h3>
-            <p style={{ fontSize: '0.84rem', color: '#78345c', lineHeight: 1.5, margin: 0, fontWeight: 500 }}>
-              Organize movie and anime files in folders, rename, delete, and launch any MKV/MP4 with multi-audio and subtitles into the Common Room.
-            </p>
+        {libraryState.loading ? (
+          <div className="home-media-grid" aria-busy="true" aria-label="Loading library">
+            {[0, 1, 2, 3, 4, 5].map((idx) => (
+              <div key={idx} className="home-media-skeleton" />
+            ))}
           </div>
-
-          <button
-            onClick={() => onNavigate('library')}
-            className="btn-pink-primary"
-            style={{ width: '100%', justifyContent: 'center', marginTop: '1.25rem', padding: '0.7rem', gap: '8px' }}
-          >
-            <ClayFolder size={18} />
-            <span>Open Media Library</span>
-          </button>
-        </div>
-
-        {/* Card 2: Server Downloader (Admin Het Only) */}
-        {isAdmin && (
-          <div className="holographic-card" style={{ padding: '1.6rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: '#ffffff', border: '1.5px solid rgba(244, 114, 182, 0.35)' }}>
-            <div>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '14px',
-                background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(52,211,153,0.22))',
-                border: '1px solid rgba(16,185,129,0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '1rem'
-              }}>
-                <ClayDownload size={26} />
-              </div>
-              <h3 style={{ fontSize: '1.18rem', fontWeight: 800, color: '#831843', margin: '0 0 0.35rem 0' }}>
-                Server Downloader
-              </h3>
-              <p style={{ fontSize: '0.84rem', color: '#78345c', lineHeight: 1.5, margin: 0, fontWeight: 500 }}>
-                High-speed torrent and HTTP downloader on AWS EC2. Add magnet links or direct URLs and monitor live progress.
-              </p>
+        ) : libraryState.error ? (
+          <div className="home-empty-state" role="alert">
+            <AlertCircle size={24} color="#be185d" />
+            <h3 className="home-empty-title">Couldn&apos;t load your library</h3>
+            <p className="home-empty-copy">
+              The server returned {libraryState.error}. Check that the backend is running and try again.
+            </p>
+            <div className="home-empty-actions">
+              <button
+                type="button"
+                onClick={() => fetchLibraryShelf(selectedFolder)}
+                className="btn-pink-secondary"
+              >
+                Retry
+              </button>
             </div>
+          </div>
+        ) : visibleFiles.length > 0 ? (
+          <div className="home-media-grid">
+            {visibleFiles.map((file) => {
+              const { title, ext } = getFileDisplayMeta(file.filename);
+              const metaLine = buildFileSummaryLine(file, ext);
 
-            <button
-              onClick={() => onNavigate('downloads')}
-              className="btn-pink-secondary"
-              style={{ width: '100%', justifyContent: 'center', marginTop: '1.25rem', padding: '0.7rem', gap: '8px' }}
-            >
-              <ClayDownload size={18} />
-              <span>Open Server Downloader</span>
-            </button>
+              return (
+                <article key={file.relativePath || file.filename} className="home-media-card">
+                  <div>
+                    <h3 className="home-media-title" title={file.filename}>
+                      {title}
+                    </h3>
+                    <div className="home-media-meta">
+                      <span>{metaLine}</span>
+                      {file.isHevc && !file.isWebReady && (
+                        <span className="home-compat-badge" title="HEVC video may need Media Studio prep">
+                          HEVC
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePlayLibraryFile(file)}
+                    className="home-play-pill"
+                  >
+                    <Play size={13} fill="currentColor" />
+                    <span>Watch Together</span>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : libraryState.folders.length > 0 ? (
+          <div className="home-folder-grid">
+            {libraryState.folders.map((folder) => (
+              <button
+                key={folder.relativePath || folder.name}
+                type="button"
+                className="home-folder-tile"
+                onClick={() => setSelectedFolder(folder.relativePath)}
+              >
+                <span className="home-folder-icon">
+                  <FolderOpen size={17} />
+                </span>
+                <span className="home-folder-meta">
+                  <span className="home-folder-name">{folder.name}</span>
+                  <span className="home-folder-count">
+                    {folder.itemCount} {folder.itemCount === 1 ? 'item' : 'items'}
+                  </span>
+                </span>
+                <ChevronRight size={15} color="#9d174d" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="home-empty-state">
+            <FolderOpen size={24} color="#9d174d" />
+            <h3 className="home-empty-title">
+              {selectedFolder ? `No playable videos in ${selectedFolder}` : 'Your library is empty'}
+            </h3>
+            <p className="home-empty-copy">
+              Upload MP4 or MKV files, add a download link, or start with YouTube or the shared browser.
+            </p>
+            <div className="home-empty-actions">
+              <button
+                type="button"
+                onClick={() => onNavigate('library')}
+                className="btn-pink-primary"
+              >
+                <FolderOpen size={15} />
+                <span>Open Library</span>
+              </button>
+              {showDownloader && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('downloads')}
+                  className="btn-pink-secondary"
+                >
+                  <Download size={15} />
+                  <span>Add Download</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Choose What to Watch Modal */}
       <CreateRoomModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onLaunchMedia={handleModalLaunch}
         defaultRoom="lounge"
+        appConfig={appConfig}
       />
     </div>
   );

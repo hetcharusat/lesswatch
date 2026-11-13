@@ -20,10 +20,13 @@ try {
   console.warn('⚠️ livekit-server-sdk not found, voice tokens disabled:', e.message);
 }
 
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'watchtogether';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'cinema2026livekit';
-// LiveKit URL exposed to clients: WebSocket to the SFU
-const LIVEKIT_WS_URL = process.env.LIVEKIT_WS_URL || 'wss://letswatch.atmyhome.tech/livekit';
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
+const LIVEKIT_INTERNAL_URL = process.env.LIVEKIT_URL || 'ws://livekit:7880';
+const LIVEKIT_HTTP_TARGET = LIVEKIT_INTERNAL_URL
+  .replace(/^wss:\/\//i, 'https://')
+  .replace(/^ws:\/\//i, 'http://');
+const LIVEKIT_WS_URL = process.env.LIVEKIT_WS_URL || '';
 
 const app = express();
 const server = http.createServer(app);
@@ -36,15 +39,42 @@ process.on('uncaughtException', (err) => {
   console.error('⚠️ [Server] Uncaught Exception intercepted:', err?.message || err);
 });
 
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
+const DOWNLOADS_DIR = path.resolve(process.env.DOWNLOADS_DIR || path.join(__dirname, 'downloads'));
+const SUBS_CACHE_DIR = path.join(DATA_DIR, 'subs_cache');
+const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const PLANNER_FILE = path.join(DATA_DIR, 'planner.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
+
+// Ensure directories exist
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+if (!fs.existsSync(SUBS_CACHE_DIR)) fs.mkdirSync(SUBS_CACHE_DIR, { recursive: true });
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+
 // --------------------------------------------------------------------------
 // Docker Engine Socket Controller for Neko Virtual Browser Lifecycle
 // --------------------------------------------------------------------------
-const DOCKER_SOCKET = '/var/run/docker.sock';
+const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+const NEKO_CONTAINER_NAME = process.env.NEKO_CONTAINER_NAME || 'neko';
+const NEKO_URL = process.env.NEKO_URL || 'http://neko:8080';
+
+function hasDockerSocket() {
+  if (!DOCKER_SOCKET) return false;
+  if (process.platform === 'win32' && DOCKER_SOCKET.startsWith('\\\\.\\pipe\\')) {
+    return true;
+  }
+  return fs.existsSync(DOCKER_SOCKET);
+}
 
 function callDockerAPI(apiPath, method = 'POST', postData = null) {
   return new Promise((resolve) => {
-    if (!fs.existsSync(DOCKER_SOCKET)) {
-      return resolve({ fallback: true });
+    if (!hasDockerSocket()) {
+      return resolve({ fallback: true, error: 'Docker socket not mounted' });
     }
 
     const payload = postData ? JSON.stringify(postData) : null;
@@ -77,35 +107,68 @@ function callDockerAPI(apiPath, method = 'POST', postData = null) {
 }
 
 async function checkNekoStatus() {
-  const res = await callDockerAPI('/containers/neko/json', 'GET');
+  if (!hasDockerSocket()) {
+    return 'unavailable';
+  }
+  const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/json`, 'GET');
+  if (res.status === 404) {
+    return 'not_found';
+  }
   if (res.body?.State?.Status) {
     return res.body.State.Status;
   }
   return 'unknown';
 }
 
+let isNekoStarting = false;
+let nekoStartTimer = null;
+
 async function stopNeko() {
-  console.log('🛑 [Neko] Stopping virtual browser container to release CPU & RAM...');
-  const res = await callDockerAPI('/containers/neko/stop?t=2', 'POST');
-  if (res.fallback) {
-    exec('docker stop neko -t 2', () => { });
+  isNekoStarting = false;
+  if (nekoStartTimer) {
+    clearTimeout(nekoStartTimer);
+    nekoStartTimer = null;
   }
-  return { success: true };
+  if (!hasDockerSocket()) {
+    return { success: false, error: 'Docker socket not available' };
+  }
+  const status = await checkNekoStatus();
+  if (status === 'not_found' || status === 'unavailable') {
+    return { success: false, status, error: `Neko container "${NEKO_CONTAINER_NAME}" not found` };
+  }
+  if (status !== 'running') {
+    return { success: true, status, alreadyStopped: true };
+  }
+  console.log(`🛑 [Neko] Stopping virtual browser container (${NEKO_CONTAINER_NAME}) to release CPU & RAM...`);
+  const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/stop?t=2`, 'POST');
+  if (res.fallback) {
+    return { success: false, error: res.error || 'Failed to reach Docker socket' };
+  }
+  return { success: res.status === 204 || res.status === 304, status: 'exited' };
 }
 
 async function startNeko() {
-  console.log('🚀 [Neko] Starting virtual browser container on-demand...');
-  const res = await callDockerAPI('/containers/neko/start', 'POST');
-  if (res.fallback) {
-    exec('docker start neko', () => { });
+  if (!appConfig?.modules?.neko) {
+    return { success: false, error: 'Neko module is disabled in settings' };
   }
-  return { success: true };
+  if (!hasDockerSocket()) {
+    return { success: false, error: 'Docker socket not available' };
+  }
+  console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
+  const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/start`, 'POST');
+  if (res.fallback || res.status === 404) {
+    return { success: false, error: res.body?.message || res.error || 'Neko container not found' };
+  }
+  return { success: res.status === 204 || res.status === 304 };
 }
 
 async function resetNekoChromium() {
-  console.log('🔄 [Neko] Resetting Chromium session and tabs via Docker Socket API...');
+  if (!appConfig?.modules?.neko) {
+    return { success: false, error: 'Neko module is disabled in settings' };
+  }
+  console.log(`🔄 [Neko] Resetting Chromium session and tabs via Docker Socket API (${NEKO_CONTAINER_NAME})...`);
   try {
-    const execRes = await callDockerAPI('/containers/neko/exec', 'POST', {
+    const execRes = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/exec`, 'POST', {
       AttachStdout: false,
       AttachStderr: false,
       Cmd: ['supervisorctl', 'restart', 'chromium']
@@ -117,28 +180,62 @@ async function resetNekoChromium() {
   } catch (err) {
     console.warn('resetNekoChromium exec error:', err.message);
   }
-  await callDockerAPI('/containers/neko/restart?t=1', 'POST');
+  await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/restart?t=1`, 'POST');
   return { success: true };
 }
 
 // Shared Virtual Browser (Neko) Proxy (Manual WS upgrade only on /neko)
 const nekoProxy = createProxyMiddleware({
-  target: 'http://172.17.0.1:8080',
+  target: NEKO_URL,
   changeOrigin: true,
+  ws: false,
   pathRewrite: {
     '^/neko': ''
+  },
+  on: {
+    error: (err, req, res) => {
+      if (res && typeof res.status === 'function' && !res.headersSent) {
+        res.status(502).json({ error: `Neko proxy unreachable: ${err.message}` });
+      } else if (res && typeof res.destroy === 'function') {
+        try { res.destroy(); } catch {}
+      }
+    }
   }
 });
 
-let isNekoStarting = false;
+// LiveKit Signaling Proxy (/livekit -> LIVEKIT_HTTP_TARGET) so single-port Docker deployments work without Caddy too
+const livekitProxy = createProxyMiddleware({
+  target: LIVEKIT_HTTP_TARGET,
+  changeOrigin: true,
+  ws: false,
+  pathRewrite: {
+    '^/livekit': ''
+  },
+  on: {
+    error: (err, req, res) => {
+      if (res && typeof res.status === 'function' && !res.headersSent) {
+        res.status(502).json({ error: `LiveKit signaling unreachable: ${err.message}` });
+      } else if (res && typeof res.destroy === 'function') {
+        try { res.destroy(); } catch {}
+      }
+    }
+  }
+});
+
 async function ensureNekoRunning() {
+  if (!appConfig?.modules?.neko) return;
   if (isNekoStarting) return;
   try {
     const status = await checkNekoStatus();
+    if (status === 'not_found' || status === 'unavailable') return;
     if (status !== 'running') {
       isNekoStarting = true;
       await startNeko();
-      setTimeout(() => { isNekoStarting = false; }, 3000);
+      if (nekoStartTimer) clearTimeout(nekoStartTimer);
+      nekoStartTimer = setTimeout(() => {
+        isNekoStarting = false;
+        nekoStartTimer = null;
+      }, 3000);
     }
   } catch (err) {
     isNekoStarting = false;
@@ -146,8 +243,18 @@ async function ensureNekoRunning() {
 }
 
 app.use('/neko', async (req, res, next) => {
+  if (!appConfig?.modules?.neko) {
+    return res.status(403).json({ error: 'Shared Browser (Neko) is disabled on this server.' });
+  }
   ensureNekoRunning();
   nekoProxy(req, res, next);
+});
+
+app.use('/livekit', (req, res, next) => {
+  if (!appConfig?.modules?.livekit) {
+    return res.status(403).json({ error: 'LiveKit Voice SFU is disabled on this server.' });
+  }
+  livekitProxy(req, res, next);
 });
 
 const io = new Server(server, {
@@ -167,22 +274,10 @@ io.engine.on('connection_error', (err) => {
   console.log('⚡ Socket Engine event:', err.code, err.message, err.req?.url);
 });
 
-const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
-const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
-const SUBS_CACHE_DIR = path.join(DATA_DIR, 'subs_cache');
-const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
-
-// Ensure directories exist
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-if (!fs.existsSync(SUBS_CACHE_DIR)) fs.mkdirSync(SUBS_CACHE_DIR, { recursive: true });
-
 // Setup file uploads for subtitles, torrents, and videos
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, DOWNLOADS_DIR),
   filename: (req, file, cb) => {
-    // Preserve original name safely
     const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
     cb(null, `${Date.now()}_${safeName}`);
   }
@@ -193,14 +288,13 @@ app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
-if (!fs.existsSync(AVATARS_DIR)) {
-  fs.mkdirSync(AVATARS_DIR, { recursive: true });
-}
 app.use('/api/avatars', express.static(AVATARS_DIR, { maxAge: '1h' }));
 
 // Control API for Neko Virtual Browser
 app.post('/api/neko/control', async (req, res) => {
+  if (!appConfig?.modules?.neko) {
+    return res.status(403).json({ success: false, error: 'Shared Browser (Neko) module is disabled.' });
+  }
   let action = 'status';
   if (typeof req.body === 'string') {
     try { action = JSON.parse(req.body).action; } catch { action = req.body; }
@@ -211,18 +305,19 @@ app.post('/api/neko/control', async (req, res) => {
   console.log(`🎮 [Neko API] Received action: ${action}`);
   if (action === 'stop' || action === 'cleanup') {
     const result = await stopNeko();
-    return res.json({ success: true, action: 'stopped', ...result });
+    return res.json({ success: !!result.success, action: 'stopped', ...result });
   } else if (action === 'start') {
     const result = await startNeko();
-    return res.json({ success: true, action: 'started', ...result });
+    return res.json({ success: !!result.success, action: 'started', ...result });
   } else if (action === 'reset') {
     const result = await resetNekoChromium();
-    return res.json({ success: true, action: 'reset', ...result });
+    return res.json({ success: !!result.success, action: 'reset', ...result });
   } else {
     const status = await checkNekoStatus();
     return res.json({ success: true, status });
   }
 });
+
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), {
   maxAge: '7d',
   immutable: true
@@ -230,11 +325,8 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --------------------------------------------------------------------------
-// 1. DATA STORES (Planner & Accounts)
+// 1. CONFIGURATION, VAULT ENCRYPTION & ACCOUNTS
 // --------------------------------------------------------------------------
-const PLANNER_FILE = path.join(DATA_DIR, 'planner.json');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-
 function loadJSON(filePath, defaultVal) {
   try {
     if (fs.existsSync(filePath)) {
@@ -246,26 +338,226 @@ function loadJSON(filePath, defaultVal) {
   return defaultVal;
 }
 
-function saveJSON(filePath, data) {
+function saveJSON(filePath, data, mode = null) {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    if (mode !== null) {
+      try { fs.chmodSync(filePath, mode); } catch { }
+    }
   } catch (err) {
     console.error(`Error saving ${filePath}:`, err);
   }
 }
 
-function hashPassword(password, salt = 'wt_secret_salt_2026') {
+function createDefaultConfig(overrides = {}) {
+  return {
+    setupCompleted: false,
+    instanceName: 'Watch Together',
+    allowPublicSignup: false,
+    quickLoginEnabled: true,
+    quickLoginMode: 'autofill', // 'passwordless' | 'autofill'
+    modules: {
+      neko: true,
+      downloader: true,
+      mediaStudio: true,
+      livekit: true
+    },
+    encryptionKey: crypto.randomBytes(32).toString('hex'),
+    createdAt: Date.now(),
+    ...overrides,
+    modules: {
+      neko: true,
+      downloader: true,
+      mediaStudio: true,
+      livekit: true,
+      ...(overrides.modules || {})
+    }
+  };
+}
+
+function hashLegacyPassword(password, salt = 'wt_secret_salt_2026') {
   return crypto.pbkdf2Sync(String(password), salt, 1000, 32, 'sha256').toString('hex');
 }
 
-const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
-const activeSessions = new Map(); // token -> user
+function hashPassword(password, salt = null) {
+  const useSalt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(String(password), useSalt, 100000, 32, 'sha256').toString('hex');
+  return { salt: useSalt, hash };
+}
 
-// Load saved sessions from disk so server restarts don't log out users
+function safeHexEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function verifyUserPassword(password, user) {
+  if (!user || typeof password !== 'string' || password.length === 0) return false;
+  if (user.passwordSalt && user.passwordHash) {
+    const { hash } = hashPassword(password, user.passwordSalt);
+    return safeHexEqual(hash, user.passwordHash);
+  }
+  if (user.passwordHash) {
+    const legacyHash = hashLegacyPassword(password);
+    return safeHexEqual(legacyHash, user.passwordHash);
+  }
+  return false;
+}
+
+const configExistsOnDisk = fs.existsSync(CONFIG_FILE);
+const usersExistOnDisk = fs.existsSync(USERS_FILE);
+
+let appConfig;
+let usersData;
+
+if (configExistsOnDisk) {
+  const loadedCfg = loadJSON(CONFIG_FILE, {});
+  appConfig = createDefaultConfig(loadedCfg);
+  if (!loadedCfg.encryptionKey || !loadedCfg.modules) {
+    saveJSON(CONFIG_FILE, appConfig, 0o600);
+  }
+  usersData = loadJSON(USERS_FILE, { users: [] });
+  if (!Array.isArray(usersData.users)) usersData.users = [];
+} else if (usersExistOnDisk) {
+  // Seamless upgrade auto-migration from prior installation without config.json
+  console.log('🔄 [Migration] Detected existing users.json without config.json. Auto-migrating with setupCompleted: true...');
+  usersData = loadJSON(USERS_FILE, { users: [] });
+  if (!Array.isArray(usersData.users)) usersData.users = [];
+  appConfig = createDefaultConfig({
+    setupCompleted: true,
+    allowPublicSignup: true,
+    quickLoginEnabled: true,
+    quickLoginMode: 'autofill'
+  });
+  saveJSON(CONFIG_FILE, appConfig, 0o600);
+} else {
+  // Fresh install -> enter first-run setup mode
+  console.log('✨ [Setup] Fresh install detected. Entering First-Run Setup Wizard mode.');
+  appConfig = createDefaultConfig({ setupCompleted: false });
+  usersData = { users: [] };
+}
+
+function getVaultKey() {
+  if (process.env.VAULT_SECRET) {
+    return crypto.createHash('sha256').update(process.env.VAULT_SECRET).digest();
+  }
+  if (!appConfig.encryptionKey) {
+    appConfig.encryptionKey = crypto.randomBytes(32).toString('hex');
+    if (appConfig.setupCompleted) saveJSON(CONFIG_FILE, appConfig, 0o600);
+  }
+  return Buffer.from(appConfig.encryptionKey, 'hex');
+}
+
+function encryptSecret(plaintext) {
+  if (typeof plaintext !== 'string' || plaintext.length === 0) return null;
+  const key = getVaultKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    v: 1,
+    alg: 'aes-256-gcm',
+    iv: iv.toString('hex'),
+    tag: tag.toString('hex'),
+    data: encrypted.toString('hex')
+  };
+}
+
+function decryptSecret(payload) {
+  if (!payload || !payload.iv || !payload.tag || !payload.data) return null;
+  try {
+    const key = getVaultKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'hex'));
+    decipher.setAuthTag(Buffer.from(payload.tag, 'hex'));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(payload.data, 'hex')),
+      decipher.final()
+    ]);
+    return decrypted.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+// Auto-migrate legacy user records cleanly (encrypt any legacy pin, remove plaintext pin, keep existing names/ids working)
+if (usersData.users.length > 0) {
+  let migrated = false;
+  usersData.users.forEach((u) => {
+    if (u.id === 'riaa' || u.name === 'Riaa' || u.email === 'riaa@watchtogether.local') {
+      u.id = 'ria';
+      u.name = 'Ria';
+      u.email = 'ria@watchtogether.local';
+      migrated = true;
+    }
+    if (/^(jotaro|jolyne|joyeline)\s+/i.test(u.name || '')) {
+      u.name = u.name.replace(/^(jotaro|jolyne|joyeline)\s+/i, '').trim();
+      migrated = true;
+    }
+    if (u.pin) {
+      if (!verifyUserPassword(u.pin, u)) {
+        // Legacy users.json stored a stale passwordHash alongside plaintext pin; upgrade hash to pin so existing login keeps working
+        const upgraded = hashPassword(u.pin);
+        u.passwordSalt = upgraded.salt;
+        u.passwordHash = upgraded.hash;
+      }
+      if (!u.encryptedPassword) {
+        u.encryptedPassword = encryptSecret(u.pin);
+      }
+      delete u.pin;
+      migrated = true;
+    }
+    if (u.quickLoginVisible === undefined) {
+      u.quickLoginVisible = true;
+      migrated = true;
+    }
+  });
+  if (migrated) {
+    saveJSON(USERS_FILE, usersData, 0o600);
+  }
+}
+
+function sanitizeUser(u) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role === 'admin' ? 'admin' : 'member',
+    avatar: u.avatar || '🍿',
+    color: u.color || '#ec4899',
+    quickLoginVisible: u.quickLoginVisible !== false,
+    createdAt: u.createdAt || null
+  };
+}
+
+function getPublicConfig() {
+  return {
+    setupCompleted: !!appConfig.setupCompleted,
+    instanceName: appConfig.instanceName || 'Watch Together',
+    allowPublicSignup: !!appConfig.allowPublicSignup,
+    quickLoginEnabled: !!appConfig.quickLoginEnabled,
+    quickLoginMode: appConfig.quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
+    modules: {
+      neko: appConfig.modules?.neko !== false,
+      downloader: appConfig.modules?.downloader !== false,
+      mediaStudio: appConfig.modules?.mediaStudio !== false,
+      livekit: appConfig.modules?.livekit !== false
+    }
+  };
+}
+
+const activeSessions = new Map(); // token -> { id, ... }
+
+// Load saved sessions from disk so server restarts don't log out valid users
 try {
   const savedSessions = loadJSON(SESSIONS_FILE, {});
   for (const [t, u] of Object.entries(savedSessions)) {
-    activeSessions.set(t, u);
+    if (u && u.id && usersData.users.some(dbU => dbU.id === u.id)) {
+      activeSessions.set(t, u);
+    }
   }
 } catch (e) { }
 
@@ -275,111 +567,84 @@ function persistSessions() {
     for (const [t, u] of activeSessions.entries()) {
       obj[t] = u;
     }
-    saveJSON(SESSIONS_FILE, obj);
+    saveJSON(SESSIONS_FILE, obj, 0o600);
   } catch (e) { }
 }
 
-function generateToken() {
-  return crypto.randomBytes(24).toString('hex');
+function revokeUserSessions(userId) {
+  let removed = 0;
+  for (const [token, sessionUser] of activeSessions.entries()) {
+    if (sessionUser?.id === userId) {
+      activeSessions.delete(token);
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    persistSessions();
+    io.emit('auth:session_revoked', { userId });
+  }
+  return removed;
 }
 
-// Initialize default users (Het = Admin, Ria = Member)
-let usersData = loadJSON(USERS_FILE, {
-  users: [
-    {
-      id: 'het',
-      name: 'Het',
-      email: 'het@watchtogether.local',
-      passwordHash: hashPassword('1234'),
-      role: 'admin',
-      color: '#f59e0b',
-      avatar: 'jotaro',
-      pin: '1234',
-      createdAt: Date.now()
-    },
-    {
-      id: 'ria',
-      name: 'Ria',
-      email: 'ria@watchtogether.local',
-      passwordHash: hashPassword('1234'),
-      role: 'member',
-      color: '#f472b6',
-      avatar: 'jolyne',
-      pin: '1234',
-      createdAt: Date.now()
-    }
-  ]
-});
-
-// Auto-migrate legacy "Riaa" or prefixed names to simple "Ria" / "Het"
-let migrated = false;
-usersData.users.forEach((u) => {
-  if (u.id === 'riaa' || u.name === 'Riaa' || u.email === 'riaa@watchtogether.local') {
-    u.id = 'ria';
-    u.name = 'Ria';
-    u.email = 'ria@watchtogether.local';
-    migrated = true;
-  }
-  if (/^(jotaro|jolyne|joyeline)\s+/i.test(u.name)) {
-    u.name = u.name.replace(/^(jotaro|jolyne|joyeline)\s+/i, '').trim();
-    migrated = true;
-  }
-});
-if (migrated) {
-  saveJSON(USERS_FILE, usersData);
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 function getAuthUser(req) {
   const authHeader = req.headers.authorization || req.headers['x-auth-token'];
   let token = '';
   if (authHeader) {
-    token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (token && activeSessions.has(token)) {
-      return activeSessions.get(token);
-    }
+    token = String(authHeader).replace(/^Bearer\s+/i, '').trim();
+  } else if (req.query?.token) {
+    token = String(req.query.token).trim();
   }
 
-  // Fallback 1: check x-user-profile header (Het or Ria)
-  const profileHeader = req.headers['x-user-profile'];
-  if (profileHeader) {
-    try {
-      const p = typeof profileHeader === 'string' && profileHeader.startsWith('{')
-        ? JSON.parse(profileHeader)
-        : { name: profileHeader };
-      const n = (p.name || '').toLowerCase();
-      if (n === 'het' || n === 'ria' || n === 'riaa') {
-        return { name: p.name, role: 'admin', id: n };
-      }
-    } catch { }
+  if (!token || !activeSessions.has(token)) {
+    return null;
   }
 
-  // Fallback 2: check query param token
-  if (req.query?.token && activeSessions.has(req.query.token)) {
-    return activeSessions.get(req.query.token);
+  const sessionUser = activeSessions.get(token);
+  const dbUser = usersData.users.find(u => u.id === sessionUser?.id);
+  if (!dbUser) {
+    activeSessions.delete(token);
+    persistSessions();
+    return null;
   }
 
-  return null;
+  return sanitizeUser(dbUser);
+}
+
+function requireAuth(req, res, next) {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  req.authUser = user;
+  next();
 }
 
 function requireAdmin(req, res, next) {
   const user = getAuthUser(req);
-  if (user) {
-    const name = user.name?.toLowerCase() || '';
-    if (user.role === 'admin' || name === 'het' || name === 'ria' || name === 'riaa') {
-      return next();
-    }
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
-  // Check if header indicates Het or Ria or admin
-  const userProfile = req.headers['x-user-profile'] || req.query.profile;
-  if (userProfile) {
-    const str = typeof userProfile === 'string' ? userProfile.toLowerCase() : JSON.stringify(userProfile).toLowerCase();
-    if (str.includes('het') || str.includes('ria') || str.includes('admin')) {
-      return next();
-    }
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Administrator privileges required' });
   }
-  // In private lounge, allow by default if token is present or default to Het/Ria lounge access
-  return next();
+  req.authUser = user;
+  next();
 }
+
+// Health check endpoint for Docker HEALTHCHECK
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    status: 'healthy',
+    uptime: Math.floor(process.uptime()),
+    setupCompleted: !!appConfig.setupCompleted,
+    instanceName: appConfig.instanceName || 'Watch Together'
+  });
+});
 
 // --------------------------------------------------------------------------
 // 2. ARIA2C BACKGROUND DOWNLOADER DAEMON
@@ -387,11 +652,27 @@ function requireAdmin(req, res, next) {
 let aria2Process = null;
 const ARIA2_PORT = 6800;
 
+function stopAria2Daemon() {
+  if (aria2Process) {
+    try { aria2Process.kill('SIGTERM'); } catch {}
+    aria2Process = null;
+  }
+}
+
 function startAria2Daemon() {
+  if (!appConfig?.modules?.downloader) {
+    return;
+  }
+  if (aria2Process && !aria2Process.killed) {
+    return;
+  }
   // Check if aria2c is installed
   exec('aria2c --version', (err) => {
     if (err) {
       console.log('ℹ️ aria2c binary not detected on this machine. Direct torrent/aria downloads will use HTTP/webtorrent fallback.');
+      return;
+    }
+    if (!appConfig?.modules?.downloader || (aria2Process && !aria2Process.killed)) {
       return;
     }
     console.log('🚀 Launching aria2c daemon with DHT & BitTorrent support...');
@@ -411,8 +692,10 @@ function startAria2Daemon() {
       '--summary-interval=0'
     ];
 
-    aria2Process = spawn('aria2c', args, { stdio: 'ignore' });
-    aria2Process.on('error', (e) => console.log('aria2c process notice:', e.message));
+    const proc = spawn('aria2c', args, { stdio: 'ignore' });
+    aria2Process = proc;
+    proc.on('exit', () => { if (aria2Process === proc) aria2Process = null; });
+    proc.on('error', (e) => console.log('aria2c process notice:', e.message));
   });
 }
 startAria2Daemon();
@@ -622,8 +905,11 @@ app.get('/api/live-status', (req, res) => {
 // POST /api/livekit/token  body: { roomId, identity, username }
 // ============================================================
 app.post('/api/livekit/token', express.json(), async (req, res) => {
-  if (!AccessToken) {
-    return res.status(503).json({ error: 'LiveKit not configured on this server' });
+  if (appConfig.modules?.livekit === false) {
+    return res.status(403).json({ error: 'LiveKit voice/video module is disabled on this server.' });
+  }
+  if (!AccessToken || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return res.status(503).json({ error: 'LiveKit not configured on this server (missing LIVEKIT_API_KEY / LIVEKIT_API_SECRET).' });
   }
   const { roomId, identity, username } = req.body || {};
   if (!roomId || !identity) {
@@ -638,8 +924,10 @@ app.post('/api/livekit/token', express.json(), async (req, res) => {
     at.addGrant({ roomJoin: true, room: roomId, canPublish: true, canSubscribe: true });
     const token = await at.toJwt();
 
-    const host = req.headers.host || 'letswatch.atmyhome.tech';
-    const proto = (req.headers['x-forwarded-proto'] === 'http' || host.includes('localhost') || host.includes('127.0.0.1')) ? 'ws' : 'wss';
+    const host = req.headers.host || `localhost:${PORT}`;
+    const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    const isHttpsReq = req.secure || fwdProto === 'https';
+    const proto = isHttpsReq ? 'wss' : 'ws';
     const wsUrl = process.env.LIVEKIT_WS_URL || `${proto}://${host}/livekit`;
 
     res.json({ token, url: wsUrl });
@@ -680,61 +968,196 @@ app.get('/api/network-status', (req, res) => {
     }
   }
 
-  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isHttps = req.secure || fwdProto === 'https';
   res.json({
-    httpsDomain: 'https://35.154.133.16.sslip.io',
-    tunnelUrl: tunnelUrl,
-    ipUrl: 'http://35.154.133.16',
-    isHttps: isHttps,
-    host: req.headers.host
+    isHttps,
+    protocol: isHttps ? 'https' : 'http',
+    host: req.headers.host || '',
+    socketIoPath: '/api/v1/sync',
+    livekitPath: '/livekit',
+    tunnelUrl
   });
 });
 
 // --------------------------------------------------------------------------
-// 4.2 AUTHENTICATION & USER ACCOUNTS (HET & RIAA)
+// 4.2 SETUP WIZARD, AUTHENTICATION & ADMIN VAULT
 // --------------------------------------------------------------------------
-app.post('/api/auth/register', (req, res) => {
-  const { email, password, confirmPassword, name } = req.body;
-  if (!email || !password || !confirmPassword) {
-    return res.status(400).json({ error: 'Email, password, and confirmation are required.' });
+app.get('/api/setup/status', (req, res) => {
+  res.json(getPublicConfig());
+});
+
+app.post('/api/setup/complete', (req, res) => {
+  if (appConfig.setupCompleted) {
+    return res.status(403).json({ error: 'Setup has already been completed. Use the Admin Panel to modify settings.' });
   }
 
+  const {
+    adminName,
+    adminEmail,
+    adminPassword,
+    instanceName,
+    allowPublicSignup,
+    quickLoginEnabled,
+    quickLoginMode,
+    modules
+  } = req.body || {};
+
+  if (!adminName || !String(adminName).trim() || !adminEmail || !String(adminEmail).trim() || !adminPassword) {
+    return res.status(400).json({ error: 'Admin name, email/username, and password are required.' });
+  }
+  if (String(adminPassword).length < 4) {
+    return res.status(400).json({ error: 'Admin password must be at least 4 characters.' });
+  }
+
+  const cleanName = String(adminName).trim();
+  const cleanEmail = String(adminEmail).trim().toLowerCase();
+  const { salt, hash } = hashPassword(String(adminPassword));
+
+  const adminUser = {
+    id: `usr-${Date.now()}`,
+    name: cleanName,
+    email: cleanEmail,
+    passwordSalt: salt,
+    passwordHash: hash,
+    encryptedPassword: encryptSecret(String(adminPassword)),
+    role: 'admin',
+    avatar: '👑',
+    color: '#f59e0b',
+    quickLoginVisible: true,
+    createdAt: Date.now()
+  };
+
+  usersData.users = [adminUser];
+  saveJSON(USERS_FILE, usersData, 0o600);
+
+  Object.assign(appConfig, {
+    setupCompleted: true,
+    instanceName: (instanceName && String(instanceName).trim()) || 'Watch Together',
+    allowPublicSignup: !!allowPublicSignup,
+    quickLoginEnabled: quickLoginEnabled !== false,
+    quickLoginMode: quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
+    modules: {
+      neko: modules?.neko !== false,
+      downloader: modules?.downloader !== false,
+      mediaStudio: modules?.mediaStudio !== false,
+      livekit: modules?.livekit !== false
+    }
+  });
+  saveJSON(CONFIG_FILE, appConfig, 0o600);
+
+  const token = generateToken();
+  const safeUser = sanitizeUser(adminUser);
+  activeSessions.set(token, safeUser);
+  persistSessions();
+
+  if (!appConfig.modules.neko) {
+    stopNeko().catch(() => {});
+  }
+  if (appConfig.modules.downloader) {
+    startAria2Daemon();
+  } else {
+    stopAria2Daemon();
+  }
+
+  res.json({ success: true, token, user: safeUser, config: getPublicConfig() });
+});
+
+app.get('/api/auth/bootstrap', (req, res) => {
+  const pubCfg = getPublicConfig();
+  let quickLoginUsers = [];
+  if (pubCfg.setupCompleted && pubCfg.quickLoginEnabled) {
+    quickLoginUsers = usersData.users
+      .filter(u => u.quickLoginVisible !== false)
+      .map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role === 'admin' ? 'admin' : 'member',
+        avatar: u.avatar || '🍿',
+        color: u.color || '#ec4899'
+      }));
+  }
+  res.json({
+    ...pubCfg,
+    quickLoginUsers
+  });
+});
+
+app.post('/api/auth/quick-login', (req, res) => {
+  if (!appConfig.setupCompleted) {
+    return res.status(403).json({ error: 'Instance setup is not complete yet.' });
+  }
+  if (!appConfig.quickLoginEnabled || appConfig.quickLoginMode !== 'passwordless') {
+    return res.status(403).json({ error: 'Passwordless Quick-Login is disabled by the administrator.' });
+  }
+
+  const { userId } = req.body || {};
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required.' });
+  }
+
+  const user = usersData.users.find(u => u.id === userId);
+  if (!user || user.quickLoginVisible === false) {
+    return res.status(404).json({ error: 'Quick-Login profile not found or hidden.' });
+  }
+
+  const token = generateToken();
+  const safeUser = sanitizeUser(user);
+  activeSessions.set(token, safeUser);
+  persistSessions();
+
+  res.json({ success: true, token, user: safeUser });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  if (!appConfig.setupCompleted) {
+    return res.status(403).json({ error: 'Instance setup must be completed before registering users.' });
+  }
+  if (!appConfig.allowPublicSignup) {
+    return res.status(403).json({ error: 'Public sign-ups are disabled. Contact your server administrator for an account.' });
+  }
+
+  const { email, password, confirmPassword, name } = req.body || {};
+  if (!email || !password || !confirmPassword) {
+    return res.status(400).json({ error: 'Email/username, password, and confirmation are required.' });
+  }
   if (password !== confirmPassword) {
     return res.status(400).json({ error: 'Passwords do not match. Please verify both entries.' });
   }
-
-  if (password.length < 4) {
+  if (String(password).length < 4) {
     return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   }
 
-  const cleanEmail = email.trim().toLowerCase();
-  const existing = usersData.users.find(u => u.email.toLowerCase() === cleanEmail);
+  const cleanEmail = String(email).trim().toLowerCase();
+  const cleanName = (name && String(name).trim()) || cleanEmail.split('@')[0];
+  const existing = usersData.users.find(u =>
+    u.email?.toLowerCase() === cleanEmail || u.name?.toLowerCase() === cleanName.toLowerCase()
+  );
   if (existing) {
-    return res.status(400).json({ error: 'An account with this email already exists. Try signing in!' });
+    return res.status(400).json({ error: 'An account with this email or name already exists.' });
   }
 
-  const cleanName = (name && name.trim()) || (cleanEmail.split('@')[0]);
-  const isHet = cleanName.toLowerCase().includes('het') || cleanEmail.includes('het');
-  const role = isHet ? 'admin' : 'member';
-  const avatar = isHet ? '👑' : '🌸';
-  const color = isHet ? '#f59e0b' : '#f472b6';
-
+  const { salt, hash } = hashPassword(String(password));
   const newUser = {
     id: `usr-${Date.now()}`,
     name: cleanName,
     email: cleanEmail,
-    passwordHash: hashPassword(password),
-    role,
-    avatar,
-    color,
+    passwordSalt: salt,
+    passwordHash: hash,
+    encryptedPassword: encryptSecret(String(password)),
+    role: 'member',
+    avatar: '🌸',
+    color: '#f472b6',
+    quickLoginVisible: true,
     createdAt: Date.now()
   };
 
   usersData.users.push(newUser);
-  saveJSON(USERS_FILE, usersData);
+  saveJSON(USERS_FILE, usersData, 0o600);
 
   const token = generateToken();
-  const safeUser = { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role, avatar: newUser.avatar, color: newUser.color };
+  const safeUser = sanitizeUser(newUser);
   activeSessions.set(token, safeUser);
   persistSessions();
 
@@ -742,30 +1165,48 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { email, password } = req.body;
+  if (!appConfig.setupCompleted) {
+    return res.status(403).json({ error: 'Instance setup is not complete yet.' });
+  }
+  const { email, password } = req.body || {};
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required.' });
+    return res.status(400).json({ error: 'Email/username and password are required.' });
   }
 
-  const cleanInput = email.trim().toLowerCase();
+  const cleanInput = String(email).trim().toLowerCase();
   const user = usersData.users.find(u =>
-    u.email.toLowerCase() === cleanInput ||
-    u.name.toLowerCase() === cleanInput ||
-    u.id.toLowerCase() === cleanInput ||
+    u.email?.toLowerCase() === cleanInput ||
+    u.name?.toLowerCase() === cleanInput ||
+    u.id?.toLowerCase() === cleanInput ||
     ((cleanInput === 'riaa@watchtogether.local' || cleanInput === 'riaa') && u.id === 'ria')
   );
 
   if (!user) {
-    return res.status(401).json({ error: 'Account not found. Please check your email or sign up.' });
+    return res.status(401).json({ error: 'Account not found. Check your credentials or ask your admin.' });
   }
 
-  const inputHash = hashPassword(password);
-  if (user.passwordHash !== inputHash && password !== '1234' && user.pin !== password) {
+  if (!verifyUserPassword(String(password), user)) {
     return res.status(401).json({ error: 'Incorrect password. Please try again.' });
   }
 
+  // Upgrade legacy salted hashes lazily and ensure credential vault is populated
+  let updated = false;
+  if (!user.passwordSalt) {
+    const upgraded = hashPassword(String(password));
+    user.passwordSalt = upgraded.salt;
+    user.passwordHash = upgraded.hash;
+    updated = true;
+  }
+  if (!user.encryptedPassword) {
+    user.encryptedPassword = encryptSecret(String(password));
+    updated = true;
+  }
+  if (updated) {
+    saveJSON(USERS_FILE, usersData, 0o600);
+  }
+
   const token = generateToken();
-  const safeUser = { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, color: user.color };
+  const safeUser = sanitizeUser(user);
   activeSessions.set(token, safeUser);
   persistSessions();
 
@@ -775,29 +1216,263 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/me', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
-  res.json({ success: true, user });
+  res.json({ success: true, user, config: getPublicConfig() });
 });
 
 app.post('/api/auth/logout', (req, res) => {
   const authHeader = req.headers.authorization || req.headers['x-auth-token'];
   if (authHeader) {
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const token = String(authHeader).replace(/^Bearer\s+/i, '').trim();
     activeSessions.delete(token);
     persistSessions();
   }
   res.json({ success: true });
 });
 
-app.get('/api/users', (req, res) => {
-  const safeUsers = usersData.users.map(u => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    role: u.role,
-    avatar: u.avatar,
-    color: u.color
+app.get('/api/users', requireAuth, (req, res) => {
+  res.json(usersData.users.map(sanitizeUser));
+});
+
+// --------------------------------------------------------------------------
+// 4.2b ADMIN SETTINGS & ENCRYPTED CREDENTIAL VAULT
+// --------------------------------------------------------------------------
+app.get('/api/admin/overview', requireAdmin, (req, res) => {
+  const sessionCounts = new Map();
+  for (const sessionUser of activeSessions.values()) {
+    if (sessionUser?.id) {
+      sessionCounts.set(sessionUser.id, (sessionCounts.get(sessionUser.id) || 0) + 1);
+    }
+  }
+  const users = usersData.users.map(u => ({
+    ...sanitizeUser(u),
+    hasStoredCredential: !!u.encryptedPassword,
+    activeSessionCount: sessionCounts.get(u.id) || 0
   }));
-  res.json(safeUsers);
+  res.json({
+    config: getPublicConfig(),
+    users
+  });
+});
+
+app.put('/api/admin/settings', requireAdmin, (req, res) => {
+  const { instanceName, allowPublicSignup, quickLoginEnabled, quickLoginMode, modules } = req.body || {};
+
+  if (typeof instanceName === 'string' && instanceName.trim()) {
+    appConfig.instanceName = instanceName.trim();
+  }
+  if (typeof allowPublicSignup === 'boolean') {
+    appConfig.allowPublicSignup = allowPublicSignup;
+  }
+  if (typeof quickLoginEnabled === 'boolean') {
+    appConfig.quickLoginEnabled = quickLoginEnabled;
+  }
+  if (quickLoginMode === 'passwordless' || quickLoginMode === 'autofill') {
+    appConfig.quickLoginMode = quickLoginMode;
+  }
+  if (modules && typeof modules === 'object') {
+    appConfig.modules = {
+      neko: modules.neko !== undefined ? !!modules.neko : (appConfig.modules?.neko !== false),
+      downloader: modules.downloader !== undefined ? !!modules.downloader : (appConfig.modules?.downloader !== false),
+      mediaStudio: modules.mediaStudio !== undefined ? !!modules.mediaStudio : (appConfig.modules?.mediaStudio !== false),
+      livekit: modules.livekit !== undefined ? !!modules.livekit : (appConfig.modules?.livekit !== false)
+    };
+  }
+
+  saveJSON(CONFIG_FILE, appConfig, 0o600);
+  const pubCfg = getPublicConfig();
+  io.emit('config:updated', pubCfg);
+
+  if (!pubCfg.modules.neko) {
+    stopNeko().catch(() => {});
+  }
+  if (pubCfg.modules.downloader) {
+    startAria2Daemon();
+  } else {
+    stopAria2Daemon();
+  }
+
+  res.json({ success: true, config: pubCfg });
+});
+
+app.post('/api/admin/users', requireAdmin, (req, res) => {
+  const { name, email, password, role, avatar, color, quickLoginVisible } = req.body || {};
+  if (!name || !String(name).trim() || !email || !String(email).trim() || !password) {
+    return res.status(400).json({ error: 'Name, email/username, and password are required.' });
+  }
+  if (String(password).length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
+
+  const cleanName = String(name).trim();
+  const cleanEmail = String(email).trim().toLowerCase();
+  const duplicate = usersData.users.find(u =>
+    u.email?.toLowerCase() === cleanEmail || u.name?.toLowerCase() === cleanName.toLowerCase()
+  );
+  if (duplicate) {
+    return res.status(400).json({ error: 'A user with this name or email already exists.' });
+  }
+
+  const userRole = role === 'admin' ? 'admin' : 'member';
+  const { salt, hash } = hashPassword(String(password));
+  const newUser = {
+    id: `usr-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+    name: cleanName,
+    email: cleanEmail,
+    passwordSalt: salt,
+    passwordHash: hash,
+    encryptedPassword: encryptSecret(String(password)),
+    role: userRole,
+    avatar: avatar || (userRole === 'admin' ? '👑' : '🌸'),
+    color: color || (userRole === 'admin' ? '#f59e0b' : '#f472b6'),
+    quickLoginVisible: quickLoginVisible !== false,
+    createdAt: Date.now()
+  };
+
+  usersData.users.push(newUser);
+  saveJSON(USERS_FILE, usersData, 0o600);
+  io.emit('users:updated');
+
+  res.json({
+    success: true,
+    user: { ...sanitizeUser(newUser), hasStoredCredential: true, activeSessionCount: 0 }
+  });
+});
+
+app.put('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  const dbUser = usersData.users.find(u => u.id === targetId);
+  if (!dbUser) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  const { name, email, password, role, avatar, color, quickLoginVisible } = req.body || {};
+
+  if (role !== undefined && role !== 'admin' && dbUser.role === 'admin') {
+    const adminCount = usersData.users.filter(u => u.role === 'admin').length;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: 'Cannot demote the last administrator.' });
+    }
+    if (req.authUser.id === dbUser.id) {
+      return res.status(400).json({ error: 'You cannot demote your own active admin account.' });
+    }
+  }
+
+  if (typeof email === 'string' && email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const conflict = usersData.users.find(u => u.id !== targetId && u.email?.toLowerCase() === cleanEmail);
+    if (conflict) return res.status(400).json({ error: 'Email/username already in use by another user.' });
+    dbUser.email = cleanEmail;
+  }
+
+  if (typeof name === 'string' && name.trim()) {
+    const cleanName = name.trim();
+    const conflict = usersData.users.find(u => u.id !== targetId && u.name?.toLowerCase() === cleanName.toLowerCase());
+    if (conflict) return res.status(400).json({ error: 'Display name already in use by another user.' });
+    dbUser.name = cleanName;
+  }
+
+  if (role === 'admin' || role === 'member') {
+    dbUser.role = role;
+  }
+  if (typeof avatar === 'string' && avatar.trim()) {
+    dbUser.avatar = avatar.trim();
+  }
+  if (typeof color === 'string' && color.trim()) {
+    dbUser.color = color.trim();
+  }
+  if (typeof quickLoginVisible === 'boolean') {
+    dbUser.quickLoginVisible = quickLoginVisible;
+  }
+
+  if (typeof password === 'string' && password.length > 0) {
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+    }
+    const { salt, hash } = hashPassword(password);
+    dbUser.passwordSalt = salt;
+    dbUser.passwordHash = hash;
+    dbUser.encryptedPassword = encryptSecret(password);
+  }
+
+  saveJSON(USERS_FILE, usersData, 0o600);
+
+  // Sync updated profile metadata into active sessions
+  const sanitized = sanitizeUser(dbUser);
+  for (const [tok, sessUser] of activeSessions.entries()) {
+    if (sessUser?.id === dbUser.id) {
+      activeSessions.set(tok, sanitized);
+    }
+  }
+  persistSessions();
+  io.emit('users:updated');
+
+  res.json({
+    success: true,
+    user: { ...sanitized, hasStoredCredential: !!dbUser.encryptedPassword }
+  });
+});
+
+app.post('/api/admin/users/:id/reveal', requireAdmin, (req, res) => {
+  const dbUser = usersData.users.find(u => u.id === req.params.id);
+  if (!dbUser) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  if (!dbUser.encryptedPassword) {
+    return res.json({
+      success: true,
+      available: false,
+      email: dbUser.email,
+      name: dbUser.name,
+      reason: 'Password has not been recorded in the encrypted vault yet (legacy account before next login or password reset).'
+    });
+  }
+  const plaintext = decryptSecret(dbUser.encryptedPassword);
+  if (plaintext === null) {
+    return res.status(500).json({ error: 'Failed to decrypt stored credential (vault key mismatch).' });
+  }
+  res.json({
+    success: true,
+    available: true,
+    email: dbUser.email,
+    name: dbUser.name,
+    password: plaintext
+  });
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  if (req.authUser.id === targetId) {
+    return res.status(400).json({ error: 'You cannot delete your own active admin account.' });
+  }
+  const idx = usersData.users.findIndex(u => u.id === targetId);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  const targetUser = usersData.users[idx];
+  if (targetUser.role === 'admin') {
+    const adminCount = usersData.users.filter(u => u.role === 'admin').length;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last administrator.' });
+    }
+  }
+
+  usersData.users.splice(idx, 1);
+  saveJSON(USERS_FILE, usersData, 0o600);
+  const revokedSessions = revokeUserSessions(targetId);
+  io.emit('users:updated');
+
+  res.json({ success: true, revokedSessions });
+});
+
+app.post('/api/admin/users/:id/revoke-sessions', requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  const dbUser = usersData.users.find(u => u.id === targetId);
+  if (!dbUser) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  const revokedSessions = revokeUserSessions(targetId);
+  res.json({ success: true, revokedSessions });
 });
 
 // Update or Reset Custom Web-Ready Profile Avatar
@@ -805,16 +1480,20 @@ app.post('/api/user/avatar', (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
 
-  const { avatarData, reset } = req.body;
+  const { avatarData, reset } = req.body || {};
   const dbUser = usersData.users.find(u => u.id === user.id || u.name?.toLowerCase() === user.name?.toLowerCase());
   if (!dbUser) return res.status(404).json({ error: 'User not found' });
 
   if (reset) {
-    const isHet = dbUser.name?.toLowerCase() === 'het';
-    dbUser.avatar = isHet ? 'jotaro' : 'jolyne';
-    saveJSON(USERS_FILE, usersData);
+    dbUser.avatar = dbUser.role === 'admin' ? '👑' : '🍿';
+    saveJSON(USERS_FILE, usersData, 0o600);
+    const sanitized = sanitizeUser(dbUser);
+    for (const [tok, sessUser] of activeSessions.entries()) {
+      if (sessUser?.id === dbUser.id) activeSessions.set(tok, sanitized);
+    }
+    persistSessions();
     io.emit('user:avatar_changed', { username: dbUser.name, avatar: dbUser.avatar });
-    return res.json({ success: true, avatar: dbUser.avatar, user: dbUser });
+    return res.json({ success: true, avatar: dbUser.avatar, user: sanitized });
   }
 
   if (!avatarData || typeof avatarData !== 'string') {
@@ -835,28 +1514,32 @@ app.post('/api/user/avatar', (req, res) => {
     fs.writeFileSync(filePath, buffer);
     const avatarUrl = `/api/avatars/${fileName}?t=${Date.now()}`;
     dbUser.avatar = avatarUrl;
-    saveJSON(USERS_FILE, usersData);
+    saveJSON(USERS_FILE, usersData, 0o600);
 
     // Broadcast to all connected sockets
     io.emit('user:avatar_changed', { username: dbUser.name, avatar: avatarUrl });
 
     // Update active sessions in memory
-    for (const [token, u] of activeSessions.entries()) {
+    const sanitized = sanitizeUser(dbUser);
+    for (const [tok, u] of activeSessions.entries()) {
       if (u.id === dbUser.id || u.name?.toLowerCase() === dbUser.name?.toLowerCase()) {
-        u.avatar = avatarUrl;
+        activeSessions.set(tok, sanitized);
       }
     }
     persistSessions();
 
-    res.json({ success: true, avatar: avatarUrl, user: dbUser });
+    res.json({ success: true, avatar: avatarUrl, user: sanitized });
   } catch (err) {
     console.error('Failed to save avatar:', err);
     res.status(500).json({ error: 'Failed to save avatar file' });
   }
 });
 
-// 4.4 Downloads / Aria2 API (Restricted to Het / Admin)
+// 4.4 Downloads / Aria2 API (Restricted to Admin & gated by downloader module)
 app.get('/api/downloads/active', (req, res, next) => {
+  if (!appConfig?.modules?.downloader) {
+    return res.status(403).json({ error: 'Media Downloader module is disabled by administrator.' });
+  }
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
     return res.json({ active: [], waiting: [], stopped: [], restricted: true });
@@ -875,6 +1558,9 @@ app.get('/api/downloads/active', (req, res, next) => {
 });
 
 app.post('/api/downloads/add', requireAdmin, async (req, res) => {
+  if (!appConfig?.modules?.downloader) {
+    return res.status(403).json({ error: 'Media Downloader module is disabled by administrator.' });
+  }
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL or Magnet is required' });
 
@@ -1784,32 +2470,402 @@ app.all(['/api/library/delete', '/api/library/delete/:filename', '/api/library/d
   res.status(404).json({ error: 'File not found' });
 });
 
-// System storage & RAM stats
-app.get('/api/system/storage', (req, res) => {
-  exec('df -h /', (err, stdout) => {
-    let diskFree = '50 GB';
-    let diskTotal = '62 GB';
-    let diskUsed = '12 GB';
-    if (!err && stdout) {
-      const lines = stdout.trim().split('\n');
-      if (lines.length > 1) {
-        const parts = lines[1].split(/\s+/);
-        diskTotal = parts[1];
-        diskUsed = parts[2];
-        diskFree = parts[3];
-      }
+// System storage, RAM & A-to-Z Self-Hosting Diagnostics
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const val = bytes / Math.pow(1024, idx);
+  return `${val >= 10 || idx === 0 ? val.toFixed(1) : val.toFixed(2)} ${units[idx]}`;
+}
+
+function getStorageStats(targetPath) {
+  const safePath = fs.existsSync(targetPath) ? targetPath : path.dirname(targetPath);
+  try {
+    if (typeof fs.statfsSync === 'function') {
+      const stat = fs.statfsSync(safePath);
+      const bsize = Number(stat.bsize || 4096);
+      const totalBytes = Number(stat.blocks || 0) * bsize;
+      const freeBytes = Number(stat.bavail ?? stat.bfree ?? 0) * bsize;
+      const usedBytes = Math.max(0, totalBytes - freeBytes);
+      return {
+        path: targetPath,
+        totalBytes,
+        freeBytes,
+        usedBytes,
+        total: formatBytes(totalBytes),
+        free: formatBytes(freeBytes),
+        used: formatBytes(usedBytes)
+      };
     }
-    const memFree = os.freemem();
-    const memTotal = os.totalmem();
-    res.json({
-      disk: { total: diskTotal, used: diskUsed, free: diskFree },
-      memory: {
-        total: `${(memTotal / (1024 * 1024 * 1024)).toFixed(1)} GB`,
-        free: `${(memFree / (1024 * 1024 * 1024)).toFixed(1)} GB`,
-        used: `${((memTotal - memFree) / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  } catch (e) {
+    // Fallback handled below
+  }
+  return null;
+}
+
+async function getStorageStatsAsync(targetPath) {
+  const direct = getStorageStats(targetPath);
+  if (direct) return direct;
+
+  return new Promise((resolve) => {
+    exec(`df -k "${targetPath.replace(/"/g, '\\"')}"`, (err, stdout) => {
+      if (!err && stdout) {
+        const lines = stdout.trim().split('\n');
+        if (lines.length > 1) {
+          const parts = lines[1].trim().split(/\s+/);
+          const totalBytes = (parseInt(parts[1], 10) || 0) * 1024;
+          const usedBytes = (parseInt(parts[2], 10) || 0) * 1024;
+          const freeBytes = (parseInt(parts[3], 10) || 0) * 1024;
+          return resolve({
+            path: targetPath,
+            totalBytes,
+            usedBytes,
+            freeBytes,
+            total: formatBytes(totalBytes),
+            used: formatBytes(usedBytes),
+            free: formatBytes(freeBytes)
+          });
+        }
       }
+      resolve({
+        path: targetPath,
+        totalBytes: 0,
+        usedBytes: 0,
+        freeBytes: 0,
+        total: 'Unknown',
+        used: 'Unknown',
+        free: 'Unknown'
+      });
     });
   });
+}
+
+function testDirectoryWritable(dirPath) {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    const probeFile = path.join(dirPath, `.wt_write_test_${process.pid}_${Date.now()}`);
+    fs.writeFileSync(probeFile, 'ok', 'utf8');
+    fs.unlinkSync(probeFile);
+    return { writable: true, error: null };
+  } catch (err) {
+    return { writable: false, error: err.message };
+  }
+}
+
+function getContainerMemoryLimitBytes() {
+  try {
+    const cg2Path = '/sys/fs/cgroup/memory.max';
+    if (fs.existsSync(cg2Path)) {
+      const raw = fs.readFileSync(cg2Path, 'utf8').trim();
+      if (raw && raw !== 'max') {
+        const val = Number(raw);
+        if (Number.isFinite(val) && val > 0 && val < os.totalmem()) return val;
+      }
+    }
+    const cg1Path = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+    if (fs.existsSync(cg1Path)) {
+      const raw = fs.readFileSync(cg1Path, 'utf8').trim();
+      const val = Number(raw);
+      if (Number.isFinite(val) && val > 0 && val < os.totalmem()) return val;
+    }
+  } catch { }
+  return null;
+}
+
+function checkBinaryInstalled(cmd, args = ['--version']) {
+  const { execFile } = require('child_process');
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 3000 }, (err, stdout, stderr) => {
+      if (err) {
+        return resolve({
+          installed: false,
+          version: null,
+          error: err.code === 'ENOENT' ? `${cmd} not found in PATH` : (err.message || 'Execution failed')
+        });
+      }
+      const output = String(stdout || stderr || '').trim();
+      const firstLine = output.split(/\r?\n/)[0] || 'Installed';
+      resolve({
+        installed: true,
+        version: firstLine.slice(0, 120),
+        error: null
+      });
+    });
+  });
+}
+
+function probeHttpEndpoint(urlStr, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    try {
+      const target = new URL(urlStr);
+      const client = target.protocol === 'https:' ? require('https') : http;
+      const req = client.request({
+        hostname: target.hostname,
+        port: target.port || (target.protocol === 'https:' ? 443 : 80),
+        path: target.pathname || '/',
+        method: 'GET',
+        timeout: timeoutMs
+      }, (res) => {
+        res.resume();
+        resolve({ reachable: true, statusCode: res.statusCode, error: null });
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ reachable: false, statusCode: null, error: 'Connection timed out' });
+      });
+      req.on('error', (err) => {
+        resolve({ reachable: false, statusCode: null, error: err.message });
+      });
+      req.end();
+    } catch (err) {
+      resolve({ reachable: false, statusCode: null, error: err.message });
+    }
+  });
+}
+
+function canAccessDiagnostics(req) {
+  if (!appConfig?.setupCompleted) return true;
+  const user = getAuthUser(req);
+  return user?.role === 'admin';
+}
+
+app.get('/api/system/storage', async (req, res) => {
+  const disk = await getStorageStatsAsync(DOWNLOADS_DIR);
+  const memFree = os.freemem();
+  const memTotal = os.totalmem();
+  const memUsed = Math.max(0, memTotal - memFree);
+  res.json({
+    disk: {
+      total: disk.total,
+      used: disk.used,
+      free: disk.free,
+      totalBytes: disk.totalBytes,
+      usedBytes: disk.usedBytes,
+      freeBytes: disk.freeBytes
+    },
+    diskFree: disk.free,
+    memory: {
+      total: formatBytes(memTotal),
+      free: formatBytes(memFree),
+      used: formatBytes(memUsed),
+      totalBytes: memTotal,
+      freeBytes: memFree,
+      usedBytes: memUsed
+    }
+  });
+});
+
+app.get('/api/system/diagnostics', async (req, res) => {
+  if (!canAccessDiagnostics(req)) {
+    return res.status(403).json({ error: 'Admin privileges required for system diagnostics.' });
+  }
+
+  const cpus = os.cpus() || [];
+  const cpuCores = cpus.length || 0;
+  const osTotalBytes = os.totalmem();
+  const osFreeBytes = os.freemem();
+  const cgroupLimitBytes = getContainerMemoryLimitBytes();
+  const effectiveTotalBytes = cgroupLimitBytes ? Math.min(osTotalBytes, cgroupLimitBytes) : osTotalBytes;
+  const effectiveFreeBytes = cgroupLimitBytes ? Math.min(osFreeBytes, cgroupLimitBytes) : osFreeBytes;
+
+  const [
+    dataDisk,
+    downloadsDisk,
+    ffmpeg,
+    ffprobe,
+    aria2c,
+    ytdlp,
+    lkProbe
+  ] = await Promise.all([
+    getStorageStatsAsync(DATA_DIR),
+    getStorageStatsAsync(DOWNLOADS_DIR),
+    checkBinaryInstalled('ffmpeg', ['-version']),
+    checkBinaryInstalled('ffprobe', ['-version']),
+    checkBinaryInstalled('aria2c', ['--version']),
+    checkBinaryInstalled('yt-dlp', ['--version']),
+    probeHttpEndpoint(LIVEKIT_HTTP_TARGET, 2500)
+  ]);
+
+  const dataWrite = testDirectoryWritable(DATA_DIR);
+  const downloadsWrite = testDirectoryWritable(DOWNLOADS_DIR);
+
+  const dockerSocketExists = hasDockerSocket();
+  let dockerAccessible = false;
+  let dockerError = dockerSocketExists ? null : `Docker socket not found at ${DOCKER_SOCKET}`;
+  let nekoStatus = 'unavailable';
+
+  if (dockerSocketExists) {
+    const ping = await callDockerAPI('/_ping', 'GET');
+    if (ping.fallback || (ping.status && ping.status >= 400)) {
+      dockerError = ping.error || `Docker socket returned HTTP ${ping.status}`;
+    } else {
+      dockerAccessible = true;
+      nekoStatus = await checkNekoStatus();
+    }
+  }
+
+  const nekoContainerExists = dockerAccessible && nekoStatus !== 'not_found' && nekoStatus !== 'unavailable' && nekoStatus !== 'unknown';
+  const minNekoRamBytes = 1.5 * 1024 * 1024 * 1024;
+  const recNekoRamBytes = 3.5 * 1024 * 1024 * 1024;
+  const nekoErrors = [];
+  const nekoWarnings = [];
+
+  if (!dockerSocketExists || !dockerAccessible) {
+    nekoErrors.push(dockerError || 'Docker socket is not mounted or permission denied.');
+  } else if (!nekoContainerExists) {
+    nekoErrors.push(`Neko container "${NEKO_CONTAINER_NAME}" was not found. Start with: docker compose --profile neko up --no-start neko`);
+  }
+  if (cpuCores < 2) {
+    nekoErrors.push(`Only ${cpuCores} CPU core detected (Neko Chromium needs at least 2 vCPUs for smooth playback).`);
+  }
+  if (effectiveTotalBytes < minNekoRamBytes) {
+    nekoErrors.push(`Only ${formatBytes(effectiveTotalBytes)} RAM available (minimum 1.5 GB required to launch Neko Chromium).`);
+  } else if (effectiveTotalBytes < recNekoRamBytes) {
+    nekoWarnings.push(`${formatBytes(effectiveTotalBytes)} RAM detected — Neko works best with 4+ GB RAM (it auto-stops when idle to save memory).`);
+  }
+
+  const nekoCapable = nekoErrors.length === 0;
+  const transcodingCapable = ffmpeg.installed && ffprobe.installed;
+  const downloaderCapable = aria2c.installed && ytdlp.installed && downloadsWrite.writable;
+  const livekitKeysConfigured = !!(LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+  const weakDefaultSecrets = [
+    'devsecret',
+    'change_me_to_a_long_random_secret',
+    'change-this-to-a-long-random-secret-key',
+    'changeme',
+    'secret'
+  ];
+  const livekitDefaultSecretInUse = weakDefaultSecrets.includes(LIVEKIT_API_SECRET) || LIVEKIT_API_SECRET.length < 16;
+  const livekitCapable = livekitKeysConfigured && lkProbe.reachable;
+
+  const host = req.headers.host || `localhost:${PORT}`;
+  const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isHttpsReq = req.secure || fwdProto === 'https';
+
+  res.json({
+    timestamp: Date.now(),
+    nodeVersion: process.version,
+    cpu: {
+      cores: cpuCores,
+      model: cpus[0]?.model || 'Unknown CPU',
+      arch: os.arch(),
+      platform: os.platform(),
+      loadAvg: os.loadavg()
+    },
+    memory: {
+      osTotalBytes,
+      osFreeBytes,
+      osUsedBytes: Math.max(0, osTotalBytes - osFreeBytes),
+      cgroupLimitBytes,
+      effectiveTotalBytes,
+      effectiveFreeBytes,
+      total: formatBytes(effectiveTotalBytes),
+      free: formatBytes(effectiveFreeBytes),
+      used: formatBytes(Math.max(0, effectiveTotalBytes - effectiveFreeBytes))
+    },
+    storage: {
+      dataDir: { ...dataDisk, ...dataWrite },
+      downloadsDir: { ...downloadsDisk, ...downloadsWrite }
+    },
+    binaries: {
+      ffmpeg,
+      ffprobe,
+      aria2c,
+      ytdlp
+    },
+    docker: {
+      socketPath: DOCKER_SOCKET,
+      socketExists: dockerSocketExists,
+      socketAccessible: dockerAccessible,
+      error: dockerError
+    },
+    neko: {
+      containerName: NEKO_CONTAINER_NAME,
+      status: nekoStatus,
+      containerExists: nekoContainerExists,
+      moduleEnabled: appConfig.modules?.neko !== false,
+      capable: nekoCapable,
+      errors: nekoErrors,
+      warnings: nekoWarnings
+    },
+    livekit: {
+      configured: livekitKeysConfigured,
+      defaultSecretInUse: livekitDefaultSecretInUse,
+      target: LIVEKIT_HTTP_TARGET,
+      reachable: lkProbe.reachable,
+      statusCode: lkProbe.statusCode,
+      error: lkProbe.error,
+      moduleEnabled: appConfig.modules?.livekit !== false
+    },
+    requestContext: {
+      isHttps: isHttpsReq,
+      host,
+      socketIoPath: '/api/v1/sync',
+      livekitPath: '/livekit'
+    },
+    verdicts: {
+      neko: {
+        status: nekoCapable ? (nekoWarnings.length ? 'warn' : 'ok') : 'error',
+        summary: nekoCapable
+          ? (nekoWarnings[0] || `Ready (${cpuCores} vCPU, ${formatBytes(effectiveTotalBytes)} RAM, container: ${nekoStatus})`)
+          : nekoErrors[0]
+      },
+      transcoding: {
+        status: transcodingCapable ? 'ok' : 'error',
+        summary: transcodingCapable
+          ? 'ffmpeg & ffprobe ready for remuxing/transcoding HEVC/MKV/audio'
+          : `Missing binary: ${[!ffmpeg.installed && 'ffmpeg', !ffprobe.installed && 'ffprobe'].filter(Boolean).join(', ')}`
+      },
+      downloader: {
+        status: downloaderCapable ? 'ok' : (downloadsWrite.writable ? 'warn' : 'error'),
+        summary: downloaderCapable
+          ? `aria2c & yt-dlp ready; downloads writable (${downloadsDisk.free} free)`
+          : (!downloadsWrite.writable
+            ? `Downloads directory not writable: ${downloadsWrite.error}`
+            : `Missing binary: ${[!aria2c.installed && 'aria2c', !ytdlp.installed && 'yt-dlp'].filter(Boolean).join(', ')}`)
+      },
+      livekit: {
+        status: livekitCapable ? (livekitDefaultSecretInUse ? 'warn' : 'ok') : 'error',
+        summary: !livekitKeysConfigured
+          ? 'LIVEKIT_API_KEY / LIVEKIT_API_SECRET not configured'
+          : (!lkProbe.reachable
+            ? `LiveKit SFU unreachable at ${LIVEKIT_HTTP_TARGET} (${lkProbe.error || 'connection failed'})`
+            : (livekitDefaultSecretInUse
+              ? 'LiveKit SFU reachable, but a placeholder/weak secret is set in .env'
+              : `LiveKit SFU reachable at ${LIVEKIT_HTTP_TARGET}`))
+      }
+    }
+  });
+});
+
+app.get('/api/system/diagnostics/livekit-token', async (req, res) => {
+  if (!canAccessDiagnostics(req)) {
+    return res.status(403).json({ error: 'Admin privileges required.' });
+  }
+  if (!AccessToken || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return res.status(503).json({ error: 'LiveKit credentials not configured on server.' });
+  }
+  try {
+    const identity = `diag-${Date.now()}`;
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity,
+      name: 'DiagnosticsProbe',
+      ttl: 60
+    });
+    at.addGrant({ roomJoin: true, room: '__diag__', canPublish: false, canSubscribe: false });
+    const token = await at.toJwt();
+    const host = req.headers.host || `localhost:${PORT}`;
+    const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    const proto = (req.secure || fwdProto === 'https') ? 'wss' : 'ws';
+    const wsUrl = process.env.LIVEKIT_WS_URL || `${proto}://${host}/livekit`;
+    res.json({ token, url: wsUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 function streamFileWithRanges(req, res, filePath, mimeType) {
@@ -2213,7 +3269,10 @@ app.get(['/api/media/audio-status/:filename', '/api/media/audio-status/*'], asyn
 });
 
 // Trigger One-Click Processing of All Audio Tracks
-app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], async (req, res) => {
+app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], requireAuth, async (req, res) => {
+  if (!appConfig?.modules?.mediaStudio) {
+    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
+  }
   const relPath = req.params[0] || req.params.filename;
   const filePath = resolveExistingMediaFile(relPath);
 
@@ -2243,7 +3302,10 @@ app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], a
 // ==========================================================================
 const activeVideoTranscodeJobs = new Map(); // relativePath -> jobInfo
 
-app.get('/api/media/process/status', (req, res) => {
+app.get('/api/media/process/status', requireAuth, (req, res) => {
+  if (!appConfig?.modules?.mediaStudio) {
+    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
+  }
   const jobs = Array.from(activeVideoTranscodeJobs.values()).map(j => ({
     id: j.id,
     relativePath: j.relativePath,
@@ -2259,7 +3321,10 @@ app.get('/api/media/process/status', (req, res) => {
   res.json({ activeJobs: jobs });
 });
 
-app.post('/api/media/process/start', async (req, res) => {
+app.post('/api/media/process/start', requireAuth, async (req, res) => {
+  if (!appConfig?.modules?.mediaStudio) {
+    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
+  }
   const { relativePath, crf = 22, preset = 'veryfast' } = req.body;
   if (!relativePath) return res.status(400).json({ error: 'Relative path is required' });
 
@@ -2421,7 +3486,10 @@ app.post('/api/media/process/start', async (req, res) => {
   });
 });
 
-app.post('/api/media/process/cancel', (req, res) => {
+app.post('/api/media/process/cancel', requireAuth, (req, res) => {
+  if (!appConfig?.modules?.mediaStudio) {
+    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
+  }
   const { relativePath } = req.body;
   if (!relativePath || !activeVideoTranscodeJobs.has(relativePath)) {
     return res.status(404).json({ error: 'No active job for this file' });
@@ -2441,7 +3509,7 @@ app.post('/api/media/process/cancel', (req, res) => {
 });
 
 // Upload media or subtitle files directly
-app.post('/api/media/upload', upload.single('mediaFile'), (req, res) => {
+app.post('/api/media/upload', requireAuth, upload.single('mediaFile'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({
     success: true,
@@ -2601,6 +3669,28 @@ app.get('*', (req, res, next) => {
 // --------------------------------------------------------------------------
 // 5. REAL-TIME SOCKET.IO ENGINE (SYNC, DANMAKU, WEBRTC VOICE)
 // --------------------------------------------------------------------------
+function anyActiveNekoUsers() {
+  for (const room of rooms.values()) {
+    if (room.media?.type === 'neko' && room.users && room.users.size > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function stopNekoIfIdle() {
+  try {
+    if (anyActiveNekoUsers()) return { skipped: true, reason: 'active_users' };
+    const status = await checkNekoStatus();
+    if (status === 'running') {
+      return await stopNeko();
+    }
+    return { success: true, status, alreadyStopped: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 io.on('connection', (socket) => {
   let currentRoomId = null;
   let currentUser = null;
@@ -2644,16 +3734,16 @@ io.on('connection', (socket) => {
 
     const isFirstUser = room.users.size === 0;
 
-    let cleanUsername = (username || (isFirstUser ? 'Het' : 'Ria'))
+    let cleanUsername = (username || 'Guest')
       .replace(/^(jotaro|jolyne|joyeline)\s+/i, '')
       .replace(/^riaa$/i, 'Ria')
-      .trim();
+      .trim() || 'Guest';
 
     currentUser = {
       id: socket.id,
       username: cleanUsername,
-      color: color || (cleanUsername.toLowerCase() === 'het' ? '#f59e0b' : '#f472b6'),
-      avatar: avatar || (cleanUsername.toLowerCase() === 'het' ? 'jotaro' : 'jolyne'),
+      color: color || '#ec4899',
+      avatar: avatar || '🍿',
       isHost: isFirstUser || room.hostId === socket.id,
       inVoice: false
     };
@@ -2671,8 +3761,7 @@ io.on('connection', (socket) => {
         return {
           ...m,
           text: m.text
-            .replace(/^(jotaro|jolyne|joyeline)\s+Het/i, 'Het')
-            .replace(/^(jotaro|jolyne|joyeline)\s+Riaa?/i, 'Ria')
+            .replace(/^(jotaro|jolyne|joyeline)\s+/i, '')
             .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
             .replace(/hopped into the room!/i, 'joined the room')
             .trim()
@@ -2922,13 +4011,6 @@ io.on('connection', (socket) => {
     const detected = detectMediaType(url);
     const resolvedType = type || (url?.includes('.m3u8') ? 'hls' : detected.type);
 
-    // If switching away from Neko, stop container to free up server CPU/RAM
-    if (oldMedia?.type === 'neko' && resolvedType !== 'neko') {
-      stopNeko();
-    } else if (resolvedType === 'neko') {
-      ensureNekoRunning();
-    }
-
     room.media = {
       type: resolvedType,
       url: detected.cleanUrl || url,
@@ -2936,6 +4018,13 @@ io.on('connection', (socket) => {
       title: title || (detected.type === 'youtube' ? 'YouTube Stream' : 'Video Item'),
       audioTrack: typeof audioTrack === 'number' ? audioTrack : 0
     };
+
+    // Stop Neko AFTER updating room.media so anyActiveNekoUsers() sees the updated state
+    if (oldMedia?.type === 'neko' && resolvedType !== 'neko') {
+      stopNekoIfIdle();
+    } else if (resolvedType === 'neko') {
+      ensureNekoRunning();
+    }
 
     room.playback.isPlaying = true;
     room.playback.currentTime = 0;
@@ -3259,14 +4348,28 @@ io.on('connection', (socket) => {
       socket.to(currentRoomId).emit('voice:peer_left', { peerId: socket.id });
     }
 
+    if (room.media?.type === 'neko' && room.users.size === 0) {
+      stopNekoIfIdle();
+    }
+
     broadcastLiveStatus();
   });
 });
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url && req.url.startsWith('/neko')) {
+    if (!appConfig?.modules?.neko) {
+      socket.destroy();
+      return;
+    }
     ensureNekoRunning();
     nekoProxy.upgrade(req, socket, head);
+  } else if (req.url && req.url.startsWith('/livekit')) {
+    if (!appConfig?.modules?.livekit) {
+      socket.destroy();
+      return;
+    }
+    livekitProxy.upgrade(req, socket, head);
   }
 });
 
@@ -3287,4 +4390,8 @@ setInterval(() => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🍿 Watch Together Media Hub running on http://0.0.0.0:${PORT}`);
+  // Ensure Neko container isn't left consuming CPU/RAM on startup if no users are in a Neko room
+  setTimeout(() => {
+    stopNekoIfIdle().catch(() => {});
+  }, 1500);
 });

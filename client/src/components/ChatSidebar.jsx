@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { UserAvatar } from './JojoAvatar';
 import { ClayChat, ClayUsers, ClayClose, ClayCheck, ClayClock, ClayArrow, ClayHeart, ClaySparkle } from './ClayIcons';
-import { Send, Smile, Sun, Moon, PanelRightClose, X, Check, CheckCheck } from 'lucide-react';
+import { Send, Smile, Sun, Moon, PanelRightClose, X, Check, CheckCheck, Plus, Minus, RotateCcw } from 'lucide-react';
 import { GiphyPicker } from './GiphyPicker';
 
-const QUICK_EMOJIS = ['❤️', '🔥', '😂', '🥺', '👏', '🎉', '🍿', '😍', '💀', '✨', '😭', '💯'];
+const DEFAULT_QUICK_EMOJIS = ['❤️', '🔥', '😂', '🥺', '👏', '🎉', '🍿', '😍', '💀', '✨', '😭', '💯'];
 
 const EXTENDED_EMOJIS = [
   '😀', '😂', '🤣', '😍', '🥰', '😘', '😜', '😎', '🥳', '🥺', '😭', '😤',
@@ -15,6 +15,7 @@ const EXTENDED_EMOJIS = [
 
 export function ChatSidebar({
   isOpen = true,
+  isClosing = false,
   onClose,
   messages = [],
   onSendMessage,
@@ -31,6 +32,18 @@ export function ChatSidebar({
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'users'
   const [showGiphy, setShowGiphy] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [expandedSysGroups, setExpandedSysGroups] = useState({});
+  const [quickEmojis, setQuickEmojis] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('wt_quick_emojis') || 'null');
+      if (Array.isArray(saved) && saved.length > 0) {
+        return saved.filter((item) => typeof item === 'string' && item.trim().length > 0);
+      }
+    } catch {}
+    return DEFAULT_QUICK_EMOJIS;
+  });
+  const [showQuickEmojiManager, setShowQuickEmojiManager] = useState(false);
+  const [customQuickEmojiInput, setCustomQuickEmojiInput] = useState('');
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
     return localStorage.getItem('wt_chat_theme') !== 'light'; // Default to dark cinema mode!
   });
@@ -57,16 +70,35 @@ export function ChatSidebar({
     isNearBottomRef.current = distanceToBottom < 120;
   };
 
-  // When chat drawer is opened, always scroll directly to latest message
-  useEffect(() => {
-    if (isOpen && !isCollapsed) {
+  const scrollFeedToBottomInstant = () => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  };
+
+  // Synchronously snap to newest messages before first paint when opening chat or switching to Chat tab
+  useLayoutEffect(() => {
+    if (isOpen && !isCollapsed && activeTab === 'chat') {
       onMarkSeen?.();
       isNearBottomRef.current = true;
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-      }, 50);
+      prevMsgCountRef.current = messages.length;
+      scrollFeedToBottomInstant();
     }
-  }, [isOpen, isCollapsed]);
+  }, [isOpen, isCollapsed, activeTab]);
+
+  // Safety post-layout snap so GIFs/animations never leave scroll short of newest messages
+  useEffect(() => {
+    if (isOpen && !isCollapsed && activeTab === 'chat') {
+      scrollFeedToBottomInstant();
+      const rafId = requestAnimationFrame(scrollFeedToBottomInstant);
+      const settleTimer = setTimeout(scrollFeedToBottomInstant, 140);
+      return () => {
+        cancelAnimationFrame(rafId);
+        clearTimeout(settleTimer);
+      };
+    }
+    return undefined;
+  }, [isOpen, isCollapsed, activeTab]);
 
   // Auto-mark seen and smart scroll for incoming messages
   useEffect(() => {
@@ -76,14 +108,20 @@ export function ChatSidebar({
 
       // Only auto-scroll down if user was already near the bottom or it's their own newly sent message
       if (messages.length > prevCount) {
+        onMarkSeen?.();
         const lastMsg = messages[messages.length - 1];
         const isMyMsg = (lastMsg?.sender || '').toLowerCase() === (currentProfile?.name || '').toLowerCase();
         if (isNearBottomRef.current || isMyMsg) {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          const el = chatContainerRef.current;
+          if (el) {
+            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          } else {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          }
         }
       }
     }
-  }, [messages.length]);
+  }, [messages.length, isOpen, isCollapsed]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -102,7 +140,68 @@ export function ChatSidebar({
 
   function handleInsertEmoji(emoji) {
     setInputText((prev) => prev + emoji);
+    try {
+      const counts = JSON.parse(localStorage.getItem('wt_quick_emoji_usage') || '{}');
+      counts[emoji] = (Number(counts[emoji]) || 0) + 1;
+      localStorage.setItem('wt_quick_emoji_usage', JSON.stringify(counts));
+      window.dispatchEvent(new Event('wt_quick_emojis_updated'));
+    } catch {}
     inputRef.current?.focus();
+  }
+
+  function extractFirstGrapheme(raw) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return '';
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      const segs = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed));
+      return segs[0]?.segment || '';
+    }
+    return Array.from(trimmed)[0] || '';
+  }
+
+  function writeQuickEmojisStorage(next) {
+    try {
+      localStorage.setItem('wt_quick_emojis', JSON.stringify(next));
+      window.dispatchEvent(new Event('wt_quick_emojis_updated'));
+    } catch {}
+  }
+
+  function persistQuickEmojis(next) {
+    setQuickEmojis(next);
+    writeQuickEmojisStorage(next);
+  }
+
+  function addQuickEmoji(rawEmoji) {
+    const token = extractFirstGrapheme(rawEmoji);
+    if (!token) return;
+    setQuickEmojis((prev) => {
+      if (prev.includes(token)) return prev;
+      const next = [...prev, token];
+      writeQuickEmojisStorage(next);
+      return next;
+    });
+    setCustomQuickEmojiInput('');
+  }
+
+  function removeQuickEmoji(emoji) {
+    setQuickEmojis((prev) => {
+      const next = prev.filter((item) => item !== emoji);
+      writeQuickEmojisStorage(next);
+      return next;
+    });
+  }
+
+  function toggleQuickEmoji(emoji) {
+    setQuickEmojis((prev) => {
+      const exists = prev.includes(emoji);
+      const next = exists ? prev.filter((item) => item !== emoji) : [...prev, emoji];
+      writeQuickEmojisStorage(next);
+      return next;
+    });
+  }
+
+  function resetQuickEmojis() {
+    persistQuickEmojis(DEFAULT_QUICK_EMOJIS);
   }
 
   function formatTime(timestamp) {
@@ -125,662 +224,439 @@ export function ChatSidebar({
   });
   const partnerSeenTimestamp = partnerEntry ? partnerEntry[1] : 0;
 
-  return (
-    <div
-      className={`chat-sidebar-drawer ${isCollapsed ? 'collapsed' : ''}`}
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        display: isCollapsed ? 'none' : 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        width: '100%',
-        background: isDarkTheme ? '#0d0a14' : '#ffffff',
-        borderRadius: '20px',
-        border: 'none',
-        outline: 'none',
-        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.8)' : '0 12px 32px rgba(0, 0, 0, 0.08)',
-        position: 'relative',
-        overflow: 'hidden',
-        transition: 'background 0.25s ease'
-      }}
-    >
-      {/* 1. Header Tabs: Chat, Users, Theme Mode Toggle & Noticeable Collapse Button */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '10px 14px',
-          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.06)',
-          background: isDarkTheme ? '#120d1c' : '#ffffff',
-          gap: '8px'
-        }}
-      >
-        <div style={{ position: 'relative', display: 'flex', background: isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)', padding: '3px', borderRadius: '9999px', overflow: 'hidden' }}>
-          {/* Sliding Active Pill Background */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '3px',
-              bottom: '3px',
-              left: activeTab === 'chat' ? '3px' : 'calc(50% + 1px)',
-              width: 'calc(50% - 4px)',
-              borderRadius: '9999px',
-              background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-              boxShadow: '0 2px 8px rgba(236, 72, 153, 0.45)',
-              transition: 'left 0.32s cubic-bezier(0.32, 0.72, 0, 1)',
-              pointerEvents: 'none',
-              zIndex: 1
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setActiveTab('chat')}
-            style={{
-              position: 'relative',
-              zIndex: 2,
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              background: 'transparent',
-              color: activeTab === 'chat' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
-              border: 'none',
-              fontWeight: 800,
-              fontSize: '0.78rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'color 0.25s ease'
-            }}
-          >
-            <ClayChat size={15} />
-            <span>Chat</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('users')}
-            style={{
-              position: 'relative',
-              zIndex: 2,
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              background: 'transparent',
-              color: activeTab === 'users' ? '#ffffff' : (isDarkTheme ? '#cbd5e1' : '#64748b'),
-              border: 'none',
-              fontWeight: 800,
-              fontSize: '0.78rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'color 0.25s ease'
-            }}
-          >
-            <ClayUsers size={15} />
-            <span>Users ({connectedUsers.length || 1})</span>
-          </button>
+  const themeClass = isDarkTheme ? 'wchat-dark' : 'wchat-light';
+  const closingClass = isClosing ? 'is-closing' : 'is-open';
+  const closeHandler = isCollapsible ? onToggleCollapse : onClose;
+
+  // Group consecutive system events & consecutive same-sender messages cleanly
+  const timelineEntries = [];
+  for (let i = 0; i < messages.length; i += 1) {
+    const msg = messages[i];
+    if (msg.isSystem) {
+      const run = [msg];
+      while (i + 1 < messages.length && messages[i + 1].isSystem) {
+        i += 1;
+        run.push(messages[i]);
+      }
+      const uniqueTexts = Array.from(new Set(run.map((item) => item.text).filter(Boolean)));
+      const latestText = run[run.length - 1]?.text || '';
+      const summaryLabel =
+        run.length === 1
+          ? latestText
+          : uniqueTexts.length === 1
+            ? `${uniqueTexts[0]} ×${run.length}`
+            : `${latestText} · +${run.length - 1}`;
+      timelineEntries.push({
+        kind: 'system-group',
+        id: `sys-${run[0].id || i}`,
+        items: run,
+        summaryLabel
+      });
+      continue;
+    }
+
+    const prev = i > 0 && !messages[i - 1].isSystem ? messages[i - 1] : null;
+    const next = i + 1 < messages.length && !messages[i + 1].isSystem ? messages[i + 1] : null;
+    const senderLower = (msg.sender || '').toLowerCase();
+    const prevSame =
+      prev &&
+      (prev.sender || '').toLowerCase() === senderLower &&
+      Math.abs((msg.timestamp || 0) - (prev.timestamp || 0)) < 120000;
+    const nextSame =
+      next &&
+      (next.sender || '').toLowerCase() === senderLower &&
+      Math.abs((next.timestamp || 0) - (msg.timestamp || 0)) < 120000;
+
+    timelineEntries.push({
+      kind: 'message',
+      id: msg.id || `msg-${i}`,
+      msg,
+      isMe: senderLower === (currentUsername || '').toLowerCase(),
+      isGroupStart: !prevSame,
+      isGroupEnd: !nextSame
+    });
+  }
+
+  function toggleSysGroup(groupId) {
+    setExpandedSysGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  }
+
+  function handleFeedScroll(e) {
+    const el = e.currentTarget;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  function renderUsersPanel() {
+    if (connectedUsers.length === 0) {
+      return (
+        <div className="wchat-users-empty">
+          No other users in this room yet.
         </div>
-
-        {/* Clean, Uniform Icon-Only Header Buttons (No Text!) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {/* Night Dark Mode / Light Mode Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '50%',
-              background: isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-              border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.14)' : '1px solid rgba(0, 0, 0, 0.08)',
-              color: isDarkTheme ? '#f472b6' : '#831843',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: isDarkTheme ? '0 2px 6px rgba(0, 0, 0, 0.3)' : '0 2px 4px rgba(0, 0, 0, 0.04)',
-              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
-            title={isDarkTheme ? 'Switch to Light Theme' : 'Switch to Dark Cinema Mode'}
-          >
-            {isDarkTheme ? <Sun size={15} color="#f472b6" /> : <Moon size={15} color="#831843" />}
-          </button>
-
-          {/* Clean Circular Collapse / Close Button */}
-          {(isCollapsible || onClose) && (
-            <button
-              type="button"
-              onClick={isCollapsible ? onToggleCollapse : onClose}
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                background: isDarkTheme ? 'rgba(236, 72, 153, 0.22)' : 'rgba(244, 114, 182, 0.25)',
-                border: isDarkTheme ? '1px solid rgba(236, 72, 153, 0.45)' : '1px solid rgba(244, 114, 182, 0.4)',
-                color: isDarkTheme ? '#f472b6' : '#831843',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: isDarkTheme ? '0 2px 8px rgba(236, 72, 153, 0.3)' : '0 2px 6px rgba(244, 114, 182, 0.25)',
-                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-              }}
-              title="Close Sidebar (C)"
-            >
-              <PanelRightClose size={15} color={isDarkTheme ? '#f472b6' : '#831843'} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 2 & 3. Fast, High-Performance Viewport for Messages & Users */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        {/* Panel A: Messages List Tab */}
-        <div
-          ref={chatContainerRef}
-          onScroll={handleScroll}
-          style={{
-            display: activeTab === 'chat' ? 'flex' : 'none',
-            width: '100%',
-            height: '100%',
-            overflowY: 'auto',
-            padding: '14px',
-            flexDirection: 'column',
-            gap: '12px',
-            background: isDarkTheme ? '#0d0a14' : '#ffffff',
-            boxSizing: 'border-box'
-          }}
-        >
-          {messages.length === 0 ? (
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: isDarkTheme ? '#64748b' : '#94a3b8',
-                gap: '8px',
-                padding: '2rem 1rem'
-              }}
-            >
-              <ClayHeart size={36} />
-              <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>No messages yet</div>
-              <div style={{ fontSize: '0.74rem', textAlign: 'center' }}>
-                Say hello, send a GIF, or drop a reaction!
+      );
+    }
+    return connectedUsers.map((u) => {
+      const isCurrent = (u.username || u.name || '').toLowerCase() === (currentUsername || '').toLowerCase();
+      const displayName = u.username || u.name;
+      return (
+        <div key={u.id || displayName} className="wchat-user-row">
+          <div className="wchat-user-meta">
+            <div className="wchat-avatar-wrap">
+              <UserAvatar user={{ name: displayName, avatar: u.avatar }} size={30} showBorder={false} />
+              <span className="wchat-online-dot" />
+            </div>
+            <div className="wchat-user-copy">
+              <div className="wchat-user-name">
+                {displayName} {isCurrent && <span className="wchat-you-tag">(You)</span>}
+              </div>
+              <div className="wchat-user-role">
+                {u.isHost ? 'Room Host' : 'Viewer'}
               </div>
             </div>
-          ) : (
-            messages.map((msg) => {
-              const isMe = (msg.sender || '').toLowerCase() === (currentUsername || '').toLowerCase();
-              const isSystem = msg.isSystem;
-
-              if (isSystem) {
-                return (
-                  <div
-                    key={msg.id}
-                    style={{
-                      alignSelf: 'center',
-                      background: isDarkTheme ? 'rgba(255, 255, 255, 0.04)' : '#fdf2f8',
-                      border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(244, 114, 182, 0.25)',
-                      borderRadius: '9999px',
-                      padding: '4px 12px',
-                      fontSize: '0.70rem',
-                      color: isDarkTheme ? '#94a3b8' : '#831843',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <ClaySparkle size={12} />
-                    <span>{msg.text}</span>
-                  </div>
-                );
-              }
-
-              // WhatsApp-Style Double Blue Ticks calculation:
-              const isSeen = msg.timestamp && partnerSeenTimestamp && msg.timestamp <= partnerSeenTimestamp;
-
-              return (
-                <div
-                  key={msg.id}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignSelf: isMe ? 'flex-end' : 'flex-start',
-                    maxWidth: '88%',
-                    alignItems: isMe ? 'flex-end' : 'flex-start'
-                  }}
-                >
-                  {/* Sender Header & Time */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      marginBottom: '3px',
-                      padding: '0 4px'
-                    }}
-                  >
-                    {!isMe && (
-                      <span style={{ fontSize: '0.70rem', fontWeight: 800, color: '#f472b6' }}>
-                        {msg.sender}
-                      </span>
-                    )}
-                    <span style={{ fontSize: '0.62rem', color: isDarkTheme ? '#64748b' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      {formatTime(msg.timestamp)}
-                      {/* WhatsApp Double Blue Ticks for own sent messages */}
-                      {isMe && (
-                        <span
-                          style={{
-                            color: isSeen ? '#38bdf8' : (isDarkTheme ? '#64748b' : '#9ca3af'),
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            marginLeft: '2px'
-                          }}
-                          title={isSeen ? `Seen by ${partnerEntry?.[0] || 'partner'}` : 'Delivered'}
-                        >
-                          {isSeen ? <CheckCheck size={12} /> : <Check size={12} />}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-
-                  {/* Message Bubble (Supports Text & Giphy GIFs) */}
-                  <div
-                    style={{
-                      maxWidth: '100%',
-                      padding: msg.image ? '5px' : '8px 12px',
-                      borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                      background: isMe
-                        ? (isDarkTheme ? 'linear-gradient(135deg, rgba(236, 72, 153, 0.28) 0%, rgba(219, 39, 119, 0.38) 100%)' : 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)')
-                        : (isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : '#fdf2f8'),
-                      border: isMe
-                        ? (isDarkTheme ? '1px solid rgba(244, 114, 182, 0.5)' : '1.5px solid rgba(244, 114, 182, 0.45)')
-                        : (isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(244, 114, 182, 0.25)'),
-                      color: isMe ? (isDarkTheme ? '#fce7f3' : '#831843') : (isDarkTheme ? '#f1f5f9' : '#3b142d'),
-                      fontSize: '0.86rem',
-                      fontWeight: 500,
-                      lineHeight: 1.4,
-                      boxShadow: isDarkTheme ? '0 2px 8px rgba(0, 0, 0, 0.3)' : '0 2px 6px rgba(0, 0, 0, 0.04)',
-                      wordBreak: 'break-word',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    {msg.image && (
-                      <img
-                        src={msg.image}
-                        alt="GIF"
-                        loading="lazy"
-                        style={{
-                          maxWidth: '100%',
-                          maxHeight: '180px',
-                          borderRadius: '12px',
-                          display: 'block'
-                        }}
-                      />
-                    )}
-                    {msg.text && (
-                      <div style={{ marginTop: msg.image ? '5px' : 0, padding: msg.image ? '2px 6px 4px' : 0 }}>
-                        {msg.text}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Panel B: Users List Tab */}
-        <div
-          style={{
-            display: activeTab === 'users' ? 'flex' : 'none',
-            width: '100%',
-            height: '100%',
-            overflowY: 'auto',
-            padding: '14px',
-            flexDirection: 'column',
-            gap: '8px',
-            background: isDarkTheme ? '#0a0710' : '#ffffff',
-            boxSizing: 'border-box'
-          }}
-        >
-          {connectedUsers.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#9ca3af', marginTop: '3rem', fontSize: '0.84rem' }}>
-              No other users in this room yet.
-            </div>
-          ) : (
-            connectedUsers.map((u) => {
-              const isCurrent = (u.username || u.name || '').toLowerCase() === (currentUsername || '').toLowerCase();
-              return (
-                <div
-                  key={u.id || u.username}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: '12px',
-                    background: isDarkTheme ? 'rgba(255, 255, 255, 0.04)' : '#fdf2f8',
-                    border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(244, 114, 182, 0.2)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ position: 'relative' }}>
-                      <UserAvatar user={{ name: u.username || u.name, avatar: u.avatar }} size={32} showBorder={false} />
-                      <div
-                        style={{
-                          position: 'absolute',
-                          bottom: 0,
-                          right: 0,
-                          width: '9px',
-                          height: '9px',
-                          borderRadius: '50%',
-                          background: '#10b981',
-                          border: '1.5px solid #0d0a14'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: isDarkTheme ? '#f1f5f9' : '#1e293b' }}>
-                        {u.username || u.name} {isCurrent && '(You)'}
-                      </div>
-                      <div style={{ fontSize: '0.66rem', color: isDarkTheme ? '#94a3b8' : '#64748b' }}>
-                        {u.isHost ? 'Room Host' : 'Viewer'}
-                      </div>
-                    </div>
-                  </div>
-                  {isCurrent && onOpenAvatarModal && (
-                    <button
-                      type="button"
-                      onClick={onOpenAvatarModal}
-                      style={{
-                        padding: '3px 10px',
-                        borderRadius: '9999px',
-                        background: 'rgba(236, 72, 153, 0.2)',
-                        border: '1px solid rgba(236, 72, 153, 0.45)',
-                        color: '#f472b6',
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                      title="Change Profile Picture"
-                    >
-                      Change Photo
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* 4. GIPHY Picker Floating Popover */}
-      {showGiphy && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '72px',
-            left: '10px',
-            right: '10px',
-            zIndex: 150
-          }}
-        >
-          <GiphyPicker
-            onSelectGif={handleSelectGif}
-            onClose={() => setShowGiphy(false)}
-            isDarkTheme={isDarkTheme}
-          />
-        </div>
-      )}
-
-      {/* 5. Extended Emoji Picker Floating Popover */}
-      {showEmojiPicker && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            bottom: '72px',
-            left: '10px',
-            right: '10px',
-            padding: '10px',
-            background: isDarkTheme ? 'rgba(16, 12, 22, 0.98)' : '#ffffff',
-            border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.14)' : '1px solid rgba(0, 0, 0, 0.1)',
-            borderRadius: '16px',
-            boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.85)' : '0 12px 32px rgba(0, 0, 0, 0.12)',
-            backdropFilter: 'blur(20px)',
-            zIndex: 150,
-            animation: 'poufPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '4px', borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)' }}>
-            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Select Emoji
-            </span>
+          </div>
+          {isCurrent && onOpenAvatarModal && (
             <button
-              onClick={() => setShowEmojiPicker(false)}
+              type="button"
+              className="wchat-avatar-btn"
+              onClick={onOpenAvatarModal}
+              title="Change Profile Picture"
+            >
+              Change Photo
+            </button>
+          )}
+        </div>
+      );
+    });
+  }
+
+  function renderFloatingPickers() {
+    return (
+      <>
+        {showGiphy && (
+          <div className="wchat-popover-anchor">
+            <GiphyPicker
+              onSelectGif={handleSelectGif}
+              onClose={() => setShowGiphy(false)}
+              isDarkTheme={isDarkTheme}
+            />
+          </div>
+        )}
+        {showEmojiPicker && (
+          <div className="wchat-emoji-popover" onClick={(e) => e.stopPropagation()}>
+            <div className="wchat-emoji-popover-head">
+              <span>Select Emoji</span>
+              <button type="button" onClick={() => setShowEmojiPicker(false)} aria-label="Close emoji picker">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="wchat-emoji-grid">
+              {EXTENDED_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleInsertEmoji(emoji)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function renderQuickStudioOverlay() {
+    if (!showQuickEmojiManager) return null;
+    return (
+      <div className="qeb-studio-card" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#f472b6', letterSpacing: '0.03em' }}>
+            Quick Reaction Studio
+          </span>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={resetQuickEmojis}
+              style={{ background: 'none', border: 'none', color: isDarkTheme ? '#f9a8d4' : '#db2777', fontSize: '0.67rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+            >
+              Restore defaults
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowQuickEmojiManager(false)}
               style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0, display: 'flex' }}
             >
-              <X size={14} />
+              <X size={13} />
             </button>
           </div>
-          <div
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <input
+            type="text"
+            value={customQuickEmojiInput}
+            onChange={(e) => setCustomQuickEmojiInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addQuickEmoji(customQuickEmojiInput);
+              }
+            }}
+            placeholder="Paste any emoji..."
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(8, 1fr)',
-              gap: '6px',
-              maxHeight: '160px',
-              overflowY: 'auto'
+              flex: 1,
+              minWidth: 0,
+              padding: '5px 9px',
+              borderRadius: '9px',
+              border: isDarkTheme ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(236,72,153,0.22)',
+              background: isDarkTheme ? 'rgba(255,255,255,0.06)' : '#fff7fb',
+              color: isDarkTheme ? '#fdf2f8' : '#3b142d',
+              fontSize: '0.76rem',
+              outline: 'none'
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => addQuickEmoji(customQuickEmojiInput)}
+            style={{
+              padding: '5px 10px',
+              borderRadius: '9px',
+              border: 'none',
+              background: 'linear-gradient(135deg, #ec4899, #db2777)',
+              color: '#fff',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              cursor: 'pointer'
             }}
           >
-            {EXTENDED_EMOJIS.map((emoji) => (
+            + Pin
+          </button>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.66rem', fontWeight: 700, opacity: 0.72, marginBottom: '4px' }}>
+            In Your Bar ({quickEmojis.length}) — click to remove
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '64px', overflowY: 'auto' }}>
+            {quickEmojis.map((emoji) => (
               <button
                 key={emoji}
                 type="button"
-                onClick={() => handleInsertEmoji(emoji)}
+                onClick={() => removeQuickEmoji(emoji)}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '1.2rem',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '6px',
-                  transition: 'transform 0.15s ease',
-                  userSelect: 'none'
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 7px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(244, 114, 182, 0.3)',
+                  background: 'rgba(244, 114, 182, 0.12)',
+                  color: 'inherit',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer'
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.3)')}
-                onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                title={`Remove ${emoji}`}
+              >
+                <span>{emoji}</span>
+                <Minus size={10} color="#fca5a5" />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.66rem', fontWeight: 700, opacity: 0.72, marginBottom: '4px' }}>
+            Suggested Additions — click + to pin
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px', maxHeight: '84px', overflowY: 'auto' }}>
+            {EXTENDED_EMOJIS.filter((em) => !quickEmojis.includes(em)).map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => addQuickEmoji(emoji)}
+                style={{
+                  padding: '3px',
+                  borderRadius: '7px',
+                  border: '1px solid transparent',
+                  background: 'rgba(255,255,255,0.04)',
+                  fontSize: '0.98rem',
+                  cursor: 'pointer',
+                  lineHeight: 1.1
+                }}
+                title={`Pin ${emoji}`}
               >
                 {emoji}
               </button>
             ))}
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {/* 6. Quick Reaction Emoji Bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '4px 14px 2px 14px',
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
-          gap: '4px',
-          background: isDarkTheme ? '#100c18' : '#fff7fb',
-          borderTop: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(0, 0, 0, 0.04)'
-        }}
-      >
-        {QUICK_EMOJIS.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            onClick={() => handleInsertEmoji(emoji)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '1.05rem',
-              padding: '2px 3px',
-              borderRadius: '6px',
-              transition: 'transform 0.15s ease',
-              userSelect: 'none',
-              lineHeight: 1
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.3)')}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-            title={`Add ${emoji}`}
-          >
-            {emoji}
+  return (
+    <div
+      className={`chat-sidebar-drawer wchat-v2 ${themeClass} ${closingClass} ${isCollapsed ? 'collapsed' : ''}`}
+      onClick={(e) => e.stopPropagation()}
+      style={{ display: isCollapsed ? 'none' : 'flex' }}
+    >
+      <div className="wchat-header">
+        <div className="wchat-seg">
+          <button type="button" className={activeTab === 'chat' ? 'active' : ''} onClick={() => setActiveTab('chat')}>
+            <ClayChat size={14} />
+            <span>Chat</span>
           </button>
-        ))}
+          <button type="button" className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>
+            <ClayUsers size={14} />
+            <span>Users ({connectedUsers.length || 1})</span>
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <button type="button" className="wchat-ghost-icon" onClick={toggleTheme} title={isDarkTheme ? 'Light Theme' : 'Dark Mode'}>
+            {isDarkTheme ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          {(isCollapsible || onClose) && (
+            <button type="button" className="wchat-ghost-icon" onClick={closeHandler} title="Close Sidebar (C)">
+              <PanelRightClose size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* 7. Input Bar (Text, GIF button, Emoji button, Send button) */}
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          padding: '8px 12px 12px 12px',
-          borderTop: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.06)',
-          background: isDarkTheme ? '#100c18' : '#ffffff',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '7px'
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: isDarkTheme ? '#181224' : '#f8fafc',
-            borderRadius: '9999px',
-            padding: '6px 12px',
-            border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
-            boxShadow: isDarkTheme ? 'inset 0 1px 3px rgba(0, 0, 0, 0.6)' : 'inset 0 1px 3px rgba(0, 0, 0, 0.04)'
-          }}
-        >
-          {/* GIF Toggle Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowGiphy((prev) => !prev);
-              setShowEmojiPicker(false);
-            }}
-            style={{
-              background: showGiphy ? 'linear-gradient(135deg, #ec4899, #db2777)' : (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
-              border: showGiphy ? '1px solid #ec4899' : '1px solid rgba(244, 114, 182, 0.3)',
-              borderRadius: '6px',
-              padding: '2px 5px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              lineHeight: 1
-            }}
-            title="Search & Send GIFs (Powered by GIPHY)"
-          >
-            <span
-              style={{
-                fontSize: '0.62rem',
-                fontWeight: 900,
-                color: showGiphy ? '#ffffff' : '#f472b6',
-                letterSpacing: '0.04em'
+      <div className="wchat-stage">
+        {activeTab === 'chat' ? (
+          <div ref={chatContainerRef} className="wchat-feed" onScroll={handleFeedScroll}>
+            {messages.length === 0 ? (
+              <div className="wchat-users-empty">
+                <ClayHeart size={32} />
+                <div style={{ marginTop: '8px', fontWeight: 600 }}>No messages yet</div>
+              </div>
+            ) : (
+              timelineEntries.map((entry) => {
+                if (entry.kind === 'system-group') {
+                  const isExpanded = !!expandedSysGroups[entry.id];
+                  return (
+                    <div key={entry.id} className="wchat-sys-badge-wrap">
+                      <button
+                        type="button"
+                        className="wchat-sys-badge"
+                        onClick={() => entry.items.length > 1 && toggleSysGroup(entry.id)}
+                      >
+                        {entry.summaryLabel}
+                      </button>
+                      <div className={`wchat-sys-expanded ${isExpanded ? 'is-expanded' : ''}`}>
+                        {entry.items.map((item) => (
+                          <span key={item.id}>{item.text}</span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                const { msg, isMe, isGroupStart, isGroupEnd } = entry;
+                const isSeen = msg.timestamp && partnerSeenTimestamp && msg.timestamp <= partnerSeenTimestamp;
+                return (
+                  <div key={entry.id} className={`wchat-msg-group ${isMe ? 'me' : 'other'} ${isGroupStart ? 'group-start' : ''}`}>
+                    {isGroupStart && !isMe && <div className="wchat-sender-tag">{msg.sender}</div>}
+                    <div className={`wchat-bubble ${msg.image ? 'has-img' : ''}`}>
+                      {msg.image && (
+                        <img
+                          src={msg.image}
+                          alt="GIF"
+                          loading="lazy"
+                          onLoad={() => {
+                            if (isNearBottomRef.current) scrollFeedToBottomInstant();
+                          }}
+                        />
+                      )}
+                      {msg.text && <div style={{ padding: msg.image ? '4px 6px 2px' : 0 }}>{msg.text}</div>}
+                    </div>
+                    {isGroupEnd && (
+                      <div className="wchat-end-meta">
+                        <span>{formatTime(msg.timestamp)}</span>
+                        {isMe && (
+                          <span style={{ color: isSeen ? '#38bdf8' : '#7d7290', display: 'inline-flex' }}>
+                            {isSeen ? <CheckCheck size={12} /> : <Check size={12} />}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            <div ref={messagesEndRef} className="wchat-end" />
+          </div>
+        ) : (
+          <div className="wchat-panel-users">{renderUsersPanel()}</div>
+        )}
+      </div>
+
+      {renderFloatingPickers()}
+
+      <div className="wchat-dock">
+        <div className={`qeb-shell ${isDarkTheme ? 'qeb-is-dark' : 'qeb-is-light'}`}>
+          {renderQuickStudioOverlay()}
+          <div className="qeb-strip">
+            {quickEmojis.map((emoji) => (
+              <button key={emoji} type="button" className="qeb-emoji-btn" onClick={() => handleInsertEmoji(emoji)}>
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <div className="qeb-dock">
+            <button
+              type="button"
+              className={`qeb-dock-btn ${showQuickEmojiManager ? 'open' : ''}`}
+              onClick={() => {
+                setShowQuickEmojiManager((prev) => !prev);
+                setShowEmojiPicker(false);
+                setShowGiphy(false);
+              }}
+            >
+              {showQuickEmojiManager ? <Check size={13} /> : <Plus size={13} />}
+            </button>
+          </div>
+        </div>
+        <form className="wchat-composer" onSubmit={handleSubmit}>
+          <div className="wchat-input-capsule">
+            <button
+              type="button"
+              className={`wchat-gif-btn ${showGiphy ? 'active' : ''}`}
+              onClick={() => {
+                setShowGiphy((prev) => !prev);
+                setShowEmojiPicker(false);
               }}
             >
               GIF
-            </span>
+            </button>
+            <button
+              type="button"
+              className={`wchat-tool-btn ${showEmojiPicker ? 'active' : ''}`}
+              onClick={() => {
+                setShowEmojiPicker((prev) => !prev);
+                setShowGiphy(false);
+              }}
+            >
+              <Smile size={15} />
+            </button>
+            <input
+              ref={inputRef}
+              type="text"
+              className="wchat-input"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Message room..."
+            />
+            <button type="button" className="wchat-tool-btn" onClick={() => handleInsertEmoji('❤️')}>
+              <ClayHeart size={15} />
+            </button>
+          </div>
+          <button type="submit" disabled={!inputText.trim()} className={`wchat-send-btn ${inputText.trim() ? 'ready' : ''}`}>
+            {inputText.trim() ? <ClayArrow direction="up" size={14} /> : <Send size={13} />}
           </button>
-
-          {/* Emoji Picker Toggle Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowEmojiPicker((prev) => !prev);
-              setShowGiphy(false);
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '2px',
-              display: 'flex',
-              alignItems: 'center',
-              color: showEmojiPicker ? '#ec4899' : (isDarkTheme ? '#94a3b8' : '#64748b')
-            }}
-            title="Emoji Picker"
-          >
-            <Smile size={16} />
-          </button>
-
-          {/* Text Input */}
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type a message..."
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              fontSize: '0.84rem',
-              fontWeight: 500,
-              color: isDarkTheme ? '#fdf2f8' : '#1e293b'
-            }}
-          />
-
-          {/* Fast Heart Button */}
-          <button
-            type="button"
-            onClick={() => handleInsertEmoji('❤️')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-            title="Heart"
-          >
-            <ClayHeart size={16} />
-          </button>
-        </div>
-
-        {/* 3D Puffy Clay Send Button */}
-        <button
-          type="submit"
-          disabled={!inputText.trim()}
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            background: inputText.trim()
-              ? 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'
-              : (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
-            border: 'none',
-            color: '#ffffff',
-            boxShadow: inputText.trim() ? '0 4px 14px rgba(236, 72, 153, 0.45)' : 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: inputText.trim() ? 'pointer' : 'default',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            transform: inputText.trim() ? 'scale(1.04)' : 'scale(1)',
-            flexShrink: 0
-          }}
-          title="Send message"
-        >
-          {inputText.trim() ? (
-            <ClayArrow direction="up" size={15} />
-          ) : (
-            <Send size={14} color={isDarkTheme ? '#6b7280' : '#94a3b8'} style={{ transform: 'translateX(1px)' }} />
-          )}
-        </button>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

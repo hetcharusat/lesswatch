@@ -264,7 +264,7 @@ export function AvatarUploadModal({ isOpen, onClose, currentUser, onAvatarUpdate
 
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#fbcfe8' }}>
-              {currentUser?.name || 'Het'}
+              {currentUser?.name || 'User'}
             </div>
             {convertedSizeKb && (
               <div style={{ fontSize: '0.72rem', color: '#34d399', fontWeight: 700, marginTop: '2px' }}>

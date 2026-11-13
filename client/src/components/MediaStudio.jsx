@@ -1,18 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import {
-  ClayFilm,
-  ClayFolder,
   ClayPlay,
   ClaySearch,
   ClayRefresh,
   ClayTrash,
-  ClayCheck,
-  ClayClose,
   ClaySparkle,
-  ClayDownload,
-  ClayHeadphones,
-  ClaySubtitles
+  ClayDownload
 } from './ClayIcons';
 
 export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
@@ -31,7 +25,7 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het' || currentUser?.name?.toLowerCase() === 'ria' || currentUser?.name?.toLowerCase() === 'riaa';
+  const isAdmin = currentUser?.role === 'admin';
 
   // 1. Fetch library media files & active transcode jobs
   const fetchStudioData = useCallback(async () => {
@@ -39,7 +33,9 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
       setLoading(true);
       const [libRes, jobsRes] = await Promise.all([
         fetch('/api/library'),
-        fetch('/api/media/process/status').catch(() => null)
+        fetch('/api/media/process/status', {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}` }
+        }).catch(() => null)
       ]);
 
       if (libRes.ok) {
@@ -128,7 +124,10 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
       showToast(`🚀 Starting Web Optimization for "${file.filename}"...`);
       const res = await fetch('/api/media/process/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
+        },
         body: JSON.stringify({ relativePath: rel, crf: 22, preset: 'veryfast' })
       });
       const data = await res.json();
@@ -148,7 +147,10 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
     try {
       const res = await fetch('/api/media/process/cancel', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
+        },
         body: JSON.stringify({ relativePath })
       });
       if (res.ok) {
@@ -166,7 +168,10 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
     setProcessingAudioFiles(p => ({ ...p, [rel]: true }));
     try {
       showToast(`🎵 Extracting audio tracks for "${file.filename}"...`);
-      await fetch(`/api/media/process-audio/${encodeURIComponent(rel)}`, { method: 'POST' });
+      await fetch(`/api/media/process-audio/${encodeURIComponent(rel)}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}` }
+      });
       setTimeout(() => {
         setProcessingAudioFiles(p => ({ ...p, [rel]: false }));
         fetchStudioData();
@@ -176,15 +181,14 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
     }
   };
 
-  // 6. Delete file with fail-safe auth
+  // 6. Delete file with Bearer auth
   const handleDeleteFile = async (file) => {
     const rel = file.relativePath || file.filename;
     try {
       const res = await fetch(`/api/library/file?path=${encodeURIComponent(rel)}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`,
-          'x-user-profile': JSON.stringify(currentUser || { name: 'Het', role: 'admin' })
+          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
         }
       });
       const data = await res.json();
@@ -214,9 +218,143 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
   const webReadyCount = files.filter(f => !f.isHevc && f.isWebReady).length;
   const needsOptCount = files.filter(f => f.isHevc || !f.isWebReady).length;
 
+  const cleanTitle = (name = '') =>
+    String(name)
+      .replace(/^\d{10,14}_/, '')
+      .replace(/\.(mp4|mkv|webm|mov|avi|m4v)$/i, '')
+      .replace(/(?<!\d)\.(?!\d)|_/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || name;
+
+  const renderActiveJobs = (compact = false) =>
+    activeJobs.length > 0 && (
+      <div className={`ms-jobs-panel ${compact ? 'is-compact' : ''}`}>
+        <div className="ms-jobs-head">
+          <ClaySparkle size={17} color="#f472b6" />
+          <span>Active Optimization Jobs ({activeJobs.length})</span>
+        </div>
+        <div className="ms-jobs-list">
+          {activeJobs.map((job) => (
+            <div key={job.id || job.relativePath} className="ms-job-row">
+              <div className="ms-job-top">
+                <div className="ms-job-meta">
+                  <span className="ms-job-name">{cleanTitle(job.outputFilename || job.relativePath)}</span>
+                  <span className="ms-job-stat">
+                    {job.speed || '1.0x'}{job.fps ? ` • ${job.fps} FPS` : ''}{job.time ? ` • ${job.time}` : ''}
+                  </span>
+                </div>
+                <div className="ms-job-actions">
+                  <span className="ms-job-pct">{job.progress ? `${job.progress}%` : 'Starting…'}</span>
+                  <button type="button" onClick={() => handleCancelJob(job.relativePath)} className="ms-job-cancel">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+              <div className="ms-job-track">
+                <div className="ms-job-fill" style={{ width: `${job.progress || 0}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+
   return (
-    <div style={{ maxWidth: '1240px', margin: '0 auto', width: '100%', padding: '1.2rem 1.2rem 4rem' }}>
-      {/* Toast Notification */}
+    <>
+      <div className="media-studio-root">
+        <div className="media-studio-head">
+          <div>
+            <h1 className="media-studio-title">Media Studio</h1>
+            <p className="media-studio-sub">Prepare HEVC videos and audio tracks for browser playback.</p>
+          </div>
+          <button type="button" onClick={fetchStudioData} className="btn-pink-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '0.45rem 0.95rem', fontSize: '0.8rem' }}>
+            <ClayRefresh size={15} /> Refresh
+          </button>
+        </div>
+
+        <div className="media-studio-helper">
+          <span><strong>Windows HEVC Codec:</strong> Install to decode x265 hardware natively in Chrome or Edge.</span>
+          <a href="/HEVC-Extension-x64.Appx" download="HEVC-Extension-x64.Appx" className="media-studio-helper-link">
+            <ClayDownload size={14} /> Download Extension (2.8 MB)
+          </a>
+        </div>
+
+        {renderActiveJobs()}
+
+        <div className="media-studio-toolbar">
+          <div className="media-studio-search">
+            <ClaySearch size={15} />
+            <input type="text" placeholder="Filter media files..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          </div>
+
+          <div className="media-studio-tabs" role="tablist" aria-label="Media readiness filter">
+            <button type="button" onClick={() => setFilterType('all')} className={`media-studio-tab ${filterType === 'all' ? 'active-pink' : ''}`}>All ({totalFilesCount})</button>
+            <button type="button" onClick={() => setFilterType('needs_transcode')} className={`media-studio-tab ${filterType === 'needs_transcode' ? 'active-amber' : ''}`}>Needs Prep ({needsOptCount})</button>
+            <button type="button" onClick={() => setFilterType('web_ready')} className={`media-studio-tab ${filterType === 'web_ready' ? 'active-emerald' : ''}`}>Ready ({webReadyCount})</button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: '3rem 1rem', textAlign: 'center', color: '#78345c', fontWeight: 600 }}>Scanning media library…</div>
+        ) : filteredFiles.length === 0 ? (
+          <div style={{ padding: '3rem 1rem', textAlign: 'center', color: '#78345c', fontWeight: 700, background: '#fff', borderRadius: '16px' }}>No files match this filter.</div>
+        ) : (
+          <div className="media-studio-ledger">
+            {filteredFiles.map((file) => {
+              const rel = file.relativePath || file.filename;
+              const audioData = audioStatusMap[rel];
+              const isOptimizing = activeJobs.some((j) => j.relativePath === rel);
+              const isProcessingAudio = processingAudioFiles[rel];
+
+              return (
+                <div key={rel} className="media-studio-row">
+                  <div className="media-studio-row-info">
+                    <div className="media-studio-name" title={file.filename}>{cleanTitle(file.filename)}</div>
+                    <div className="media-studio-chips">
+                      <span>{file.sizeFormatted}</span>
+                      {file.isHevc ? (
+                        <span className="media-studio-pill hevc">HEVC</span>
+                      ) : (
+                        <span className="media-studio-pill ready">H.264 Ready</span>
+                      )}
+                      {file.audioTracks?.length > 0 && (
+                        <span className="media-studio-pill meta">
+                          {file.audioTracks.length} Audio{audioData?.percent !== undefined ? ` (${audioData.percent}%)` : ''}
+                        </span>
+                      )}
+                      {file.subtitles?.length > 0 && (
+                        <span className="media-studio-pill meta">{file.subtitles.length} Subs</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="media-studio-actions">
+                    {file.isHevc && (
+                      <button type="button" onClick={() => handleStartOptimization(file)} disabled={isOptimizing} className="btn-gold-shimmer" style={{ padding: '0.4rem 0.85rem', fontSize: '0.76rem', gap: '5px', opacity: isOptimizing ? 0.6 : 1 }}>
+                        <ClaySparkle size={13} /> {isOptimizing ? 'Optimizing…' : 'Optimize'}
+                      </button>
+                    )}
+                    {file.audioTracks?.length > 1 && !audioData?.allReady && (
+                      <button type="button" onClick={() => handleProcessAudio(file)} disabled={isProcessingAudio} className="btn-pink-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem' }}>
+                        {isProcessingAudio ? 'Extracting…' : 'Extract Audio'}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => onPlayMedia({ type: 'direct', url: file.streamUrl, title: file.filename, roomId: 'lounge' })} className="btn-pink-primary" style={{ padding: '0.4rem 0.85rem', fontSize: '0.76rem', gap: '5px' }}>
+                      <ClayPlay size={13} /> Play
+                    </button>
+                    {isAdmin && (
+                      <button type="button" onClick={() => setConfirmDeleteFile(file)} className="media-studio-del" aria-label={`Delete ${file.filename}`}>
+                        <ClayTrash size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {toastMsg && (
         <div style={{
           position: 'fixed',
@@ -236,470 +374,6 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
         </div>
       )}
 
-      {/* Header Banner */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '16px',
-        marginBottom: '20px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, #ec4899, #db2777)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 14px rgba(236, 72, 153, 0.35)'
-          }}>
-            <ClayFilm size={26} color="#fff" />
-          </div>
-          <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#831843', margin: 0 }}>
-              Media Studio & Web Optimizer
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.84rem', color: '#78345c', fontWeight: 600 }}>
-              Pre-process videos, convert HEVC to web-ready H.264, cache multiple audio tracks, and ensure seamless playback.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={fetchStudioData}
-          className="btn-pink-secondary"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.48rem 1rem', fontSize: '0.82rem' }}
-        >
-          <ClayRefresh size={16} />
-          <span>Refresh Studio</span>
-        </button>
-      </div>
-
-      {/* HP Office Laptop / Windows HEVC Solution Card */}
-      <div style={{
-        background: 'linear-gradient(135deg, #fdf2f8 0%, #fff7fb 100%)',
-        border: '1.5px solid rgba(244, 114, 182, 0.35)',
-        borderRadius: '20px',
-        padding: '16px 20px',
-        marginBottom: '24px',
-        boxShadow: '0 6px 20px rgba(244, 114, 182, 0.12)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
-        <div style={{ flex: 1, minWidth: '280px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ fontSize: '1.2rem' }}>💻</span>
-            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#831843' }}>
-              HP Office Laptop / Windows HEVC Fix (Black Screen Prevention)
-            </span>
-          </div>
-          <p style={{ margin: 0, fontSize: '0.82rem', color: '#78345c', lineHeight: 1.4 }}>
-            Direct download of official Microsoft HEVC Extension for Ria’s laptop. Double-click to install on Windows, restart Chrome, and enjoy native hardware HEVC playback!
-          </p>
-        </div>
-        <a
-          href="/HEVC-Extension-x64.Appx"
-          download="HEVC-Extension-x64.Appx"
-          className="btn-pink-primary"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '0.55rem 1.25rem',
-            borderRadius: '9999px',
-            textDecoration: 'none',
-            fontSize: '0.84rem',
-            fontWeight: 800,
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <ClayDownload size={16} />
-          <span>Download HEVC Extension (2.8 MB)</span>
-        </a>
-      </div>
-
-      {/* Active Transcode Jobs Section */}
-      {activeJobs.length > 0 && (
-        <div style={{
-          background: 'linear-gradient(135deg, #1e1124 0%, #2b1335 100%)',
-          borderRadius: '22px',
-          padding: '18px 22px',
-          marginBottom: '24px',
-          border: '1.5px solid rgba(244, 114, 182, 0.4)',
-          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.45)',
-          color: '#ffffff'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-            <ClaySparkle size={18} color="#f472b6" />
-            <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#fbcfe8' }}>
-              Active Background Optimization Jobs ({activeJobs.length})
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {activeJobs.map(job => (
-              <div
-                key={job.id || job.relativePath}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  borderRadius: '16px',
-                  padding: '14px 18px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#ffffff' }}>
-                      {job.outputFilename || job.relativePath}
-                    </span>
-                    <span style={{ fontSize: '0.74rem', color: '#f472b6', marginLeft: '10px', fontWeight: 700 }}>
-                      ⚡ Speed: {job.speed || '1.0x'} • {job.fps ? `${job.fps} FPS` : ''} • {job.time || 'Processing'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '0.88rem', fontWeight: 900, color: '#34d399' }}>
-                      {job.progress ? `${job.progress}%` : 'Starting...'}
-                    </span>
-                    <button
-                      onClick={() => handleCancelJob(job.relativePath)}
-                      style={{
-                        background: 'rgba(239, 68, 68, 0.25)',
-                        border: '1px solid rgba(239, 68, 68, 0.4)',
-                        color: '#f87171',
-                        borderRadius: '8px',
-                        padding: '4px 10px',
-                        fontSize: '0.74rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div style={{ width: '100%', height: '8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      width: `${job.progress || 0}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #ec4899, #34d399)',
-                      transition: 'width 0.3s ease'
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Summary Chips & Filter Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '12px',
-        marginBottom: '18px'
-      }}>
-        {/* Search */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: '#ffffff',
-          border: '1.5px solid rgba(244, 114, 182, 0.35)',
-          borderRadius: '9999px',
-          padding: '6px 14px',
-          width: '280px',
-          boxShadow: '0 2px 8px rgba(244, 114, 182, 0.1)'
-        }}>
-          <ClaySearch size={16} />
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              fontSize: '0.84rem',
-              color: '#3b142d',
-              width: '100%',
-              fontWeight: 600
-            }}
-          />
-        </div>
-
-        {/* Filter Pills */}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => setFilterType('all')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              fontSize: '0.8rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: filterType === 'all' ? '1.5px solid #ec4899' : '1.5px solid transparent',
-              background: filterType === 'all' ? 'rgba(236, 72, 153, 0.15)' : '#ffffff',
-              color: filterType === 'all' ? '#be185d' : '#78345c'
-            }}
-          >
-            All Media ({totalFilesCount})
-          </button>
-          <button
-            onClick={() => setFilterType('needs_transcode')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              fontSize: '0.8rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: filterType === 'needs_transcode' ? '1.5px solid #f59e0b' : '1.5px solid transparent',
-              background: filterType === 'needs_transcode' ? 'rgba(245, 158, 11, 0.15)' : '#ffffff',
-              color: filterType === 'needs_transcode' ? '#b45309' : '#78345c'
-            }}
-          >
-            ⚡ Needs Optimization ({needsOptCount})
-          </button>
-          <button
-            onClick={() => setFilterType('web_ready')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              fontSize: '0.8rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: filterType === 'web_ready' ? '1.5px solid #10b981' : '1.5px solid transparent',
-              background: filterType === 'web_ready' ? 'rgba(16, 185, 129, 0.15)' : '#ffffff',
-              color: filterType === 'web_ready' ? '#047857' : '#78345c'
-            }}
-          >
-            ✓ Web Ready ({webReadyCount})
-          </button>
-        </div>
-      </div>
-
-      {/* Media Cards Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#9ca3af', fontWeight: 600 }}>
-          Scanning media directory and probing codecs... 🌸
-        </div>
-      ) : filteredFiles.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '4rem 1rem',
-          background: '#ffffff',
-          borderRadius: '20px',
-          border: '1.5px solid rgba(244, 114, 182, 0.3)',
-          color: '#78345c',
-          fontWeight: 700
-        }}>
-          No media files match your filter.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {filteredFiles.map(file => {
-            const rel = file.relativePath || file.filename;
-            const audioData = audioStatusMap[rel];
-            const isOptimizing = activeJobs.some(j => j.relativePath === rel);
-            const isProcessingAudio = processingAudioFiles[rel];
-
-            return (
-              <div
-                key={rel}
-                style={{
-                  background: '#ffffff',
-                  borderRadius: '18px',
-                  border: file.isHevc
-                    ? '1.5px solid rgba(245, 158, 11, 0.4)'
-                    : '1.5px solid rgba(244, 114, 182, 0.3)',
-                  padding: '16px 20px',
-                  boxShadow: '0 4px 16px rgba(244, 114, 182, 0.08)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '16px',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                {/* File Details */}
-                <div style={{ flex: 1, minWidth: '300px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '0.94rem', fontWeight: 800, color: '#3b142d', wordBreak: 'break-all' }}>
-                      {file.filename}
-                    </span>
-                  </div>
-
-                  {/* Metadata Chips */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {/* Size & Duration */}
-                    <span style={{ fontSize: '0.74rem', color: '#9ca3af', fontWeight: 600 }}>
-                      💾 {file.sizeFormatted}
-                    </span>
-
-                    {/* Video Codec Badge */}
-                    {file.isHevc ? (
-                      <span style={{
-                        fontSize: '0.70rem',
-                        fontWeight: 800,
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        background: 'rgba(245, 158, 11, 0.15)',
-                        color: '#b45309',
-                        border: '1px solid rgba(245, 158, 11, 0.35)'
-                      }}>
-                        ⚠️ HEVC (x265) • Black screen risk on basic laptops
-                      </span>
-                    ) : (
-                      <span style={{
-                        fontSize: '0.70rem',
-                        fontWeight: 800,
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: '#047857',
-                        border: '1px solid rgba(16, 185, 129, 0.35)'
-                      }}>
-                        ✓ H.264 Web Ready
-                      </span>
-                    )}
-
-                    {/* Audio Status */}
-                    {file.audioTracks && file.audioTracks.length > 0 && (
-                      <span style={{
-                        fontSize: '0.70rem',
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        background: audioData?.allReady ? 'rgba(16, 185, 129, 0.12)' : 'rgba(236, 72, 153, 0.12)',
-                        color: audioData?.allReady ? '#047857' : '#be185d',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}>
-                        <ClayHeadphones size={12} />
-                        <span>
-                          {file.audioTracks.length} Audio {file.audioTracks.length > 1 ? 'Tracks' : 'Track'}
-                          {audioData?.percent !== undefined ? ` (${audioData.percent}% Cached)` : ''}
-                        </span>
-                      </span>
-                    )}
-
-                    {/* Subtitles Count */}
-                    {file.subtitles && file.subtitles.length > 0 && (
-                      <span style={{
-                        fontSize: '0.70rem',
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        background: 'rgba(244, 114, 182, 0.12)',
-                        color: '#be185d',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}>
-                        <ClaySubtitles size={12} />
-                        <span>{file.subtitles.length} Subs</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                  {/* Web Optimize Button */}
-                  {file.isHevc && (
-                    <button
-                      onClick={() => handleStartOptimization(file)}
-                      disabled={isOptimizing}
-                      className="btn-gold-shimmer"
-                      style={{
-                        padding: '0.45rem 0.95rem',
-                        fontSize: '0.78rem',
-                        gap: '6px',
-                        cursor: isOptimizing ? 'not-allowed' : 'pointer',
-                        opacity: isOptimizing ? 0.6 : 1
-                      }}
-                      title="Transcode to web-ready H.264 MP4 with AAC audio"
-                    >
-                      <ClaySparkle size={14} />
-                      <span>{isOptimizing ? 'Optimizing...' : '⚡ Optimize for Web'}</span>
-                    </button>
-                  )}
-
-                  {/* Pre-process Audio Button */}
-                  {file.audioTracks && file.audioTracks.length > 1 && !audioData?.allReady && (
-                    <button
-                      onClick={() => handleProcessAudio(file)}
-                      disabled={isProcessingAudio}
-                      className="btn-pink-secondary"
-                      style={{ padding: '0.45rem 0.85rem', fontSize: '0.76rem', gap: '5px' }}
-                      title="Pre-extract all audio tracks to AAC"
-                    >
-                      <ClayHeadphones size={14} color="var(--pink-primary)" />
-                      <span>{isProcessingAudio ? 'Extracting...' : 'Extract Audio'}</span>
-                    </button>
-                  )}
-
-                  {/* Play in Lounge Button */}
-                  <button
-                    onClick={() => onPlayMedia({
-                      type: 'direct',
-                      url: file.streamUrl,
-                      title: file.filename,
-                      roomId: 'lounge'
-                    })}
-                    className="btn-pink-primary"
-                    style={{ padding: '0.45rem 0.95rem', fontSize: '0.78rem', gap: '6px' }}
-                    title="Launch directly in Common Room"
-                  >
-                    <ClayPlay size={14} />
-                    <span>Play in Room</span>
-                  </button>
-
-                  {/* Delete Button */}
-                  {isAdmin && (
-                    <button
-                      onClick={() => setConfirmDeleteFile(file)}
-                      style={{
-                        width: '34px',
-                        height: '34px',
-                        borderRadius: '10px',
-                        background: '#ffffff',
-                        border: '1.5px solid rgba(239, 68, 68, 0.4)',
-                        color: '#ef4444',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 2px 6px rgba(239, 68, 68, 0.1)'
-                      }}
-                      title="Delete file permanently"
-                    >
-                      <ClayTrash size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
       {confirmDeleteFile && (
         <div style={{
           position: 'fixed',
@@ -755,7 +429,7 @@ export function MediaStudio({ currentUser, onNavigate, onPlayMedia }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

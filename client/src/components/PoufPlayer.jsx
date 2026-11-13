@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ClayPlay,
   ClayPause,
@@ -134,6 +134,7 @@ export function PoufPlayer({
   const [isLocked, setIsLocked] = useState(false);
   const [isHoveringUnlock, setIsHoveringUnlock] = useState(false);
   const [showLockHint, setShowLockHint] = useState(false);
+  const [lockHintTick, setLockHintTick] = useState(0);
   const lockHintTimerRef = useRef(null);
 
   // Skip Ripple Feedback (+10s / -10s)
@@ -152,16 +153,31 @@ export function PoufPlayer({
     return { brightness: 100, contrast: 100, saturation: 100 };
   });
 
-  // Live Film Grain Intensity (0% to 100%) and Texture Style ('35mm' | '16mm' | 'heavy')
+  // Live Film Grain Engine (Defaultly Disabled; customizable Silver-Halide & Rosé stocks)
+  const [filmGrainEnabled, setFilmGrainEnabled] = useState(() => {
+    return localStorage.getItem('wt_grain_enabled') === 'true';
+  });
   const [filmGrainIntensity, setFilmGrainIntensity] = useState(() => {
     const saved = localStorage.getItem('wt_grain_intensity');
-    if (saved !== null) return parseInt(saved, 10);
-    const legacy = localStorage.getItem('wt_film_grain');
-    return (legacy && legacy !== 'off') ? 45 : 0;
+    return saved !== null ? Math.max(5, parseInt(saved, 10) || 35) : 35;
   });
   const [filmGrainPreset, setFilmGrainPreset] = useState(() => {
     return localStorage.getItem('wt_grain_preset') || '35mm';
   });
+  const [filmGrainSize, setFilmGrainSize] = useState(() => {
+    const saved = parseFloat(localStorage.getItem('wt_grain_size'));
+    return Number.isFinite(saved) ? saved : 1.0;
+  });
+  const [filmGrainBlend, setFilmGrainBlend] = useState(() => {
+    return localStorage.getItem('wt_grain_blend') || 'normal';
+  });
+  const [filmGrainChroma, setFilmGrainChroma] = useState(() => {
+    return localStorage.getItem('wt_grain_chroma') || 'mono';
+  });
+  const [filmGrainMotion, setFilmGrainMotion] = useState(() => {
+    return localStorage.getItem('wt_grain_motion') || '24fps';
+  });
+  const [filterLabTab, setFilterLabTab] = useState('grain');
 
   // Subtitle Background Styling (Opacity, Blur, Color)
   const [subtitleBgOpacity, setSubtitleBgOpacity] = useState(() => {
@@ -173,8 +189,11 @@ export function PoufPlayer({
     return saved !== null ? parseInt(saved, 10) : 6;
   });
   const [subtitleBgColor, setSubtitleBgColor] = useState(() => {
-    return localStorage.getItem('wt_sub_bg_color') || 'black'; // 'black' | 'pink' | 'purple' | 'charcoal'
+    return localStorage.getItem('wt_sub_bg_color') || 'black'; // 'black' | 'pink' | 'purple' | 'charcoal' | pink presets
   });
+  const [subtitleFont, setSubtitleFont] = useState(() => localStorage.getItem('wt_sub_font') || 'sans');
+  const [subtitleEdge, setSubtitleEdge] = useState(() => localStorage.getItem('wt_sub_edge') || 'auto');
+  const [subCustomizerTab, setSubCustomizerTab] = useState('presets');
 
   // Audio Boost (100%, 125%, 150%, 200%)
   const [audioBoost, setAudioBoost] = useState(() => {
@@ -186,10 +205,11 @@ export function PoufPlayer({
 
   const triggerLockHint = useCallback(() => {
     setShowLockHint(true);
+    setLockHintTick((t) => t + 1);
     if (lockHintTimerRef.current) clearTimeout(lockHintTimerRef.current);
     lockHintTimerRef.current = setTimeout(() => {
       setShowLockHint(false);
-    }, 2200);
+    }, 2400);
   }, []);
 
   const handleAudioBoostChange = useCallback((newBoost) => {
@@ -359,7 +379,11 @@ export function PoufPlayer({
     if (!cleanFilename || isProcessingAudio) return;
     setIsProcessingAudio(true);
     try {
-      await fetch(`/api/media/process-audio/${encodeURIComponent(cleanFilename)}`, { method: 'POST' });
+      const token = localStorage.getItem('wt_token') || '';
+      await fetch(`/api/media/process-audio/${encodeURIComponent(cleanFilename)}`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       fetchAudioStatus();
     } catch { }
     setTimeout(() => setIsProcessingAudio(false), 3000);
@@ -1095,8 +1119,8 @@ export function PoufPlayer({
   function handleMouseMove() {
     setShowControls(true);
     if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
-    if (localPlaying && !showSettingsMenu && !showSubMenu) {
-      hideControlsTimerRef.current = setTimeout(() => setShowControls(false), 3500);
+    if (isLocked || (localPlaying && !showSettingsMenu && !showSubMenu)) {
+      hideControlsTimerRef.current = setTimeout(() => setShowControls(false), isLocked ? 2200 : 3500);
     }
   }
 
@@ -1139,6 +1163,228 @@ export function PoufPlayer({
     localStorage.setItem('wt_sub_style', newStyle);
   };
 
+  const SUBTITLE_BG_MAP = {
+    black: { label: 'Obsidian', hex: '#050507', rgb: '0, 0, 0' },
+    charcoal: { label: 'Charcoal', hex: '#1c1c23', rgb: '28, 28, 35' },
+    pink: { label: 'Plum Pink', hex: '#2d0f24', rgb: '45, 15, 36' },
+    rose: { label: 'Velvet Rose', hex: '#3b0d2a', rgb: '59, 13, 42' },
+    sakura: { label: 'Sakura Glass', hex: '#58183e', rgb: '88, 24, 62' },
+    berry: { label: 'Deep Berry', hex: '#4c052d', rgb: '76, 5, 45' },
+    blush: { label: 'Blush Satin', hex: '#701a46', rgb: '112, 26, 70' },
+    purple: { label: 'Midnight Plum', hex: '#190e28', rgb: '25, 14, 40' },
+  };
+
+  const SUBTITLE_FONT_MAP = {
+    sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    rounded: "'Plus Jakarta Sans', 'Nunito', 'Inter', system-ui, sans-serif",
+    serif: "'Georgia', 'Playfair Display', serif",
+    mono: "'JetBrains Mono', ui-monospace, monospace",
+  };
+
+  const PINK_SUB_PRESETS = [
+    { id: 'sakura-milk', name: 'Sakura Milk', tag: 'Soft Pink', color: '#fdf2f8', bgColor: 'sakura', opacity: 72, blur: 10, font: 'rounded', edge: 'pink-glow', swatch: 'linear-gradient(135deg, #f472b6, #9d174d)' },
+    { id: 'velvet-rose', name: 'Velvet Rose', tag: 'Warm Glass', color: '#fbcfe8', bgColor: 'rose', opacity: 78, blur: 8, font: 'sans', edge: 'auto', swatch: 'linear-gradient(135deg, #be185d, #3b0d2a)' },
+    { id: 'neon-berry', name: 'Neon Berry', tag: 'Vivid Glow', color: '#ff79c6', bgColor: 'black', opacity: 65, blur: 6, font: 'sans', edge: 'pink-glow', swatch: 'linear-gradient(135deg, #ff79c6, #1f1024)' },
+    { id: 'blush-satin', name: 'Blush Satin', tag: 'Sheer Frosted', color: '#f9a8d4', bgColor: 'blush', opacity: 46, blur: 12, font: 'rounded', edge: 'glow', swatch: 'linear-gradient(135deg, #f9a8d4, #701a46)' },
+    { id: 'midnight-plum', name: 'Midnight Plum', tag: 'Editorial', color: '#fce7f3', bgColor: 'purple', opacity: 75, blur: 8, font: 'serif', edge: 'auto', swatch: 'linear-gradient(135deg, #c084fc, #190e28)' },
+    { id: 'cinema-crisp', name: 'Crystal Ink', tag: 'No Box', color: '#ffffff', bgColor: 'black', opacity: 0, blur: 0, font: 'sans', edge: 'crisp', swatch: 'linear-gradient(135deg, #ffffff 30%, #27272a 100%)' },
+  ];
+
+  const handleSubtitleBgColorChange = (id) => {
+    setSubtitleBgColor(id);
+    localStorage.setItem('wt_sub_bg_color', id);
+  };
+
+  const handleSubtitleColorChange = (hex) => {
+    setSubtitleColor(hex);
+    localStorage.setItem('wt_sub_color', hex);
+  };
+
+  const handleSubtitleFontChange = (fontId) => {
+    setSubtitleFont(fontId);
+    localStorage.setItem('wt_sub_font', fontId);
+  };
+
+  const handleSubtitleEdgeChange = (edgeId) => {
+    setSubtitleEdge(edgeId);
+    localStorage.setItem('wt_sub_edge', edgeId);
+  };
+
+  const applySubtitlePreset = (preset) => {
+    handleSubtitleColorChange(preset.color);
+    handleSubtitleBgColorChange(preset.bgColor);
+    setSubtitleBgOpacity(preset.opacity);
+    localStorage.setItem('wt_sub_bg_opacity', preset.opacity);
+    setSubtitleBgBlur(preset.blur);
+    localStorage.setItem('wt_sub_bg_blur', preset.blur);
+    handleSubtitleFontChange(preset.font);
+    handleSubtitleEdgeChange(preset.edge);
+  };
+
+  const resetSubtitleDefaults = () => {
+    handleSizeChange(24);
+    handleBottomChange(65);
+    handleDelayChange(0.0);
+    setSubtitleBgOpacity(55);
+    localStorage.setItem('wt_sub_bg_opacity', 55);
+    setSubtitleBgBlur(6);
+    localStorage.setItem('wt_sub_bg_blur', 6);
+    handleSubtitleBgColorChange('black');
+    handleSubtitleColorChange('#ffffff');
+    handleSubtitleFontChange('sans');
+    handleSubtitleEdgeChange('auto');
+  };
+
+  const getSubtitleCueStyle = (previewScale = 1) => {
+    const bgInfo = SUBTITLE_BG_MAP[subtitleBgColor] || SUBTITLE_BG_MAP.black;
+    const bgString = subtitleBgOpacity === 0 ? 'transparent' : `rgba(${bgInfo.rgb}, ${subtitleBgOpacity / 100})`;
+    const blurPx = Math.max(0, Math.round(subtitleBgBlur * previewScale));
+    const blurString = subtitleBgBlur > 0 && subtitleBgOpacity > 0 ? `blur(${blurPx}px)` : 'none';
+    const isPinkFrame = ['pink', 'rose', 'sakura', 'berry', 'blush'].includes(subtitleBgColor);
+    let textShadow = subtitleBgOpacity < 40
+      ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
+      : '0 1px 3px rgba(0,0,0,0.8)';
+    if (subtitleEdge === 'crisp') {
+      textShadow = '0 2px 4px rgba(0,0,0,0.95), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000';
+    } else if (subtitleEdge === 'glow') {
+      textShadow = '0 0 12px rgba(255,255,255,0.45), 0 2px 5px rgba(0,0,0,0.9)';
+    } else if (subtitleEdge === 'pink-glow') {
+      textShadow = '0 0 12px rgba(244,114,182,0.75), 0 0 4px rgba(236,72,153,0.55), 0 2px 4px rgba(0,0,0,0.9)';
+    }
+    return {
+      display: 'inline-block',
+      color: subtitleColor || '#ffffff',
+      fontFamily: SUBTITLE_FONT_MAP[subtitleFont] || SUBTITLE_FONT_MAP.sans,
+      fontSize: `${Math.max(11, Math.round(subtitleSize * previewScale))}px`,
+      fontWeight: 800,
+      lineHeight: 1.35,
+      padding: subtitleBgOpacity === 0 ? `${Math.round(4 * previewScale)}px ${Math.round(8 * previewScale)}px` : `${Math.round(6 * previewScale)}px ${Math.round(14 * previewScale)}px`,
+      borderRadius: subtitleBgOpacity === 0 ? '0' : `${Math.max(6, Math.round(10 * previewScale))}px`,
+      background: bgString,
+      backdropFilter: blurString,
+      WebkitBackdropFilter: blurString,
+      border: isPinkFrame && subtitleBgOpacity > 0 ? '1px solid rgba(244, 114, 182, 0.42)' : (subtitleBgColor === 'purple' && subtitleBgOpacity > 0 ? '1px solid rgba(192, 132, 252, 0.35)' : 'none'),
+      textShadow,
+      whiteSpace: 'pre-wrap',
+      letterSpacing: '0.015em',
+    };
+  };
+
+  const FILM_GRAIN_STOCKS = [
+    { id: '70mm', label: '70mm Silk', short: '70mm', tag: 'Ultra Fine', speckle: 0.72, cell: 1, size: 0.85, blend: 'normal', chroma: 'mono', intensity: 30 },
+    { id: '35mm', label: '35mm Kodak', short: '35mm', tag: 'Cinema Std', speckle: 0.9, cell: 1, size: 1.0, blend: 'normal', chroma: 'mono', intensity: 40 },
+    { id: '16mm', label: '16mm Indie', short: '16mm', tag: 'Organic', speckle: 1.1, cell: 2, size: 1.15, blend: 'normal', chroma: 'mono', intensity: 48 },
+    { id: 'heavy', label: '8mm Vintage', short: '8mm', tag: 'Coarse Grit', speckle: 1.35, cell: 2, size: 1.45, blend: 'overlay', chroma: 'color', intensity: 60 },
+    { id: 'sakura', label: 'Rosé Halide', short: 'Rosé', tag: 'Pink Tint', speckle: 1.0, cell: 1, size: 1.05, blend: 'normal', chroma: 'color', intensity: 42 },
+  ];
+
+  // Universal Canvas PNG Gaussian Silver-Halide Tile (guarantees grain visibility on dark frames & HW video layers)
+  const filmGrainTileUrl = useMemo(() => {
+    if (typeof document === 'undefined') return '';
+    const tileDim = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = tileDim;
+    canvas.height = tileDim;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    const img = ctx.createImageData(tileDim, tileDim);
+    const data = img.data;
+    const stock = FILM_GRAIN_STOCKS.find((s) => s.id === filmGrainPreset) || FILM_GRAIN_STOCKS[1];
+    const cell = stock.cell || 1;
+    const isColor = filmGrainChroma === 'color';
+    const isRose = filmGrainPreset === 'sakura';
+
+    for (let y = 0; y < tileDim; y += cell) {
+      for (let x = 0; x < tileDim; x += cell) {
+        // Triangular distribution approximates analog silver-halide grain density without periodicity
+        const tri = (Math.random() - Math.random()) * stock.speckle;
+        const mag = Math.abs(tri);
+        if (mag < 0.08) continue;
+        const lum = tri > 0 ? 255 : 0;
+        const alpha = Math.min(210, Math.round(mag * 190));
+
+        let r = lum;
+        let g = lum;
+        let b = lum;
+        if (isRose) {
+          r = tri > 0 ? 255 : 38;
+          g = tri > 0 ? 182 : 10;
+          b = tri > 0 ? 220 : 28;
+        } else if (isColor) {
+          r = Math.max(0, Math.min(255, lum + Math.round((Math.random() - 0.5) * 90)));
+          g = Math.max(0, Math.min(255, lum + Math.round((Math.random() - 0.5) * 70)));
+          b = Math.max(0, Math.min(255, lum + Math.round((Math.random() - 0.5) * 90)));
+        }
+
+        for (let dy = 0; dy < cell && y + dy < tileDim; dy++) {
+          for (let dx = 0; dx < cell && x + dx < tileDim; dx++) {
+            const idx = ((y + dy) * tileDim + (x + dx)) * 4;
+            data[idx] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+            data[idx + 3] = alpha;
+          }
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  }, [filmGrainPreset, filmGrainChroma]);
+
+  const handleToggleGrainEnabled = (nextEnabled) => {
+    setFilmGrainEnabled(nextEnabled);
+    localStorage.setItem('wt_grain_enabled', String(nextEnabled));
+  };
+
+  const handleApplyGrainStock = (stock) => {
+    setFilmGrainEnabled(true);
+    localStorage.setItem('wt_grain_enabled', 'true');
+    setFilmGrainPreset(stock.id);
+    localStorage.setItem('wt_grain_preset', stock.id);
+    setFilmGrainSize(stock.size);
+    localStorage.setItem('wt_grain_size', stock.size);
+    setFilmGrainBlend(stock.blend);
+    localStorage.setItem('wt_grain_blend', stock.blend);
+    setFilmGrainChroma(stock.chroma);
+    localStorage.setItem('wt_grain_chroma', stock.chroma);
+    if (filmGrainIntensity === 0) {
+      setFilmGrainIntensity(stock.intensity);
+      localStorage.setItem('wt_grain_intensity', stock.intensity);
+    }
+  };
+
+  const getFilmGrainVisualProps = (previewScale = 1) => {
+    const tilePx = Math.max(96, Math.round(256 * filmGrainSize * previewScale));
+    const maxOpacity = filmGrainBlend === 'normal' ? 0.34 : 0.68;
+    return {
+      opacity: filmGrainEnabled ? Math.min(maxOpacity, (filmGrainIntensity / 100) * maxOpacity) : 0,
+      mixBlendMode: filmGrainBlend,
+      backgroundRepeat: 'repeat',
+      backgroundSize: `${tilePx}px ${tilePx}px`,
+      backgroundImage: filmGrainTileUrl ? `url("${filmGrainTileUrl}")` : 'none',
+      animation: filmGrainEnabled && filmGrainMotion === '24fps' ? 'liveFilmGrainShift 0.25s steps(6) infinite' : 'none',
+      transform: 'translateZ(0)',
+      willChange: filmGrainEnabled && filmGrainMotion === '24fps' ? 'transform' : 'auto',
+    };
+  };
+
+  const VISUAL_GRADE_PRESETS = [
+    { id: 'standard', label: 'Standard', b: 100, c: 100, s: 100, dot: 'linear-gradient(135deg, #e5e7eb, #6b7280)' },
+    { id: 'anime', label: 'Anime Vivid', b: 102, c: 110, s: 125, dot: 'linear-gradient(135deg, #f472b6, #38bdf8)' },
+    { id: 'cinema', label: 'Cinema Warm', b: 96, c: 108, s: 105, dot: 'linear-gradient(135deg, #fbbf24, #9a3412)' },
+    { id: 'night', label: 'Night Dim', b: 82, c: 95, s: 90, dot: 'linear-gradient(135deg, #6366f1, #1e1b4b)' },
+    { id: 'cyberpunk', label: 'Cyber Neon', b: 100, c: 120, s: 140, dot: 'linear-gradient(135deg, #e879f9, #06b6d4)' },
+    { id: 'noir', label: 'Noir B&W', b: 95, c: 115, s: 0, dot: 'linear-gradient(135deg, #ffffff, #18181b)' },
+  ];
+
+  const handleApplyVisualPreset = (p) => {
+    const newFilter = { brightness: p.b, contrast: p.c, saturation: p.s };
+    setVisualFilter(newFilter);
+    setVisualPreset(p.id);
+    localStorage.setItem('wt_visual_filter', JSON.stringify(newFilter));
+    localStorage.setItem('wt_visual_preset', p.id);
+  };
+
   const handleAspectChange = (newAspect) => {
     setAspectRatio(newAspect);
     localStorage.setItem('wt_aspect_ratio', newAspect);
@@ -1161,73 +1407,98 @@ export function PoufPlayer({
   const showSettingsMenuRef = useRef(showSettingsMenu);
   showSettingsMenuRef.current = showSettingsMenu;
 
-  // Keyboard Shortcuts
+  // Escape dismisses player popovers; L toggles player controls lock (F / C / V live in TheaterRoom)
   useEffect(() => {
+    const isEditableTarget = (el) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el.isContentEditable);
+    };
+
     function handleKeyDown(e) {
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
-        return;
-      }
-
-      if (e.key === 'l' || e.key === 'L') {
+      if (e.key === 'Escape' && (showSubMenuRef.current || showSettingsMenuRef.current)) {
         e.preventDefault();
-        setIsLocked(prev => {
-          const next = !prev;
-          if (next) triggerLockHint();
-          return next;
-        });
+        e.stopPropagation();
+        setShowSubMenu(false);
+        setShowSettingsMenu(false);
         return;
       }
 
-      if (isLockedRef.current) {
-        triggerLockHint();
-        return;
-      }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (isEditableTarget(document.activeElement) || isEditableTarget(e.target)) return;
 
-      // Escape closes player popover menus first
-      if (e.key === 'Escape') {
-        if (showSubMenuRef.current || showSettingsMenuRef.current) {
-          e.preventDefault();
-          e.stopPropagation();
+      if (e.code === 'KeyL' || e.key?.toLowerCase() === 'l') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isLockedRef.current) {
+          setIsLocked(false);
+          setShowLockHint(false);
+          setShowControls(true);
+        } else {
+          setIsLocked(true);
+          setShowControls(false);
           setShowSubMenu(false);
           setShowSettingsMenu(false);
-          return;
+          triggerLockHint();
         }
-      }
-
-      // Enter triggers floating quick chat if available
-      if (e.key === 'Enter') {
-        if (onEnterChatRef.current) {
-          e.preventDefault();
-          e.stopPropagation();
-          onEnterChatRef.current();
-          return;
-        }
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePlayPause();
-      } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        handleSeekRelative(-10);
-      } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        handleSeekRelative(10);
-      } else if (e.key === 'p' || e.key === 'P') {
-        e.preventDefault();
-        handleTogglePiP();
-      } else if (e.key === 'c' || e.key === 'C') {
-        e.preventDefault();
-        onToggleChatRef.current?.();
-      } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        toggleFullscreen();
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [triggerLockHint]);
+
+  const renderSettingsCoreViews = () => (
+    <>
+      {settingsSubView === 'root' && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#fce7f3' }}>Playback Settings</span>
+            <button type="button" onClick={() => setShowSettingsMenu(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
+          </div>
+          <div onClick={() => setSettingsSubView('audio')} className="pouf-yt-menu-item"><Volume2 size={15} color="#f472b6" /><span>Audio Track</span><span className="pouf-yt-val">{audioTracks[activeAudioIndex]?.title || (audioTracks.length > 0 ? `Track #${activeAudioIndex + 1}` : 'Stereo AAC')}</span><ChevronRight size={14} style={{ color: '#9ca3af' }} /></div>
+          <div onClick={() => setSettingsSubView('speed')} className="pouf-yt-menu-item"><Gauge size={15} color="#f472b6" /><span>Speed</span><span className="pouf-yt-val">{playbackSpeed === 1.0 ? 'Normal' : `${playbackSpeed}x`}</span><ChevronRight size={14} style={{ color: '#9ca3af' }} /></div>
+          <div onClick={() => setSettingsSubView('boost')} className="pouf-yt-menu-item"><Sparkles size={15} color="#f472b6" /><span>Volume Boost</span><span className="pouf-yt-val" style={{ color: audioBoost > 100 ? '#fbbf24' : undefined }}>{audioBoost}%</span><ChevronRight size={14} style={{ color: '#9ca3af' }} /></div>
+          <div onClick={() => setSettingsSubView('filters')} className="pouf-yt-menu-item"><Sliders size={15} color="#f472b6" /><span>Visual & Grain</span><span className="pouf-yt-val">{visualPreset === 'standard' ? 'Normal' : visualPreset}{filmGrainEnabled ? ' + Grain' : ''}</span><ChevronRight size={14} style={{ color: '#9ca3af' }} /></div>
+          <div onClick={() => setSettingsSubView('aspect')} className="pouf-yt-menu-item"><Crop size={15} color="#f472b6" /><span>Aspect Ratio</span><span className="pouf-yt-val">{aspectRatio === 'contain' ? '16:9' : aspectRatio === 'cover' ? 'Zoom' : 'Stretch'}</span><ChevronRight size={14} style={{ color: '#9ca3af' }} /></div>
+          <div onClick={() => { handleFixBlackScreen(); setShowSettingsMenu(false); }} className="pouf-yt-menu-item" style={{ marginTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', color: '#f472b6' }} title="Reload stream decoder, unfreeze frame, and kickstart playback"><Sparkles size={15} color="#f472b6" /><span style={{ fontWeight: 700 }}>⚡ Fix Black Screen</span></div>
+        </>
+      )}
+      {settingsSubView === 'audio' && (
+        <>
+          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>Audio Stream ({audioTracks.length || 1})</span></button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '200px', overflowY: 'auto' }}>
+            {audioTracks.length === 0 ? (<div className="pouf-yt-menu-item active"><span>Default Audio (Stereo AAC)</span><Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} /></div>) : (audioTracks.map((t, idx) => { const trackIdx = t.index ?? idx; const isActive = activeAudioIndex === trackIdx; return (
+              <div key={trackIdx} onClick={() => onAudioTrackChange?.(trackIdx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track #${idx + 1}`}</span>
+                {t.codec && <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>{t.codec.toUpperCase()}</span>}
+                {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+              </div>
+            ); }))}
+          </div>
+          {audioTracks.length > 1 && !audioStatusData?.allReady && (<button type="button" onClick={handleProcessAllAudio} disabled={isProcessingAudio} style={{ marginTop: '6px', padding: '6px 8px', borderRadius: '6px', background: 'rgba(244, 114, 182, 0.15)', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#fbcfe8', fontSize: '0.68rem', fontWeight: 700, cursor: isProcessingAudio ? 'not-allowed' : 'pointer' }}>{isProcessingAudio ? 'Extracting in background...' : 'Pre-extract All Tracks to AAC'}</button>)}
+        </>
+      )}
+      {settingsSubView === 'speed' && (
+        <>
+          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>Playback Speed</span></button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>{[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((spd) => { const isActive = playbackSpeed === spd; return (<div key={spd} onClick={() => handleSpeedChange(spd)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}><span>{spd === 1.0 ? 'Normal (1.0x)' : `${spd}x`}</span>{isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}</div>); })}</div>
+        </>
+      )}
+      {settingsSubView === 'boost' && (
+        <>
+          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>Volume Boost (Gain)</span></button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>{[{ b: 100, label: 'Normal (100%)' }, { b: 125, label: 'Boost 125%' }, { b: 150, label: 'Boost 150%' }, { b: 175, label: 'Boost 175%' }, { b: 200, label: 'Max Boost (200%)' }].map((item) => { const isActive = audioBoost === item.b; return (<div key={item.b} onClick={() => handleAudioBoostChange(item.b)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}><span>{item.label}</span>{isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}</div>); })}</div>
+        </>
+      )}
+      {settingsSubView === 'aspect' && (
+        <>
+          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>Aspect Ratio</span></button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>{[{ id: 'contain', label: 'Default Fit (16:9)' }, { id: 'cover', label: 'Cinema Zoom (Cover 21:9)' }, { id: 'fill', label: 'Full Stretch (100% Canvas)' }].map((opt) => { const isActive = aspectRatio === opt.id; return (<div key={opt.id} onClick={() => handleAspectChange(opt.id)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}><span>{opt.label}</span>{isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}</div>); })}</div>
+        </>
+      )}
+    </>
+  );
 
   return (
     <div
@@ -1259,7 +1530,13 @@ export function PoufPlayer({
         playsInline
         crossOrigin="anonymous"
         onClick={handleVideoClick}
-        onDoubleClick={toggleFullscreen}
+        onDoubleClick={() => {
+          if (isLocked) {
+            triggerLockHint();
+            return;
+          }
+          toggleFullscreen();
+        }}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onPlay={handlePlayEvent}
@@ -1282,8 +1559,8 @@ export function PoufPlayer({
         }}
       />
 
-      {/* Authentic Live Moving Film Grain Layer with Slider Control */}
-      {filmGrainIntensity > 0 && (
+      {/* Authentic Live Moving Film Grain Layer (Defaultly Disabled; Canvas PNG Engine) */}
+      {filmGrainEnabled && filmGrainIntensity > 0 && (
         <div
           style={{
             position: 'absolute',
@@ -1292,12 +1569,8 @@ export function PoufPlayer({
             width: '140%',
             height: '140%',
             pointerEvents: 'none',
-            zIndex: 8,
-            opacity: (filmGrainIntensity / 100) * 0.42,
-            mixBlendMode: 'overlay',
-            backgroundRepeat: 'repeat',
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='${filmGrainPreset === 'heavy' ? '0.65' : (filmGrainPreset === '16mm' ? '0.80' : '0.95')}' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
-            animation: 'liveFilmGrainShift 0.35s steps(3) infinite'
+            zIndex: 9,
+            ...getFilmGrainVisualProps(1),
           }}
         />
       )}
@@ -1438,37 +1711,9 @@ export function PoufPlayer({
             transition: 'bottom 0.15s ease'
           }}
         >
-          {(() => {
-            const bgRgb = subtitleBgColor === 'pink' ? '45, 15, 36' : (subtitleBgColor === 'purple' ? '25, 14, 40' : (subtitleBgColor === 'charcoal' ? '28, 28, 35' : '0, 0, 0'));
-            const bgString = subtitleBgOpacity === 0 ? 'transparent' : `rgba(${bgRgb}, ${subtitleBgOpacity / 100})`;
-            const blurString = subtitleBgBlur > 0 && subtitleBgOpacity > 0 ? `blur(${subtitleBgBlur}px)` : 'none';
-
-            return (
-              <span
-                style={{
-                  display: 'inline-block',
-                  color: subtitleColor || '#ffffff',
-                  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-                  fontSize: `${subtitleSize}px`,
-                  fontWeight: 800,
-                  lineHeight: 1.35,
-                  padding: subtitleBgOpacity === 0 ? '4px 8px' : '6px 14px',
-                  borderRadius: subtitleBgOpacity === 0 ? '0' : '10px',
-                  background: bgString,
-                  backdropFilter: blurString,
-                  WebkitBackdropFilter: blurString,
-                  border: subtitleBgColor === 'pink' && subtitleBgOpacity > 0 ? '1px solid rgba(244, 114, 182, 0.4)' : 'none',
-                  textShadow: subtitleBgOpacity < 40
-                    ? '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000'
-                    : '0 1px 3px rgba(0,0,0,0.8)',
-                  whiteSpace: 'pre-wrap',
-                  letterSpacing: '0.015em'
-                }}
-              >
-                {currentCueText}
-              </span>
-            );
-          })()}
+          <span style={getSubtitleCueStyle(1)}>
+            {currentCueText}
+          </span>
         </div>
       )}
 
@@ -1532,1101 +1777,375 @@ export function PoufPlayer({
 
       {/* 5.2. Non-Intrusive Corner Unlock HUD Button (Top-Left corner, never collides) */}
       {isLocked && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsLocked(false);
-            setShowControls(true);
-          }}
-          onMouseEnter={() => setIsHoveringUnlock(true)}
-          onMouseLeave={() => setIsHoveringUnlock(false)}
-          title="Controls Locked — Click to Unlock"
-          style={{
-            position: 'absolute',
-            top: '20px',
-            left: '20px',
-            zIndex: 80,
-            width: '38px',
-            height: '38px',
-            borderRadius: '50%',
-            background: isHoveringUnlock ? 'rgba(236, 72, 153, 0.28)' : 'rgba(15, 10, 22, 0.65)',
-            backdropFilter: 'blur(16px)',
-            border: isHoveringUnlock ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255, 255, 255, 0.12)',
-            color: isHoveringUnlock ? '#ffffff' : '#9ca3af',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            opacity: isHoveringUnlock ? 1 : 0.80,
-            boxShadow: isHoveringUnlock ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-            pointerEvents: 'auto'
-          }}
-        >
-          {isHoveringUnlock ? <Unlock size={17} color="#f472b6" /> : <Lock size={17} color="#fbcfe8" />}
-        </button>
+        <div className="pouf-unlock-wrap">
+          <div className="pouf-unlock-btn-slot">
+            {showLockHint && (
+              <React.Fragment key={lockHintTick}>
+                <span className="pouf-unlock-ring" aria-hidden="true" />
+                <span className="pouf-unlock-ring is-delayed" aria-hidden="true" />
+              </React.Fragment>
+            )}
+            <button
+              key={showLockHint ? `nudge-${lockHintTick}` : 'idle'}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLocked(false);
+                setShowLockHint(false);
+                setShowControls(true);
+              }}
+              onMouseEnter={() => setIsHoveringUnlock(true)}
+              onMouseLeave={() => setIsHoveringUnlock(false)}
+              className={`pouf-unlock-btn ${showLockHint ? 'is-hinting' : (showControls || isHoveringUnlock ? 'is-awake' : 'is-dormant')}`}
+              title="Controls Locked — Click or press L to Unlock"
+              aria-label="Unlock player controls (L)"
+            >
+              {isHoveringUnlock ? <Unlock size={17} color="#f472b6" /> : <Lock size={17} color="#fbcfe8" />}
+            </button>
+          </div>
+          {showLockHint && (
+            <div key={`hint-${lockHintTick}`} className="pouf-unlock-hint-pill" role="status">
+              <span>Player locked · Click lock or press</span>
+              <kbd className="pouf-unlock-kbd">L</kbd>
+              <span>to unlock</span>
+            </div>
+          )}
+        </div>
       )}
 
       {/* 6. Minimalist Obsidian Cinema HUD Glass Controls Overlay */}
-      <div
-        className="pouf-hud-overlay"
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: '0 24px 24px 24px',
-          background: 'linear-gradient(to top, rgba(8, 8, 12, 0.65) 0%, rgba(8, 8, 12, 0.15) 50%, transparent 100%)',
-          zIndex: 50,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '10px',
-          opacity: !isLocked && showControls ? 1 : 0,
-          transform: !isLocked && showControls ? 'translateY(0)' : 'translateY(16px)',
-          transition: 'all 0.28s cubic-bezier(0.16,1,0.3,1)',
-          pointerEvents: !isLocked && showControls ? 'auto' : 'none'
-        }}
-      >
-        {/* Floating Precision Scrubber Bar */}
-        <div
-          id="pouf-progress-track"
-          onMouseDown={handleScrubberMouseDown}
-          onMouseMove={handleScrubberMouseMove}
-          onMouseLeave={handleScrubberMouseLeave}
-          style={{
-            position: 'relative',
-            width: '100%',
-            maxWidth: '860px',
-            height: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            cursor: 'pointer'
-          }}
-        >
-          {/* Hover Time Tooltip */}
-          {hoverTime !== null && (
-            <div
-              className="pouf-glass-card"
-              style={{
-                position: 'absolute',
-                left: `${hoverPosition}%`,
-                bottom: '24px',
-                transform: 'translateX(-50%)',
-                color: '#ffe4e6',
-                background: 'rgba(14, 15, 23, 0.92)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid rgba(255, 46, 147, 0.4)',
-                padding: '4px 10px',
-                borderRadius: '9999px',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                fontVariantNumeric: 'tabular-nums',
-                pointerEvents: 'none',
-                boxShadow: '0 6px 20px rgba(0,0,0,0.8), 0 0 12px rgba(255,46,147,0.35)',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {formatTime(hoverTime)}
-            </div>
-          )}
-
-          {/* Rail Track */}
           <div
-            className="pouf-progress-rail"
-            style={{
-              width: '100%',
-              height: '4px',
-              borderRadius: '9999px',
-              position: 'relative',
-              overflow: 'hidden',
-              background: 'rgba(255, 228, 230, 0.16)'
-            }}
+            className={`pouf-hud-overlay a4-hud ${!isLocked && showControls ? '' : 'is-hidden'}`}
           >
-            {/* Buffer progress bar */}
-            <div
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%`,
-                background: 'rgba(255, 110, 167, 0.30)',
-                borderRadius: '9999px'
-              }}
-            />
-            {/* Play progress bar */}
-            <div
-              className="pouf-progress-fill"
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
-                background: 'linear-gradient(90deg, #f43f5e 0%, #ff2e93 60%, #ec4899 100%)',
-                boxShadow: '0 0 12px rgba(255, 46, 147, 0.7)',
-                borderRadius: '9999px'
-              }}
-            />
-          </div>
-
-          {/* Scrubber Knob */}
-          <div
-            className="pouf-scrubber-knob"
-            style={{
-              position: 'absolute',
-              left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%`,
-              transform: 'translateX(-50%)',
-              width: '13px',
-              height: '13px',
-              borderRadius: '50%',
-              background: '#ffffff',
-              border: '2px solid #ff2e93',
-              boxShadow: '0 0 12px #ff2e93, 0 2px 6px rgba(0,0,0,0.5)',
-              pointerEvents: 'none'
-            }}
-          />
-        </div>
-
-        {/* Floating Luxury Glass Pill Dock */}
-        <div
-          className="pouf-glass-pill-dock"
-          style={{
-            width: '100%',
-            maxWidth: '860px',
-            background: 'rgba(14, 15, 23, 0.76)',
-            backdropFilter: 'blur(28px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-            border: '1px solid rgba(255, 110, 167, 0.28)',
-            borderRadius: '9999px',
-            padding: '7px 20px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9), 0 0 25px rgba(255, 46, 147, 0.16)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px'
-          }}
-        >
-          {/* Left Cluster: Volume & Timestamps */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Volume */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <button
-                onClick={() => setIsMuted(m => !m)}
-                className="pouf-dock-icon-btn"
-                title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+            <div className="a4-timeline">
+              <span className="a4-tcode">{formatTime(playProgress)}</span>
+              <div
+                id="pouf-progress-track"
+                className="a4-track"
+                onMouseDown={(e) => {
+                  const track = e.currentTarget;
+                  if (!track || !videoRef.current || !duration) return;
+                  isDraggingScrubberRef.current = true;
+                  const rect = track.getBoundingClientRect();
+                  const upd = (cx) => {
+                    const tt = Math.max(0, Math.min(1, (cx - rect.left) / (rect.width || 1))) * duration;
+                    setPlayProgress(tt);
+                    return tt;
+                  };
+                  upd(e.clientX);
+                  const onMM = (me) => upd(me.clientX);
+                  const onMU = (ue) => {
+                    const ft = upd(ue.clientX);
+                    isDraggingScrubberRef.current = false;
+                    if (videoRef.current) videoRef.current.currentTime = ft;
+                    if (shouldUseAudioElement && audioRef.current) audioRef.current.currentTime = ft;
+                    if (onSeek) onSeek(ft);
+                    window.removeEventListener('mousemove', onMM);
+                    window.removeEventListener('mouseup', onMU);
+                  };
+                  window.addEventListener('mousemove', onMM);
+                  window.addEventListener('mouseup', onMU);
+                }}
+                onMouseMove={(e) => {
+                  if (!duration) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
+                  setHoverPosition(pos * 100);
+                  setHoverTime(pos * duration);
+                }}
+                onMouseLeave={handleScrubberMouseLeave}
               >
-                {isMuted || volume === 0 ? <VolumeX size={17} color="#ff2e93" /> : <Volume2 size={17} color="#ffe4e6" />}
-              </button>
-
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setVolume(val);
-                  setIsMuted(false);
-                  localStorage.setItem('wt_player_vol', val);
-                }}
-                className="pouf-vol-slider"
-                style={{
-                  width: '56px',
-                  accentColor: '#ff2e93',
-                  cursor: 'pointer',
-                  height: '3px'
-                }}
-              />
-            </div>
-
-            <div style={{ width: '1px', height: '14px', background: 'rgba(255, 228, 230, 0.15)' }} />
-
-            {/* Timestamps */}
-            <div
-              style={{
-                color: '#ffe4e6',
-                fontWeight: 600,
-                fontSize: '0.78rem',
-                fontVariantNumeric: 'tabular-nums',
-                letterSpacing: '0.3px',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              <span>{formatTime(playProgress)}</span>
-              <span style={{ color: 'rgba(255, 228, 230, 0.45)', margin: '0 5px' }}>/</span>
-              <span style={{ color: 'rgba(255, 228, 230, 0.70)' }}>{formatTime(duration)}</span>
-            </div>
-          </div>
-
-          {/* Center Cluster: Playback Action Hero */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* -10s Rewind */}
-            <button
-              onClick={() => handleSeekRelative(-10)}
-              className="pouf-dock-icon-btn"
-              title="Rewind 10s (Left Arrow)"
-            >
-              <RotateCcw size={15} color="#ffe4e6" />
-            </button>
-
-            {/* Center Hero Play/Pause Button */}
-            <button
-              onClick={togglePlayPause}
-              className="pouf-hero-play-btn"
-              title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}
-            >
-              {localPlaying ? <ClayPause size={20} /> : <ClayPlay size={20} />}
-            </button>
-
-            {/* +10s Forward */}
-            <button
-              onClick={() => handleSeekRelative(10)}
-              className="pouf-dock-icon-btn"
-              title="Fast Forward 10s (Right Arrow)"
-            >
-              <RotateCw size={15} color="#ffe4e6" />
-            </button>
-          </div>
-
-          {/* Right Cluster: Speed, Subs Pill, Settings, Fullscreen */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Playback Speed Pill */}
-            <button
-              onClick={() => {
-                const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
-                const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
-                handleSpeedChange(speeds[nextIdx]);
-              }}
-              className="pouf-dock-pill-btn"
-              title="Cycle Playback Speed"
-            >
-              {playbackSpeed === 1.0 ? '1.0x' : `${playbackSpeed}x`}
-            </button>
-
-            {/* Dedicated Subs Pill (Translucent Glass Pill with glowing indicator) */}
-            <button
-              onClick={() => {
-                setShowSubMenu(prev => !prev);
-                setSubsSubView('root');
-                setShowSettingsMenu(false);
-              }}
-              className={showSubMenu ? 'pouf-dock-pill-btn active' : 'pouf-dock-pill-btn'}
-              title="Subtitles"
-            >
-              <ClaySubtitles size={14} />
-              <span>Subs</span>
-              {activeSubtitleIndex >= 0 && (
-                <span className="pouf-active-dot" />
-              )}
-            </button>
-
-            {/* Settings Gear */}
-            <button
-              onClick={() => {
-                setShowSettingsMenu(prev => !prev);
-                setSettingsSubView('root');
-                setShowSubMenu(false);
-              }}
-              className={showSettingsMenu ? 'pouf-dock-icon-btn active' : 'pouf-dock-icon-btn'}
-              title="Settings (Audio, Speed, Boost, Presets)"
-            >
-              <Settings
-                size={16}
-                style={{
-                  transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.3s ease'
-                }}
-              />
-            </button>
-
-            {/* Picture-in-Picture */}
-            <button
-              onClick={handleTogglePiP}
-              className="pouf-dock-icon-btn"
-              title="Picture-in-Picture (P)"
-            >
-              <PictureInPicture size={15} color="#ffe4e6" />
-            </button>
-
-            {/* Instant Screenshot Snapshot */}
-            <button
-              onClick={handleCaptureScreenshot}
-              className="pouf-dock-icon-btn"
-              title="Capture Screenshot Frame"
-            >
-              <Camera size={15} color="#ffe4e6" />
-            </button>
-
-            {/* Lock Screen Controls */}
-            <button
-              onClick={() => {
-                setIsLocked(true);
-                setShowControls(false);
-                triggerLockHint();
-              }}
-              className="pouf-dock-icon-btn"
-              title="Lock Screen Controls (L)"
-            >
-              <Lock size={15} color="#ffe4e6" />
-            </button>
-
-            {/* Fullscreen */}
-            <button
-              onClick={toggleFullscreen}
-              className="pouf-dock-icon-btn"
-              title="Fullscreen (F)"
-            >
-              {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
-            </button>
-          </div>
-        </div>
-
-        {/* ------------------------------------------------------------------ */}
-        {/* 7. COMPACT YOUTUBE-STYLE SUBTITLES POPOVER                         */}
-        {/* ------------------------------------------------------------------ */}
-        {showSubMenu && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="pouf-popover-shell"
-            style={{
-              position: 'absolute',
-              bottom: '62px',
-              right: '54px',
-              width: '260px',
-              maxHeight: '380px',
-              padding: '8px',
-              zIndex: 75,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
-              overflowY: 'auto'
-            }}
-          >
-            {subsSubView === 'root' && (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#fce7f3' }}>
-                    Subtitles (CC)
-                  </span>
-                  <button
-                    onClick={() => setShowSubMenu(false)}
-                    style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0 }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '160px', overflowY: 'auto', marginTop: '2px' }}>
-                  <div
-                    onClick={() => onSubtitleChange?.(-1)}
-                    className={`pouf-yt-menu-item ${activeSubtitleIndex === -1 ? 'active' : ''}`}
-                  >
-                    <span>Off</span>
-                    {activeSubtitleIndex === -1 && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                {hoverTime !== null && (
+                  <div className="a4-tip" style={{ left: `${hoverPosition}%` }}>
+                    {formatTime(hoverTime)}
                   </div>
-
-                  {allSubtitles.map((t, idx) => {
-                    const isActive = activeSubtitleIndex === idx;
-                    return (
-                      <div
-                        key={idx}
-                        onClick={() => onSubtitleChange?.(idx)}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {t.title || `Track ${idx + 1}`}
-                        </span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
-                      </div>
-                    );
-                  })}
+                )}
+                <div className="a4-rail">
+                  <div className="a4-buf" style={{ width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%` }} />
+                  <div className="a4-fill" style={{ width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
                 </div>
+                <div className="a4-knob" style={{ left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
+              </div>
+              <span className="a4-tcode" style={{ color: 'rgba(255,228,230,0.75)' }}>{formatTime(duration)}</span>
+            </div>
 
-                <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
-
+            <div className="a4-deck">
+              <div className="a4-left">
+                <button type="button" onClick={() => setIsMuted(m => !m)} className="a4-btn" title={isMuted ? 'Unmute' : 'Mute'}>
+                  {isMuted || volume === 0 ? <VolumeX size={16} color="#ff2e93" /> : <Volume2 size={16} />}
+                </button>
                 <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept=".srt,.vtt"
-                  onChange={handleUploadSubtitleFile}
-                  style={{ display: 'none' }}
+                  type="range" min="0" max="1" step="0.05"
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => { const val = parseFloat(e.target.value); setVolume(val); setIsMuted(false); localStorage.setItem('wt_player_vol', val); }}
+                  style={{ width: '54px', accentColor: '#ff2e93', cursor: 'pointer', height: '3px' }}
+                  aria-label="Volume"
                 />
-
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="pouf-yt-menu-item"
-                >
-                  <Upload size={14} color="#f472b6" />
-                  <span>Upload Subtitle File</span>
-                </div>
-
-                <div
-                  onClick={() => setSubsSubView('search')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Sparkles size={14} color="#f472b6" />
-                  <span>Search SubDL Online</span>
-                  <ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} />
-                </div>
-
-                <div
-                  onClick={() => setSubsSubView('options')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Sliders size={14} color="#f472b6" />
-                  <span>Options & Delay Sync</span>
-                  <ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} />
-                </div>
-              </>
-            )}
-
-            {subsSubView === 'options' && (
-              <>
-                <button
-                  onClick={() => setSubsSubView('root')}
-                  className="pouf-yt-back-btn"
-                >
-                  <ChevronLeft size={16} />
-                  <span>Subtitle Customizer</span>
-                </button>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', padding: '4px 2px', maxHeight: '310px', overflowY: 'auto' }}>
-                  {/* Font Size Slider */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      <span>Size</span>
-                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleSize}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="14"
-                      max="48"
-                      step="1"
-                      value={subtitleSize}
-                      onChange={(e) => handleSizeChange(Number(e.target.value))}
-                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* Position Height Slider */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      <span>Height from Bottom</span>
-                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBottom}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="16"
-                      max="240"
-                      step="4"
-                      value={subtitleBottom}
-                      onChange={(e) => handleBottomChange(Number(e.target.value))}
-                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* Background Opacity Slider */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      <span>Background Opacity</span>
-                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgOpacity}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
-                      value={subtitleBgOpacity}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setSubtitleBgOpacity(val);
-                        localStorage.setItem('wt_sub_bg_opacity', val);
-                      }}
-                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* Background Blur Slider */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      <span>Background Blur</span>
-                      <span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgBlur}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="20"
-                      step="1"
-                      value={subtitleBgBlur}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setSubtitleBgBlur(val);
-                        localStorage.setItem('wt_sub_bg_blur', val);
-                      }}
-                      style={{ width: '100%', accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* Background Color Swatches */}
-                  <div>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Background Color
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
-                      {[
-                        { id: 'black', label: 'Black', bg: '#000000' },
-                        { id: 'charcoal', label: 'Charcoal', bg: '#1c1c23' },
-                        { id: 'pink', label: 'Pink', bg: '#2d0f24' },
-                        { id: 'purple', label: 'Purple', bg: '#190e28' }
-                      ].map((bg) => (
-                        <button
-                          key={bg.id}
-                          onClick={() => {
-                            setSubtitleBgColor(bg.id);
-                            localStorage.setItem('wt_sub_bg_color', bg.id);
-                          }}
-                          style={{
-                            padding: '4px 0',
-                            borderRadius: '6px',
-                            background: bg.bg,
-                            border: subtitleBgColor === bg.id ? '1.5px solid var(--pink-primary)' : '1px solid rgba(255,255,255,0.12)',
-                            color: '#fff',
-                            fontSize: '0.66rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {bg.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Subtitle Text Color Swatches */}
-                  <div>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Text Color
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {[
-                        { color: '#ffffff', label: 'White' },
-                        { color: '#fde047', label: 'Yellow' },
-                        { color: '#38bdf8', label: 'Cyan' },
-                        { color: '#f472b6', label: 'Pink' },
-                        { color: '#34d399', label: 'Mint' }
-                      ].map((c) => (
-                        <button
-                          key={c.color}
-                          onClick={() => {
-                            setSubtitleColor(c.color);
-                            localStorage.setItem('wt_sub_color', c.color);
-                          }}
-                          style={{
-                            flex: 1,
-                            height: '22px',
-                            borderRadius: '6px',
-                            background: c.color,
-                            border: subtitleColor === c.color ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)',
-                            boxShadow: subtitleColor === c.color ? '0 0 10px rgba(255,255,255,0.6)' : 'none',
-                            cursor: 'pointer'
-                          }}
-                          title={c.label}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Delay Offset */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      <span>Sync Delay</span>
-                      <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        onClick={() => handleDelayChange(subtitleDelay - 0.5)}
-                        className="pouf-dock-pill-btn"
-                        style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.70rem' }}
-                      >
-                        -0.5s
-                      </button>
-                      <button
-                        onClick={() => handleDelayChange(0.0)}
-                        className="pouf-dock-pill-btn"
-                        style={{ padding: '3px 8px', fontSize: '0.68rem' }}
-                      >
-                        Reset
-                      </button>
-                      <button
-                        onClick={() => handleDelayChange(subtitleDelay + 0.5)}
-                        className="pouf-dock-pill-btn"
-                        style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.70rem' }}
-                      >
-                        +0.5s
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {subsSubView === 'search' && (
-              <>
-                <button
-                  onClick={() => setSubsSubView('root')}
-                  className="pouf-yt-back-btn"
-                >
-                  <ChevronLeft size={16} />
-                  <span>SubDL Online Search</span>
-                </button>
-
-                <div style={{ display: 'flex', gap: '4px', padding: '2px 4px' }}>
-                  <input
-                    type="text"
-                    value={onlineSearchQuery}
-                    onChange={(e) => setOnlineSearchQuery(e.target.value)}
-                    placeholder="Search movie/anime..."
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()}
-                    className="pouf-glass-input"
-                    style={{ flex: 1, padding: '4px 6px', fontSize: '0.72rem' }}
-                  />
-                  <button
-                    onClick={() => handleSearchOnlineSubtitles()}
-                    disabled={isSearchingOnline}
-                    className="pouf-glass-btn-primary"
-                    style={{ padding: '4px 8px', fontSize: '0.70rem' }}
-                  >
-                    {isSearchingOnline ? '...' : <Search size={12} />}
-                  </button>
-                </div>
-
-                <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                  {isSearchingOnline ? (
-                    <div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.70rem', color: '#f472b6' }}>
-                      Searching SubDL...
-                    </div>
-                  ) : onlineSearchResults.length > 0 ? (
-                    onlineSearchResults.map((sub, sIdx) => (
-                      <div
-                        key={sIdx}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '4px 6px',
-                          borderRadius: '6px',
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(244,114,182,0.15)',
-                          gap: '6px'
-                        }}
-                      >
-                        <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, fontSize: '0.68rem', color: '#f3f4f6' }}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
-                            {sub.fileName}
-                          </div>
-                          <span style={{ fontSize: '0.60rem', color: '#f472b6' }}>{sub.language}</span>
-                        </div>
-                        <button
-                          onClick={() => handleDownloadOnlineSubtitle(sub)}
-                          disabled={isDownloadingOnline}
-                          className="pouf-glass-btn-primary"
-                          style={{ padding: '3px 6px', fontSize: '0.64rem', flexShrink: 0 }}
-                        >
-                          {downloadingSubId === sub.fileId ? '...' : 'Get'}
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.68rem', color: '#9ca3af' }}>
-                      Type title and press enter
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ------------------------------------------------------------------ */}
-        {/* 8. COMPACT YOUTUBE-STYLE SETTINGS POPOVER (Audio, Speed, Boost, etc.) */}
-        {/* ------------------------------------------------------------------ */}
-        {showSettingsMenu && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="pouf-popover-shell"
-            style={{
-              position: 'absolute',
-              bottom: '62px',
-              right: '18px',
-              width: '250px',
-              maxHeight: '380px',
-              padding: '8px',
-              zIndex: 75,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
-              overflowY: 'auto'
-            }}
-          >
-            {settingsSubView === 'root' && (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px 8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#fce7f3' }}>
-                    Playback Settings
-                  </span>
-                  <button
-                    onClick={() => setShowSettingsMenu(false)}
-                    style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 0 }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* Audio Track Row */}
-                <div
-                  onClick={() => setSettingsSubView('audio')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Volume2 size={15} color="#f472b6" />
-                  <span>Audio Track</span>
-                  <span className="pouf-yt-val">
-                    {audioTracks[activeAudioIndex]?.title || (audioTracks.length > 0 ? `Track #${activeAudioIndex + 1}` : 'Stereo AAC')}
-                  </span>
-                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
-                </div>
-
-                {/* Speed Row */}
-                <div
-                  onClick={() => setSettingsSubView('speed')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Gauge size={15} color="#f472b6" />
-                  <span>Speed</span>
-                  <span className="pouf-yt-val">
-                    {playbackSpeed === 1.0 ? 'Normal' : `${playbackSpeed}x`}
-                  </span>
-                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
-                </div>
-
-                {/* Audio Boost Row */}
-                <div
-                  onClick={() => setSettingsSubView('boost')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Sparkles size={15} color="#f472b6" />
-                  <span>Volume Boost</span>
-                  <span className="pouf-yt-val" style={{ color: audioBoost > 100 ? '#fbbf24' : undefined }}>
-                    {audioBoost}%
-                  </span>
-                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
-                </div>
-
-                {/* Visual Presets Row */}
-                <div
-                  onClick={() => setSettingsSubView('filters')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Sliders size={15} color="#f472b6" />
-                  <span>Visual Presets</span>
-                  <span className="pouf-yt-val">
-                    {visualPreset === 'standard' ? 'Normal' : visualPreset}
-                  </span>
-                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
-                </div>
-
-                {/* Aspect Ratio Row */}
-                <div
-                  onClick={() => setSettingsSubView('aspect')}
-                  className="pouf-yt-menu-item"
-                >
-                  <Crop size={15} color="#f472b6" />
-                  <span>Aspect Ratio</span>
-                  <span className="pouf-yt-val">
-                    {aspectRatio === 'contain' ? '16:9' : aspectRatio === 'cover' ? 'Zoom' : 'Stretch'}
-                  </span>
-                  <ChevronRight size={14} style={{ color: '#9ca3af' }} />
-                </div>
-
-                {/* Quick Stream Fix / Kickstart */}
-                <div
-                  onClick={() => {
-                    handleFixBlackScreen();
-                    setShowSettingsMenu(false);
-                  }}
-                  className="pouf-yt-menu-item"
-                  style={{ marginTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', color: '#f472b6' }}
-                  title="Reload stream decoder, unfreeze frame, and kickstart playback"
-                >
-                  <Sparkles size={15} color="#f472b6" />
-                  <span style={{ fontWeight: 700 }}>⚡ Fix Black Screen</span>
-                </div>
-              </>
-            )}
-
-            {settingsSubView === 'audio' && (
-              <>
-                <button
-                  onClick={() => setSettingsSubView('root')}
-                  className="pouf-yt-back-btn"
-                >
-                  <ChevronLeft size={16} />
-                  <span>Audio Stream ({audioTracks.length || 1})</span>
-                </button>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '200px', overflowY: 'auto' }}>
-                  {audioTracks.length === 0 ? (
-                    <div className="pouf-yt-menu-item active">
-                      <span>Default Audio (Stereo AAC)</span>
-                      <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />
-                    </div>
-                  ) : (
-                    audioTracks.map((t, idx) => {
-                      const trackIdx = t.index ?? idx;
-                      const isActive = activeAudioIndex === trackIdx;
-                      return (
-                        <div
-                          key={trackIdx}
-                          onClick={() => onAudioTrackChange?.(trackIdx)}
-                          className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                        >
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {t.title || `Track #${idx + 1}`}
-                          </span>
-                          {t.codec && (
-                            <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-                              {t.codec.toUpperCase()}
-                            </span>
-                          )}
-                          {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {audioTracks.length > 1 && !audioStatusData?.allReady && (
-                  <button
-                    onClick={handleProcessAllAudio}
-                    disabled={isProcessingAudio}
-                    style={{
-                      marginTop: '6px',
-                      padding: '6px 8px',
-                      borderRadius: '6px',
-                      background: 'rgba(244, 114, 182, 0.15)',
-                      border: '1px solid rgba(244, 114, 182, 0.35)',
-                      color: '#fbcfe8',
-                      fontSize: '0.68rem',
-                      fontWeight: 700,
-                      cursor: isProcessingAudio ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    {isProcessingAudio ? 'Extracting in background...' : 'Pre-extract All Tracks to AAC'}
+                {onForceSyncAll && (
+                  <button type="button" onClick={onForceSyncAll} className="a4-pill" title="Sync Everyone">
+                    <RefreshCw size={12} color="#f472b6" /><span>Sync</span>
                   </button>
                 )}
-              </>
-            )}
+              </div>
 
-            {settingsSubView === 'speed' && (
-              <>
-                <button
-                  onClick={() => setSettingsSubView('root')}
-                  className="pouf-yt-back-btn"
-                >
-                  <ChevronLeft size={16} />
-                  <span>Playback Speed</span>
+              <div className="a4-center">
+                <button type="button" onClick={() => handleSeekRelative(-10)} className="a4-btn" title="Rewind 10s (Left Arrow)"><RotateCcw size={15} /></button>
+                <button type="button" onClick={togglePlayPause} className="a4-play" title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}>
+                  {localPlaying ? <ClayPause size={19} /> : <ClayPlay size={19} />}
                 </button>
+                <button type="button" onClick={() => handleSeekRelative(10)} className="a4-btn" title="Fast Forward 10s (Right Arrow)"><RotateCw size={15} /></button>
+              </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((spd) => {
-                    const isActive = playbackSpeed === spd;
-                    return (
-                      <div
-                        key={spd}
-                        onClick={() => handleSpeedChange(spd)}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span>{spd === 1.0 ? 'Normal (1.0x)' : `${spd}x`}</span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {settingsSubView === 'boost' && (
-              <>
+              <div className="a4-right">
                 <button
-                  onClick={() => setSettingsSubView('root')}
-                  className="pouf-yt-back-btn"
+                  type="button"
+                  onClick={() => { const speeds = [0.75, 1.0, 1.25, 1.5, 2.0]; handleSpeedChange(speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length]); }}
+                  className="a4-pill"
+                  title="Cycle Playback Speed"
                 >
-                  <ChevronLeft size={16} />
-                  <span>Volume Boost (Gain)</span>
+                  {playbackSpeed === 1.0 ? '1.0x' : `${playbackSpeed}x`}
                 </button>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {[
-                    { b: 100, label: 'Normal (100%)' },
-                    { b: 125, label: 'Boost 125%' },
-                    { b: 150, label: 'Boost 150%' },
-                    { b: 175, label: 'Boost 175%' },
-                    { b: 200, label: 'Max Boost (200%)' }
-                  ].map((item) => {
-                    const isActive = audioBoost === item.b;
-                    return (
-                      <div
-                        key={item.b}
-                        onClick={() => handleAudioBoostChange(item.b)}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span>{item.label}</span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {settingsSubView === 'filters' && (
-              <>
                 <button
-                  onClick={() => setSettingsSubView('root')}
-                  className="pouf-yt-back-btn"
+                  type="button"
+                  onClick={() => { setShowSubMenu(prev => !prev); setSubsSubView('root'); setShowSettingsMenu(false); }}
+                  className={showSubMenu ? 'a4-pill active' : 'a4-pill'}
+                  title="Subtitles"
                 >
-                  <ChevronLeft size={16} />
-                  <span>Visual Presets</span>
+                  <ClaySubtitles size={13} /><span>Subs</span>{activeSubtitleIndex >= 0 && <span className="pouf-active-dot" />}
                 </button>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {[
-                    { id: 'standard', label: 'Standard (Default)', b: 100, c: 100, s: 100 },
-                    { id: 'anime', label: 'Anime Vivid', b: 102, c: 110, s: 125 },
-                    { id: 'cinema', label: 'Cinema Warm', b: 96, c: 108, s: 105 },
-                    { id: 'night', label: 'Night Dim', b: 82, c: 95, s: 90 },
-                    { id: 'cyberpunk', label: 'Cyberpunk Neon', b: 100, c: 120, s: 140 },
-                    { id: 'noir', label: 'Noir (Black & White)', b: 95, c: 115, s: 0 }
-                  ].map((p) => {
-                    const isActive = visualPreset === p.id;
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          const newFilter = { brightness: p.b, contrast: p.c, saturation: p.s };
-                          setVisualFilter(newFilter);
-                          setVisualPreset(p.id);
-                          localStorage.setItem('wt_visual_filter', JSON.stringify(newFilter));
-                          localStorage.setItem('wt_visual_preset', p.id);
-                        }}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span>{p.label}</span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                      </div>
-                    );
-                  })}
+                <button
+                  type="button"
+                  onClick={() => { setShowSettingsMenu(prev => !prev); setSettingsSubView('root'); setShowSubMenu(false); }}
+                  className={showSettingsMenu ? 'a4-btn active' : 'a4-btn'}
+                  title="Settings (Audio, Speed, Boost, Presets)"
+                >
+                  <Settings size={15} style={{ transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }} />
+                </button>
+                <div className="a4-utils">
+                  <button type="button" onClick={handleTogglePiP} className="a4-btn" title="Picture-in-Picture"><PictureInPicture size={14} /></button>
+                  <button type="button" onClick={handleCaptureScreenshot} className="a4-btn" title="Capture Screenshot Frame"><Camera size={14} /></button>
+                  <button type="button" onClick={() => { setIsLocked(true); setShowControls(false); setShowSubMenu(false); setShowSettingsMenu(false); triggerLockHint(); }} className="a4-btn" title="Lock Screen Controls (L)"><Lock size={14} /></button>
                 </div>
+                <button type="button" onClick={toggleFullscreen} className="a4-btn" title="Fullscreen (F)">{isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}</button>
+              </div>
+            </div>
 
-                {/* Live Film Grain Controls */}
-                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Live Film Grain
-                    </span>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: filmGrainIntensity > 0 ? '#34d399' : '#9ca3af', fontFamily: 'monospace' }}>
-                      {filmGrainIntensity === 0 ? 'Off (0%)' : `${filmGrainIntensity}%`}
-                    </span>
+            {showSubMenu && (
+                  <div onClick={(e) => e.stopPropagation()} className="subv1-shell">
+                    {subsSubView === 'root' && (
+                      <>
+                        <div className="subv1-head">
+                          <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#fce7f3' }}>Subtitles (CC)</span>
+                          <button type="button" onClick={() => setShowSubMenu(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}><X size={14} /></button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '165px', overflowY: 'auto' }}>
+                          <div onClick={() => onSubtitleChange?.(-1)} className={`pouf-yt-menu-item ${activeSubtitleIndex === -1 ? 'active' : ''}`}>
+                            <span>Off</span>{activeSubtitleIndex === -1 && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                          </div>
+                          {allSubtitles.map((t, idx) => { const isActive = activeSubtitleIndex === idx; return (
+                            <div key={idx} onClick={() => onSubtitleChange?.(idx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track ${idx + 1}`}</span>
+                              {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                            </div>
+                          ); })}
+                        </div>
+                        <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '2px 0' }} />
+                        <input type="file" ref={fileInputRef} accept=".srt,.vtt" onChange={handleUploadSubtitleFile} style={{ display: 'none' }} />
+                        <div onClick={() => fileInputRef.current?.click()} className="pouf-yt-menu-item"><Upload size={14} color="#f472b6" /><span>Upload Subtitle File</span></div>
+                        <div onClick={() => setSubsSubView('search')} className="pouf-yt-menu-item"><Sparkles size={14} color="#f472b6" /><span>Search SubDL Online</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
+                        <div onClick={() => setSubsSubView('options')} className="pouf-yt-menu-item"><Sliders size={14} color="#f472b6" /><span>Studio Customizer & Sync</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
+                      </>
+                    )}
+                    {subsSubView === 'options' && (
+                      <>
+                        <div className="subv1-head">
+                          <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Subtitle Studio</span></button>
+                          <button type="button" onClick={resetSubtitleDefaults} title="Reset All Subtitle Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'rgba(255,255,255,0.07)', color: '#f9a8d4', borderRadius: 999, padding: '3px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                            <RotateCcw size={11} /><span>Reset</span>
+                          </button>
+                        </div>
+                        <div className="subv1-stage">
+                          <span style={{ ...getSubtitleCueStyle(0.58), maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {currentCueText || 'We stayed till dawn.'}
+                          </span>
+                        </div>
+                        <div className="subv1-tabs">
+                          <button type="button" onClick={() => setSubCustomizerTab('presets')} className={`subv1-tab ${subCustomizerTab === 'presets' ? 'is-on' : ''}`}>Pink Moods & Look</button>
+                          <button type="button" onClick={() => setSubCustomizerTab('tune')} className={`subv1-tab ${subCustomizerTab === 'tune' ? 'is-on' : ''}`}>Fine Tune & Sync</button>
+                        </div>
+                        {subCustomizerTab === 'presets' ? (
+                          <div className="subv1-scroll">
+                            <div className="subv1-preset-grid">
+                              {PINK_SUB_PRESETS.map((p) => {
+                                const isActive = subtitleBgColor === p.bgColor && subtitleColor.toLowerCase() === p.color.toLowerCase() && subtitleFont === p.font && subtitleEdge === p.edge;
+                                return (
+                                  <button type="button" key={p.id} onClick={() => applySubtitlePreset(p)} className={`subv1-preset-card ${isActive ? 'is-active' : ''}`}>
+                                    <span style={{ width: 22, height: 22, borderRadius: 7, background: p.swatch, flexShrink: 0, border: '1px solid rgba(255,255,255,0.28)' }} />
+                                    <span style={{ minWidth: 0 }}>
+                                      <span style={{ display: 'block', fontSize: '0.70rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                                      <span style={{ display: 'block', fontSize: '0.60rem', color: '#f472b6' }}>{p.tag}</span>
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Typeface</div>
+                              <div className="subv1-seg-row">
+                                {[{ id: 'sans', label: 'Clean' }, { id: 'rounded', label: 'Soft' }, { id: 'serif', label: 'Serif' }, { id: 'mono', label: 'Mono' }].map((f) => (
+                                  <button type="button" key={f.id} onClick={() => handleSubtitleFontChange(f.id)} className={`subv1-pill ${subtitleFont === f.id ? 'is-active' : ''}`}>{f.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Edge & Glow</div>
+                              <div className="subv1-seg-row">
+                                {[{ id: 'auto', label: 'Auto' }, { id: 'crisp', label: 'Outline' }, { id: 'glow', label: 'Soft Glow' }, { id: 'pink-glow', label: 'Pink Neon' }].map((edge) => (
+                                  <button type="button" key={edge.id} onClick={() => handleSubtitleEdgeChange(edge.id)} className={`subv1-pill ${subtitleEdge === edge.id ? 'is-active' : ''}`}>{edge.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="subv1-scroll">
+                            <div className="subv1-sl-grid">
+                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>SIZE</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleSize}px</span></div><input type="range" min="14" max="48" step="1" value={subtitleSize} onChange={(e) => handleSizeChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>HEIGHT</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBottom}px</span></div><input type="range" min="16" max="240" step="4" value={subtitleBottom} onChange={(e) => handleBottomChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>OPACITY</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgOpacity}%</span></div><input type="range" min="0" max="100" step="5" value={subtitleBgOpacity} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgOpacity(v); localStorage.setItem('wt_sub_bg_opacity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>BLUR</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgBlur}px</span></div><input type="range" min="0" max="20" step="1" value={subtitleBgBlur} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgBlur(v); localStorage.setItem('wt_sub_bg_blur', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Backdrop Tint</div>
+                              <div className="subv1-seg-row">
+                                {Object.entries(SUBTITLE_BG_MAP).map(([id, info]) => (
+                                  <button type="button" key={id} onClick={() => handleSubtitleBgColorChange(id)} style={{ padding: '4px 2px', borderRadius: 7, background: info.hex, border: subtitleBgColor === id ? '1.5px solid #f472b6' : '1px solid rgba(255,255,255,0.14)', color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{info.label.split(' ')[0]}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Text Color</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                {['#ffffff', '#fde047', '#fbcfe8', '#f472b6', '#fb7185', '#e879f9', '#38bdf8', '#34d399'].map((c) => (
+                                  <button type="button" key={c} onClick={() => handleSubtitleColorChange(c)} style={{ flex: 1, height: 20, borderRadius: 6, background: c, border: subtitleColor.toLowerCase() === c ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)', cursor: 'pointer' }} />
+                                ))}
+                                <input type="color" value={subtitleColor} onChange={(e) => handleSubtitleColorChange(e.target.value)} title="Custom Color" style={{ width: 22, height: 22, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer' }} />
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>
+                                <span>Sync Offset</span>
+                                <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>{subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.5</button>
+                                <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.1</button>
+                                <button type="button" onClick={() => handleDelayChange(0)} className="pouf-dock-pill-btn" style={{ padding: '3px 7px', fontSize: '0.65rem' }}>0s</button>
+                                <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.1</button>
+                                <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.5</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {subsSubView === 'search' && (
+                      <>
+                        <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>SubDL Online Search</span></button>
+                        <div style={{ display: 'flex', gap: '4px', padding: '2px 4px' }}>
+                          <input type="text" value={onlineSearchQuery} onChange={(e) => setOnlineSearchQuery(e.target.value)} placeholder="Search movie/anime..." onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()} className="pouf-glass-input" style={{ flex: 1, padding: '4px 6px', fontSize: '0.72rem' }} />
+                          <button type="button" onClick={() => handleSearchOnlineSubtitles()} disabled={isSearchingOnline} className="pouf-glass-btn-primary" style={{ padding: '4px 8px', fontSize: '0.70rem' }}>{isSearchingOnline ? '...' : <Search size={12} />}</button>
+                        </div>
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          {isSearchingOnline ? (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.70rem', color: '#f472b6' }}>Searching SubDL...</div>) : onlineSearchResults.length > 0 ? (onlineSearchResults.map((sub, sIdx) => (
+                            <div key={sIdx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(244,114,182,0.15)', gap: '6px' }}>
+                              <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, fontSize: '0.68rem', color: '#f3f4f6' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{sub.fileName}</div><span style={{ fontSize: '0.60rem', color: '#f472b6' }}>{sub.language}</span></div>
+                              <button type="button" onClick={() => handleDownloadOnlineSubtitle(sub)} disabled={isDownloadingOnline} className="pouf-glass-btn-primary" style={{ padding: '3px 6px', fontSize: '0.64rem', flexShrink: 0 }}>{downloadingSubId === sub.fileId ? '...' : 'Get'}</button>
+                            </div>
+                          ))) : (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.68rem', color: '#9ca3af' }}>Type title and press enter</div>)}
+                        </div>
+                      </>
+                    )}
                   </div>
 
-                  {/* Live Grain Slider */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
-                      value={filmGrainIntensity}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setFilmGrainIntensity(val);
-                        localStorage.setItem('wt_grain_intensity', val);
-                      }}
-                      style={{ flex: 1, accentColor: '#ec4899', height: '4px', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* Grain Grain Texture Styles */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                    {[
-                      { id: '35mm', label: '35mm Fine' },
-                      { id: '16mm', label: '16mm Indie' },
-                      { id: 'heavy', label: 'Vintage Grit' }
-                    ].map((g) => {
-                      const isActive = filmGrainPreset === g.id && filmGrainIntensity > 0;
-                      return (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => {
-                            setFilmGrainPreset(g.id);
-                            localStorage.setItem('wt_grain_preset', g.id);
-                            if (filmGrainIntensity === 0) {
-                              setFilmGrainIntensity(40);
-                              localStorage.setItem('wt_grain_intensity', 40);
-                            }
-                          }}
-                          className={`pouf-dock-pill-btn ${isActive ? 'active' : ''}`}
-                          style={{ padding: '4px 0', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700 }}
-                        >
-                          {g.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
             )}
 
-            {settingsSubView === 'aspect' && (
-              <>
-                <button
-                  onClick={() => setSettingsSubView('root')}
-                  className="pouf-yt-back-btn"
-                >
-                  <ChevronLeft size={16} />
-                  <span>Aspect Ratio</span>
-                </button>
+            {showSettingsMenu && (
+                  <div onClick={(e) => e.stopPropagation()} className="cfgv1-shell">
+                    {settingsSubView !== 'filters' ? renderSettingsCoreViews() : (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Picture & Grain</span></button>
+                          <button type="button" onClick={() => handleToggleGrainEnabled(!filmGrainEnabled)} style={{ border: '1px solid rgba(244,114,182,0.32)', background: filmGrainEnabled ? 'rgba(236,72,153,0.24)' : 'rgba(255,255,255,0.06)', color: filmGrainEnabled ? '#fdf2f8' : '#9ca3af', borderRadius: 999, padding: '2px 8px', fontSize: '0.63rem', fontWeight: 800, cursor: 'pointer' }}>
+                            Grain: {filmGrainEnabled ? 'ON' : 'OFF'}
+                          </button>
+                        </div>
+                        <div className="cfgv1-tabs">
+                          <button type="button" onClick={() => setFilterLabTab('color')} className={`cfgv1-tab ${filterLabTab === 'color' ? 'is-on' : ''}`}>Color Look</button>
+                          <button type="button" onClick={() => setFilterLabTab('grain')} className={`cfgv1-tab ${filterLabTab === 'grain' ? 'is-on' : ''}`}>Film Grain</button>
+                        </div>
+                        {filterLabTab === 'color' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {VISUAL_GRADE_PRESETS.map((p) => {
+                              const isActive = visualPreset === p.id;
+                              return (
+                                <button type="button" key={p.id} onClick={() => handleApplyVisualPreset(p)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`} style={{ border: 'none', width: '100%', textAlign: 'left', background: isActive ? undefined : 'transparent' }}>
+                                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.dot, border: '1px solid rgba(255,255,255,0.25)', flexShrink: 0 }} />
+                                  <span>{p.label}</span>
+                                  {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div className="cfgv1-swatch">
+                              {filmGrainEnabled && (
+                                <div style={{ position: 'absolute', inset: '-30%', pointerEvents: 'none', ...getFilmGrainVisualProps(0.45) }} />
+                              )}
+                              <span style={{ position: 'relative', fontSize: '0.63rem', fontWeight: 700, color: '#fce7f3', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+                                {filmGrainEnabled ? `${FILM_GRAIN_STOCKS.find((s) => s.id === filmGrainPreset)?.label || '35mm'} · ${filmGrainIntensity}%` : 'Grain Disabled (Clean Feed)'}
+                              </span>
+                              <span style={{ position: 'relative', fontSize: '0.60rem', color: '#f9a8d4', fontFamily: 'monospace' }}>
+                                {filmGrainEnabled ? (filmGrainBlend === 'normal' ? 'Universal' : filmGrainBlend) : 'OFF'}
+                              </span>
+                            </div>
+                            <div className="cfgv1-stocks">
+                              {FILM_GRAIN_STOCKS.map((s) => (
+                                <button type="button" key={s.id} onClick={() => handleApplyGrainStock(s)} className={`cfgv1-card ${filmGrainEnabled && filmGrainPreset === s.id ? 'is-on' : ''}`}>
+                                  <span style={{ fontSize: '0.67rem', fontWeight: 800 }}>{s.label}</span>
+                                  <span style={{ fontSize: '0.57rem', color: '#f472b6' }}>{s.tag}</span>
+                                </button>
+                              ))}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Strength</span><span>{filmGrainEnabled ? `${filmGrainIntensity}%` : '0%'}</span></div>
+                                <input type="range" min="5" max="100" step="5" value={filmGrainIntensity} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainIntensity(v); localStorage.setItem('wt_grain_intensity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Grain Size</span><span>{filmGrainSize.toFixed(1)}x</span></div>
+                                <input type="range" min="0.6" max="1.8" step="0.1" value={filmGrainSize} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainSize(v); localStorage.setItem('wt_grain_size', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
+                              </div>
+                            </div>
+                            <div className="cfgv1-chips">
+                              <button type="button" onClick={() => { const order = ['normal', 'soft-light', 'overlay']; const n = order[(order.indexOf(filmGrainBlend) + 1) % order.length]; handleToggleGrainEnabled(true); setFilmGrainBlend(n); localStorage.setItem('wt_grain_blend', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainBlend === 'normal' ? 'is-on' : ''}`} title="Universal guarantees visibility on black frames & all streams">
+                                {filmGrainBlend === 'normal' ? 'Universal' : (filmGrainBlend === 'soft-light' ? 'Soft Light' : 'Overlay')}
+                              </button>
+                              <button type="button" onClick={() => { const n = filmGrainChroma === 'mono' ? 'color' : 'mono'; handleToggleGrainEnabled(true); setFilmGrainChroma(n); localStorage.setItem('wt_grain_chroma', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainChroma === 'color' ? 'is-on' : ''}`}>
+                                {filmGrainChroma === 'mono' ? 'Silver Mono' : 'Color Dye'}
+                              </button>
+                              <button type="button" onClick={() => { const n = filmGrainMotion === '24fps' ? 'still' : '24fps'; handleToggleGrainEnabled(true); setFilmGrainMotion(n); localStorage.setItem('wt_grain_motion', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainMotion === '24fps' ? 'is-on' : ''}`}>
+                                {filmGrainMotion === '24fps' ? '24fps Live' : 'Static'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {[
-                    { id: 'contain', label: 'Default Fit (16:9)' },
-                    { id: 'cover', label: 'Cinema Zoom (Cover 21:9)' },
-                    { id: 'fill', label: 'Full Stretch (100% Canvas)' }
-                  ].map((opt) => {
-                    const isActive = aspectRatio === opt.id;
-                    return (
-                      <div
-                        key={opt.id}
-                        onClick={() => handleAspectChange(opt.id)}
-                        className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}
-                      >
-                        <span>{opt.label}</span>
-                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
             )}
           </div>
-        )}
-      </div>
 
       {/* 8. In-Video Overlays (Floating Instant Chat rendered inside player for Fullscreen visibility) */}
       <div

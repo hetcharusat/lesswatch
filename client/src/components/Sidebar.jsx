@@ -1,11 +1,14 @@
 import React from 'react';
-import { LogOut } from 'lucide-react';
+import { LogOut, Shield } from 'lucide-react';
 import { UserAvatar } from './JojoAvatar';
 import { PinkPopcornLogo } from './PinkPopcornLogo';
 import { ClayHome, ClayTv, ClayFolder, ClayDownload, ClayClose, ClayPlay, ClaySparkle } from './ClayIcons';
 
-export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, onLogout, liveData }) {
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.name?.toLowerCase() === 'het';
+export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, appConfig, onLogout, liveData }) {
+  const isAdmin = currentUser?.role === 'admin';
+  const showStudio = appConfig?.modules?.mediaStudio !== false;
+  const showDownloader = isAdmin && appConfig?.modules?.downloader !== false;
+  const brandName = appConfig?.instanceName || 'Watch Together';
 
   function handleNav(view) {
     onNavigate(view);
@@ -27,7 +30,7 @@ export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, 
           <div className="pink-brand" style={{ cursor: 'pointer' }} onClick={() => handleNav('home')}>
             <PinkPopcornLogo size={32} />
             <div className="pink-brand-text">
-              Watch<span>Together</span>
+              {brandName === 'Watch Together' ? <>Watch<span>Together</span></> : brandName}
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }} title="Close Menu">
@@ -120,22 +123,24 @@ export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, 
           </button>
 
           {/* Media Studio & Web Optimizer Link */}
-          <button
-            onClick={() => handleNav('studio')}
-            className={`pink-sidebar-link ${activeView === 'studio' ? 'active' : ''}`}
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: activeView === 'studio' ? '#be185d' : '#3b142d' }}
-          >
-            <ClaySparkle size={20} color={activeView === 'studio' ? '#ec4899' : undefined} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <span>Media Studio</span>
-              <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '6px', background: 'rgba(236,72,153,0.18)', color: '#be185d', fontWeight: 800 }}>
-                Optimizer
-              </span>
-            </div>
-          </button>
+          {showStudio && (
+            <button
+              onClick={() => handleNav('studio')}
+              className={`pink-sidebar-link ${activeView === 'studio' ? 'active' : ''}`}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: activeView === 'studio' ? '#be185d' : '#3b142d' }}
+            >
+              <ClaySparkle size={20} color={activeView === 'studio' ? '#ec4899' : undefined} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span>Media Studio</span>
+                <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: '6px', background: 'rgba(236,72,153,0.18)', color: '#be185d', fontWeight: 800 }}>
+                  Optimizer
+                </span>
+              </div>
+            </button>
+          )}
 
-          {/* Downloads Link (Admin Het Only) */}
-          {isAdmin && (
+          {/* Downloads Link (Admin Only) */}
+          {showDownloader && (
             <button
               onClick={() => handleNav('downloads')}
               className={`pink-sidebar-link ${activeView === 'downloads' ? 'active' : ''}`}
@@ -144,6 +149,20 @@ export function Sidebar({ isOpen, onClose, activeView, onNavigate, currentUser, 
               <ClayDownload size={20} />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                 <span>Server Downloads</span>
+              </div>
+            </button>
+          )}
+
+          {/* Admin Control Center Link */}
+          {isAdmin && (
+            <button
+              onClick={() => handleNav('admin')}
+              className={`pink-sidebar-link ${activeView === 'admin' ? 'active' : ''}`}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: activeView === 'admin' ? '#b45309' : '#3b142d' }}
+            >
+              <Shield size={18} color={activeView === 'admin' ? '#d97706' : '#78345c'} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span>Admin Panel</span>
               </div>
             </button>
           )}

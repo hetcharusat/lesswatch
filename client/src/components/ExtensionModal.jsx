@@ -44,7 +44,7 @@ export function ExtensionModal({ isOpen, onClose }) {
             </div>
             <p style={{ margin: 0, color: 'var(--text-muted)' }}>
               Sites like <strong>HiAnime</strong> and Netflix use Cloudflare bot protection and block iframe embeds.
-              Our lightweight extension runs right in your browser, syncing playback (play/pause/seek), floating Danmaku bullet comments, and emoji showers across your EC2 server with <strong style={{ color: '#fff' }}>sub-50ms latency</strong>.
+              Our lightweight extension runs right in your browser, syncing playback (play/pause/seek), floating Danmaku bullet comments, and emoji showers across your Watch Together server with <strong style={{ color: '#fff' }}>sub-50ms latency</strong>.
             </p>
           </div>
 

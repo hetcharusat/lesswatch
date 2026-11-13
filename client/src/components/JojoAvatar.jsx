@@ -1,9 +1,8 @@
 import React from 'react';
 
 /**
- * JoJo's Bizarre Adventure Custom Anime Avatars
- * - Het -> Jotaro Kujo (Stardust Crusaders)
- * - Ria -> Jolyne Cujoh (Stone Ocean)
+ * Stylized Custom Anime & Emoji Avatars
+ * Preserves { name, avatar, size, className, style, showBorder } & UserAvatar({ user, ...rest })
  */
 
 export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', style = {}, showBorder = true }) {
@@ -27,16 +26,12 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
   const isJotaro =
     !isCustomImage && (
       cleanAvatar === 'jotaro' ||
-      cleanAvatar === '👑' ||
-      cleanName.includes('het') ||
       cleanName === 'jotaro'
     );
 
   const isJolyne =
     !isCustomImage && (
       cleanAvatar === 'jolyne' ||
-      cleanAvatar === '🌸' ||
-      cleanName.includes('ria') ||
       cleanName === 'jolyne'
     );
 
@@ -85,7 +80,7 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
   if (isJotaro) {
     // Jotaro Kujo (Stardust Crusaders) - Iconic black cap with gold hand/star plate, high collar, gold chain, intense anime eyes
     return (
-      <div className={`jojo-avatar jojo-jotaro ${className}`} style={containerStyle} title="Het">
+      <div className={`jojo-avatar jojo-jotaro ${className}`} style={containerStyle} title={name || 'Viewer'}>
         <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ display: 'block' }}>
           <defs>
             <linearGradient id="jotaroCoat" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -167,7 +162,7 @@ export function JojoAvatar({ name = '', avatar = '', size = 32, className = '', 
   if (isJolyne) {
     // Jolyne Cujoh (Stone Ocean) - Iconic double hair buns in lime/black, butterfly chest motif, turquoise/fuchsia anime styling
     return (
-      <div className={`jojo-avatar jojo-jolyne ${className}`} style={containerStyle} title="Ria">
+      <div className={`jojo-avatar jojo-jolyne ${className}`} style={containerStyle} title={name || 'Viewer'}>
         <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ display: 'block' }}>
           <defs>
             <linearGradient id="jolyneLime" x1="0%" y1="0%" x2="100%" y2="100%">
