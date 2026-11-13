@@ -439,15 +439,29 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
     echo \"NEKO_ADMIN_PASSWORD=admin\" >> .env
   fi
   DEFAULT_ICESERVERS='[{\"urls\":[\"stun:stun.l.google.com:19302\"]},{\"urls\":[\"turn:openrelay.metered.ca:443?transport=tcp\",\"turn:openrelay.metered.ca:80\",\"turn:openrelay.metered.ca:443\"],\"username\":\"openrelayproject\",\"credential\":\"openrelayproject\"}]'
+  ICE_MODE=0
+  if [ \"$PLATFORM_CHOICE\" -eq 1 ] && [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
+    ICE_MODE=1
+  fi
   if grep -q '^NEKO_ICELITE=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_ICELITE=.*/NEKO_ICELITE=0/\" .env
+    sed -i \"s/^NEKO_ICELITE=.*/NEKO_ICELITE=\${ICE_MODE}/\" .env
   else
-    echo \"NEKO_ICELITE=0\" >> .env
+    echo \"NEKO_ICELITE=\${ICE_MODE}\" >> .env
   fi
   if grep -q '^NEKO_WEBRTC_ICELITE=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_WEBRTC_ICELITE=.*/NEKO_WEBRTC_ICELITE=0/\" .env
+    sed -i \"s/^NEKO_WEBRTC_ICELITE=.*/NEKO_WEBRTC_ICELITE=\${ICE_MODE}/\" .env
   else
-    echo \"NEKO_WEBRTC_ICELITE=0\" >> .env
+    echo \"NEKO_WEBRTC_ICELITE=\${ICE_MODE}\" >> .env
+  fi
+  if grep -q '^NEKO_SCREEN=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_SCREEN=.*/NEKO_SCREEN=1280x720@30/\" .env
+  else
+    echo \"NEKO_SCREEN=1280x720@30\" >> .env
+  fi
+  if grep -q '^NEKO_VIDEO_BITRATE=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_VIDEO_BITRATE=.*/NEKO_VIDEO_BITRATE=3072/\" .env
+  else
+    echo \"NEKO_VIDEO_BITRATE=3072\" >> .env
   fi
   if grep -q '^NEKO_WEBRTC_ICESERVERS_FRONTEND=' .env 2>/dev/null; then
     sed -i \"s|^NEKO_WEBRTC_ICESERVERS_FRONTEND=.*|NEKO_WEBRTC_ICESERVERS_FRONTEND='\${DEFAULT_ICESERVERS}'|\" .env

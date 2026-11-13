@@ -1,5 +1,6 @@
 # ==============================================================================
 # Neko Virtual Browser Configuration
+# Production Low-Latency & Hardware-Optimized Setup
 # ==============================================================================
 
 server:
@@ -10,8 +11,14 @@ server:
 member:
   provider: "noauth"
 
+desktop:
+  screen: "1280x720@30"
+
+video:
+  bitrate: 3072
+  max_fps: 30
+
 webrtc:
-  icelite: false
   epr: "52000-52100"
   nat1to1: ""
   iceservers:
