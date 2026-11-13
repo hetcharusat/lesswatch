@@ -428,6 +428,16 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
       echo \"NEKO_NAT1TO1=${PUBLIC_IP}\" >> .env
     fi
   fi
+  if grep -q '^NEKO_PASSWORD=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_PASSWORD=.*/NEKO_PASSWORD=admin/\" .env
+  else
+    echo \"NEKO_PASSWORD=admin\" >> .env
+  fi
+  if grep -q '^NEKO_ADMIN_PASSWORD=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_ADMIN_PASSWORD=.*/NEKO_ADMIN_PASSWORD=admin/\" .env
+  else
+    echo \"NEKO_ADMIN_PASSWORD=admin\" >> .env
+  fi
   mkdir -p ./data ./downloads
   chown -R \"\$ACTUAL_USER:\$ACTUAL_USER\" ./data ./downloads 2>/dev/null || true
 "

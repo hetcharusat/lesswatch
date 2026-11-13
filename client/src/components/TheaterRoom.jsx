@@ -118,7 +118,7 @@ function playAudioChirp(type = 'unmute') {
     osc.start();
     osc.stop(ctx.currentTime + 0.11);
     setTimeout(() => ctx.close(), 250);
-  } catch {}
+  } catch { }
 }
 
 export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = null, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia, onOpenAvatarModal }) {
@@ -181,7 +181,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         const data = await res.json();
         setAudioStatusData(data);
       }
-    } catch {}
+    } catch { }
   }, [currentUrl]);
 
   useEffect(() => {
@@ -209,7 +209,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       fetchAudioStatus();
-    } catch {}
+    } catch { }
     setTimeout(() => setIsProcessingAudio(false), 2000);
   };
 
@@ -325,7 +325,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const handleEnterChitChat = useCallback(() => {
     // If native container fullscreen was active, exit it so sidechat is visible beside video
     if (document.fullscreenElement) {
-      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => { });
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     }
     setIsChitChatMode(true);
@@ -360,18 +360,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [chatInputText, setChatInputText] = useState('');
   const [showFloatingGiphy, setShowFloatingGiphy] = useState(false);
   const [recentMessages, setRecentMessages] = useState([]);
-  const floatingChatTimersRef = useRef(new Map());
-
-  useEffect(() => {
-    const timers = floatingChatTimersRef.current;
-    return () => {
-      timers.forEach(({ fadeTimer, removeTimer }) => {
-        clearTimeout(fadeTimer);
-        clearTimeout(removeTimer);
-      });
-      timers.clear();
-    };
-  }, []);
   const [quickBubbleEmojis, setQuickBubbleEmojis] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('wt_quick_emojis') || 'null');
@@ -421,7 +409,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const closeTimer = setTimeout(() => {
       setRenderFloatingChat(false);
       setIsFloatingChatClosing(false);
-    }, 140);
+    }, 220);
     return () => clearTimeout(closeTimer);
   }, [chatOpen, renderFloatingChat]);
 
@@ -433,7 +421,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       counts[em] = (Number(counts[em]) || 0) + 1;
       localStorage.setItem('wt_quick_emoji_usage', JSON.stringify(counts));
       window.dispatchEvent(new Event('wt_quick_emojis_updated'));
-    } catch {}
+    } catch { }
     const visibleInputs = document.querySelectorAll('.floating-chat-input');
     for (const el of visibleInputs) {
       if (el.offsetParent !== null) {
@@ -445,7 +433,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   };
 
   const closeFloatingBubbleChat = () => {
-    if (renderFloatingChat) setIsFloatingChatClosing(true);
     setChatOpen(false);
     setShowFloatingGiphy(false);
     setChatInputText('');
@@ -475,8 +462,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const toggleAmbientMode = () => {
     setAmbientEnabled((prev) => {
       const next = !prev;
-      try { localStorage.setItem('wt_ambient_deck', String(next)); } catch {}
-      try { window.dispatchEvent(new CustomEvent('wt_ambient_change', { detail: { enabled: next } })); } catch {}
+      try { localStorage.setItem('wt_ambient_deck', String(next)); } catch { }
+      try { window.dispatchEvent(new CustomEvent('wt_ambient_change', { detail: { enabled: next } })); } catch { }
       return next;
     });
   };
@@ -593,29 +580,29 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   function cleanupLocalAudioPipeline({ closeContext = false } = {}) {
     if (audioNodesRef.current) {
       const nodes = audioNodesRef.current;
-      try { nodes.source?.disconnect(); } catch {}
-      try { nodes.inputGain?.disconnect(); } catch {}
-      try { nodes.suppressor?.disconnect(); } catch {}
-      try { nodes.analyser?.disconnect(); } catch {}
-      try { nodes.gateGain?.disconnect(); } catch {}
-      try { nodes.dest?.disconnect(); } catch {}
+      try { nodes.source?.disconnect(); } catch { }
+      try { nodes.inputGain?.disconnect(); } catch { }
+      try { nodes.suppressor?.disconnect(); } catch { }
+      try { nodes.analyser?.disconnect(); } catch { }
+      try { nodes.gateGain?.disconnect(); } catch { }
+      try { nodes.dest?.disconnect(); } catch { }
       try {
         nodes.dest?.stream?.getTracks().forEach((t) => {
-          try { t.stop(); } catch {}
+          try { t.stop(); } catch { }
         });
-      } catch {}
+      } catch { }
       audioNodesRef.current = null;
     }
     if (rawHardwareStreamRef.current) {
       try {
         rawHardwareStreamRef.current.getTracks().forEach((t) => {
-          try { t.stop(); } catch {}
+          try { t.stop(); } catch { }
         });
-      } catch {}
+      } catch { }
       rawHardwareStreamRef.current = null;
     }
     if (closeContext && audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current.close().catch(() => { });
       audioContextRef.current = null;
     }
   }
@@ -633,7 +620,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }
     const ctx = audioContextRef.current;
     if (ctx.state === 'suspended') {
-      await ctx.resume().catch(() => {});
+      await ctx.resume().catch(() => { });
     }
 
     let supNode = null;
@@ -724,7 +711,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
       const ctx = audioContextRef.current;
       if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
+        ctx.resume().catch(() => { });
       }
 
       let analyser = null;
@@ -865,7 +852,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const nodes = audioNodesRef.current;
     const ctx = audioContextRef.current;
     if (nodes?.inputGain && ctx && ctx.state !== 'closed') {
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx.state === 'suspended') ctx.resume().catch(() => { });
       nodes.inputGain.gain.setTargetAtTime(num / 100, ctx.currentTime, 0.02);
     }
   }
@@ -905,7 +892,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     try {
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume().catch(() => {});
+        await audioContextRef.current.resume().catch(() => { });
       }
 
       // 1. Fetch LiveKit access token from server
@@ -925,7 +912,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       // 2. Disconnect previous instance if any
       if (livekitRoomRef.current) {
-        try { livekitRoomRef.current.disconnect(); } catch {}
+        try { livekitRoomRef.current.disconnect(); } catch { }
         livekitRoomRef.current = null;
       }
 
@@ -975,14 +962,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 peerGainNodesRef.current.set(participant.identity, gainEntry);
 
                 if (ctx.state === 'suspended') {
-                  ctx.resume().catch(() => {});
+                  ctx.resume().catch(() => { });
                 }
                 // Mute raw audio element to avoid unbalanced echo
                 audioEl.volume = 0;
               } else {
                 gainEntry.gainNode.gain.value = vol / 100;
                 if (gainEntry.ctx && gainEntry.ctx.state === 'suspended') {
-                  gainEntry.ctx.resume().catch(() => {});
+                  gainEntry.ctx.resume().catch(() => { });
                 }
                 audioEl.volume = 0;
               }
@@ -1012,7 +999,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           remoteAudioElementsRef.current.set(participant.identity, audioEl);
 
           if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
-            audioEl.setSinkId(selectedAudioOutput).catch(() => {});
+            audioEl.setSinkId(selectedAudioOutput).catch(() => { });
           }
 
           const playPromise = audioEl.play();
@@ -1021,10 +1008,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               console.warn('Remote audio waiting for interaction:', err);
               setNeedsVoiceAudioUnlock(true);
               const unlock = () => {
-                audioEl.play().then(() => setNeedsVoiceAudioUnlock(false)).catch(() => {});
+                audioEl.play().then(() => setNeedsVoiceAudioUnlock(false)).catch(() => { });
                 const entry = peerGainNodesRef.current.get(participant.identity);
                 if (entry && entry.ctx && entry.ctx.state === 'suspended') {
-                  entry.ctx.resume().catch(() => {});
+                  entry.ctx.resume().catch(() => { });
                 }
                 window.removeEventListener('click', unlock);
                 window.removeEventListener('keydown', unlock);
@@ -1059,7 +1046,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             el.pause();
             el.srcObject = null;
             if (el.parentNode) el.parentNode.removeChild(el);
-          } catch {}
+          } catch { }
           remoteAudioElementsRef.current.delete(participant.identity);
         }
         const gainEntry = peerGainNodesRef.current.get(participant.identity);
@@ -1068,8 +1055,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             if (gainEntry.source) gainEntry.source.disconnect();
             if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
             if (gainEntry.merger) gainEntry.merger.disconnect();
-            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
-          } catch {}
+            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => { });
+          } catch { }
           peerGainNodesRef.current.delete(participant.identity);
         }
         setRemotePeers((prev) => {
@@ -1102,7 +1089,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             el.pause();
             el.srcObject = null;
             if (el.parentNode) el.parentNode.removeChild(el);
-          } catch {}
+          } catch { }
           remoteAudioElementsRef.current.delete(participant.identity);
         }
         const gainEntry = peerGainNodesRef.current.get(participant.identity);
@@ -1111,8 +1098,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             if (gainEntry.source) gainEntry.source.disconnect();
             if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
             if (gainEntry.merger) gainEntry.merger.disconnect();
-            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => {});
-          } catch {}
+            if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => { });
+          } catch { }
           peerGainNodesRef.current.delete(participant.identity);
         }
         setRemotePeers((prev) => {
@@ -1202,11 +1189,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   function leaveVoiceChat() {
     if (livekitRoomRef.current) {
-      try { livekitRoomRef.current.disconnect(); } catch {}
+      try { livekitRoomRef.current.disconnect(); } catch { }
       livekitRoomRef.current = null;
     }
     if (localAudioTrackRef.current) {
-      try { localAudioTrackRef.current.stop(); } catch {}
+      try { localAudioTrackRef.current.stop(); } catch { }
       localAudioTrackRef.current = null;
     }
     remoteAudioElementsRef.current.forEach((el) => {
@@ -1214,7 +1201,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         el.pause();
         el.srcObject = null;
         if (el.parentNode) el.parentNode.removeChild(el);
-      } catch {}
+      } catch { }
     });
     remoteAudioElementsRef.current.clear();
 
@@ -1223,8 +1210,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         if (entry.source) entry.source.disconnect();
         if (entry.gainNode) entry.gainNode.disconnect();
         if (entry.merger) entry.merger.disconnect();
-        if (entry.ctx && entry.ctx.state !== 'closed') entry.ctx.close().catch(() => {});
-      } catch {}
+        if (entry.ctx && entry.ctx.state !== 'closed') entry.ctx.close().catch(() => { });
+      } catch { }
     });
     peerGainNodesRef.current.clear();
 
@@ -1261,9 +1248,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     setIsMuted(nextMuted);
     if (localAudioTrackRef.current) {
       if (nextMuted) {
-        await localAudioTrackRef.current.mute().catch(() => {});
+        await localAudioTrackRef.current.mute().catch(() => { });
       } else {
-        await localAudioTrackRef.current.unmute().catch(() => {});
+        await localAudioTrackRef.current.unmute().catch(() => { });
       }
     }
     socketRef.current?.emit('voice:track_state', { isMuted: nextMuted, hasVideo: false });
@@ -1344,7 +1331,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   };
 
   const pttKeyHeldRef = useRef(false);
-  const pttHandlersRef = useRef({ down: () => {}, up: () => {} });
+  const pttHandlersRef = useRef({ down: () => { }, up: () => { } });
 
   // Push-to-Talk Hotkey Listener (ONLY Hold 'V' — 'M' mute shortcut removed; capture-phase & blur-safe)
   useEffect(() => {
@@ -1358,7 +1345,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             if (localAudioTrackRef.current) {
               isPushToTalkingRef.current = false;
               setIsPushToTalking(false);
-              localAudioTrackRef.current.mute().catch(() => {});
+              localAudioTrackRef.current.mute().catch(() => { });
               isMutedRef.current = true;
               setIsMuted(true);
               socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
@@ -1368,7 +1355,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           if (localAudioTrackRef.current) {
             isPushToTalkingRef.current = true;
             setIsPushToTalking(true);
-            localAudioTrackRef.current.unmute().catch(() => {});
+            localAudioTrackRef.current.unmute().catch(() => { });
             isMutedRef.current = false;
             setIsMuted(false);
             playAudioChirp('unmute');
@@ -1384,7 +1371,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       if (localAudioTrackRef.current) {
         isPushToTalkingRef.current = true;
         setIsPushToTalking(true);
-        localAudioTrackRef.current.unmute().catch(() => {});
+        localAudioTrackRef.current.unmute().catch(() => { });
         isMutedRef.current = false;
         setIsMuted(false);
         playAudioChirp('unmute');
@@ -1401,7 +1388,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setIsPushToTalking(false);
         isMutedRef.current = true;
         setIsMuted(true);
-        localAudioTrackRef.current.mute().catch(() => {});
+        localAudioTrackRef.current.mute().catch(() => { });
         playAudioChirp('mute');
         socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
         showToast('Push-to-Talk ended (Muted)', <MicOff size={15} color="#9ca3af" />);
@@ -1449,16 +1436,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   function unlockAudio() {
     peerGainNodesRef.current.forEach((entry) => {
       if (entry && entry.ctx && entry.ctx.state === 'suspended') {
-        entry.ctx.resume().catch(() => {});
+        entry.ctx.resume().catch(() => { });
       }
     });
     remoteAudioElementsRef.current.forEach((el) => {
       if (el && el.srcObject) {
-        el.play().catch(() => {});
+        el.play().catch(() => { });
       }
     });
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume().catch(() => {});
+      audioContextRef.current.resume().catch(() => { });
     }
     setNeedsVoiceAudioUnlock(false);
   }
@@ -1479,7 +1466,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const UnifiedPlayer = {
     play() {
       if (activePlayerType === 'youtube') {
-        try { ytPlayerRef.current?.playVideo?.(); } catch {}
+        try { ytPlayerRef.current?.playVideo?.(); } catch { }
       } else {
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
@@ -1496,13 +1483,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           });
         }
         if (a && a.src && a.paused) {
-          a.play().catch(() => {});
+          a.play().catch(() => { });
         }
       }
     },
     pause() {
       if (activePlayerType === 'youtube') {
-        try { ytPlayerRef.current?.pauseVideo?.(); } catch {}
+        try { ytPlayerRef.current?.pauseVideo?.(); } catch { }
       } else {
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
@@ -1512,7 +1499,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     },
     seek(seconds) {
       if (activePlayerType === 'youtube') {
-        try { ytPlayerRef.current?.seekTo?.(seconds, true); } catch {}
+        try { ytPlayerRef.current?.seekTo?.(seconds, true); } catch { }
       } else {
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
@@ -1539,7 +1526,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     },
     setRate(rate) {
       if (activePlayerType === 'youtube') {
-        try { ytPlayerRef.current?.setPlaybackRate?.(rate); } catch {}
+        try { ytPlayerRef.current?.setPlaybackRate?.(rate); } catch { }
       } else {
         const v = document.querySelector('.pouf-player-container video');
         const a = document.querySelector('.pouf-player-container audio');
@@ -1646,7 +1633,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     if (art.subtitle) {
       try {
         art.subtitle.style(styleObj);
-      } catch {}
+      } catch { }
     }
 
     if (art.template?.$subtitle) {
@@ -1778,7 +1765,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             artInstanceRef.current.subtitle.switch(sTracks[0].url, { name: sTracks[0].title }).then(() => {
               artInstanceRef.current.subtitle.show = true;
               applySubtitleStyle(subtitleSize, subtitlePos);
-            }).catch(() => {});
+            }).catch(() => { });
           }
         }
       } else {
@@ -1892,7 +1879,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
       showToast('Connected to Lounge', <Sparkles size={15} color="var(--pink-primary)" />);
       // Auto-connect to lounge LiveKit room as subscriber so you hear anyone talking with zero refresh
-      connectVoiceRoom({ publishMic: false }).catch(() => {});
+      connectVoiceRoom({ publishMic: false }).catch(() => { });
     });
 
     s.on('user:joined', ({ user, users }) => {
@@ -2143,47 +2130,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       if (!msg.isSystem && msg.sender !== 'System' && (msg.text || msg.image)) {
         const messageId = msg.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const item = { ...msg, id: messageId, fading: false };
-        setRecentMessages((prev) => {
-          if (prev.length >= 4) {
-            prev.slice(0, prev.length - 3).forEach((evicted) => {
-              const stale = floatingChatTimersRef.current.get(evicted.id);
-              if (stale) {
-                clearTimeout(stale.fadeTimer);
-                clearTimeout(stale.removeTimer);
-                floatingChatTimersRef.current.delete(evicted.id);
-              }
-            });
-          }
-          return [...prev.slice(-3), item];
-        });
+        setRecentMessages((prev) => [...prev.slice(-3), item]);
 
-        const trimmedText = typeof msg.text === 'string' ? msg.text.trim() : '';
-        const charCount = trimmedText.length;
-        // Very dynamic character-scaled visibility: snappy for tiny replies, generous for long messages
-        const textHoldMs = charCount <= 80
-          ? 1700 + (charCount * 85)
-          : 8500 + ((charCount - 80) * 60);
-        const fadeDelay = msg.image
-          ? Math.min(14000, Math.max(5200, 5200 + (charCount * 65)))
-          : Math.min(18000, Math.max(1750, textHoldMs));
-        const removeDelay = fadeDelay + 360;
+        const charCount = (msg.text || '').length;
+        // Dynamic reading delay: GIFs stay visible longer for reaction appreciation
+        const fadeDelay = msg.image ? 6500 : Math.min(12000, Math.max(2600, 2000 + (charCount * 95)));
+        const removeDelay = fadeDelay + 600;
 
-        const existingTimers = floatingChatTimersRef.current.get(messageId);
-        if (existingTimers) {
-          clearTimeout(existingTimers.fadeTimer);
-          clearTimeout(existingTimers.removeTimer);
-        }
-
-        const fadeTimer = setTimeout(() => {
-          setRecentMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, fading: true } : m)));
+        setTimeout(() => {
+          setRecentMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, fading: true } : m));
         }, fadeDelay);
 
-        const removeTimer = setTimeout(() => {
-          floatingChatTimersRef.current.delete(messageId);
+        setTimeout(() => {
           setRecentMessages((prev) => prev.filter((m) => m.id !== messageId));
         }, removeDelay);
-
-        floatingChatTimersRef.current.set(messageId, { fadeTimer, removeTimer });
       }
     });
 
@@ -2226,7 +2186,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           el.pause();
           el.srcObject = null;
           if (el.parentNode) el.parentNode.removeChild(el);
-        } catch {}
+        } catch { }
       });
       remoteAudioElementsRef.current.clear();
       s.disconnect();
@@ -2251,7 +2211,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     const resolvedType = media.type || (
       extractYouTubeId(media.url) ? 'youtube' :
-      media.url.includes('.m3u8') ? 'hls' : 'direct'
+        media.url.includes('.m3u8') ? 'hls' : 'direct'
     );
 
     setCurrentTitle(media.title || media.url);
@@ -2381,7 +2341,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         try {
           ytPlayerRef.current.loadVideoById(vid);
           return;
-        } catch {}
+        } catch { }
       }
 
       try {
@@ -2717,7 +2677,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         art.subtitle.switch(subtitleTracks[activeSubtitleIndex].url, { name: subtitleTracks[activeSubtitleIndex].title }).then(() => {
           art.subtitle.show = true;
           applySubtitleStyle(subtitleSize, subtitlePos);
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       if (pendingPlaybackRef.current) {
@@ -2951,7 +2911,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const currentTime = UnifiedPlayer.getTime();
     let isPlaying = false;
     if (activePlayerType === 'youtube') {
-      try { isPlaying = ytPlayerRef.current?.getPlayerState?.() === 1; } catch {}
+      try { isPlaying = ytPlayerRef.current?.getPlayerState?.() === 1; } catch { }
     } else {
       const v = document.querySelector('.pouf-player-container video');
       isPlaying = v ? !v.paused : (serverSyncStateRef.current.isPlaying || false);
@@ -3122,7 +3082,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         if (iframeDoc) {
           iframeDoc.dispatchEvent(new Event('fullscreenchange', { bubbles: true }));
         }
-      } catch (err) {}
+      } catch (err) { }
     }
 
     document.addEventListener('fullscreenchange', checkFullscreen);
@@ -3301,6 +3261,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       const win = iframe.contentWindow;
       if (!doc || !win) return;
 
+      // Auto-submit / bypass any Neko login screen seamlessly for everyone in the room
+      const tryAutoLogin = () => {
+        try {
+          if (!doc) return;
+          const uInput = doc.querySelector('input[name="username"]') || doc.querySelector('input[type="text"]');
+          const pInput = doc.querySelector('input[name="password"]') || doc.querySelector('input[type="password"]');
+          const submitBtn = doc.querySelector('button[type="submit"]') || doc.querySelector('.login-submit') || doc.querySelector('form button');
+          if (uInput && !uInput.value) {
+            uInput.value = currentProfile?.username || currentProfile?.name || 'Viewer';
+            uInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (pInput && !pInput.value) {
+            pInput.value = 'admin';
+            pInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (submitBtn) {
+            submitBtn.click();
+          }
+        } catch {}
+      };
+      tryAutoLogin();
+      setTimeout(tryAutoLogin, 250);
+      setTimeout(tryAutoLogin, 750);
+      setTimeout(tryAutoLogin, 1500);
+      setTimeout(tryAutoLogin, 3000);
+
       const triggerTheaterFullscreen = (options) => {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
@@ -3321,10 +3307,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       // 1. Intercept requestFullscreen calls inside Neko to always use our Theater Fullscreen with chat
       if (win.Element && win.Element.prototype) {
-        win.Element.prototype.requestFullscreen = function(options) {
+        win.Element.prototype.requestFullscreen = function (options) {
           return triggerTheaterFullscreen(options);
         };
-        win.Element.prototype.webkitRequestFullscreen = function(options) {
+        win.Element.prototype.webkitRequestFullscreen = function (options) {
           return triggerTheaterFullscreen(options);
         };
       }
@@ -3337,7 +3323,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
 
       // 2. Intercept exitFullscreen inside Neko
-      doc.exitFullscreen = function() {
+      doc.exitFullscreen = function () {
         if (document.exitFullscreen) {
           return document.exitFullscreen();
         } else if (document.webkitExitFullscreen) {
@@ -3356,7 +3342,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           },
           configurable: true
         });
-      } catch (e) {}
+      } catch (e) { }
 
       // 4. Capture click on Neko's fullscreen button directly (useCapture: true)
       doc.addEventListener('click', (e) => {
@@ -3368,7 +3354,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           btn.innerText ||
           ''
         ).toLowerCase();
-        
+
         const hasFullscreenIcon = btn.querySelector('svg')?.innerHTML?.toLowerCase()?.includes('fullscreen') ||
           btn.getAttribute('data-testid')?.toLowerCase()?.includes('fullscreen') ||
           btn.className?.toLowerCase?.()?.includes('fullscreen');
@@ -3390,7 +3376,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           setChatOpen(false);
           const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
           if (fsEl && document.exitFullscreen) {
-            document.exitFullscreen().catch(() => {});
+            document.exitFullscreen().catch(() => { });
           }
         } else if ((e.code === 'KeyF' || e.key?.toLowerCase() === 'f') && !isTyping && !e.repeat) {
           e.preventDefault();
@@ -3550,7 +3536,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             await targetEl.requestFullscreen();
           }
           if ('keyboard' in navigator && navigator.keyboard?.lock) {
-            navigator.keyboard.lock(['Escape']).catch(() => {});
+            navigator.keyboard.lock(['Escape']).catch(() => { });
           }
         } else if (targetEl.webkitRequestFullscreen) {
           targetEl.webkitRequestFullscreen();
@@ -3586,7 +3572,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       captureFsMorphSource('in');
       const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
       if (targetEl.requestFullscreen) {
-        targetEl.requestFullscreen({ navigationUI: 'hide' }).catch(() => targetEl.requestFullscreen?.().catch(() => {}));
+        targetEl.requestFullscreen({ navigationUI: 'hide' }).catch(() => targetEl.requestFullscreen?.().catch(() => { }));
       } else if (targetEl.webkitRequestFullscreen) {
         targetEl.webkitRequestFullscreen();
       }
@@ -3615,7 +3601,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         if (chatOpen) {
           e.preventDefault();
           e.stopPropagation();
-          closeFloatingBubbleChat();
+          setChatOpen(false);
+          setChatInputText('');
+          focusTheaterStage();
           return;
         }
         if (isTyping && activeEl?.blur) {
@@ -3648,7 +3636,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           if ('keyboard' in navigator && navigator.keyboard?.unlock) {
             navigator.keyboard.unlock();
           }
-          if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+          if (document.exitFullscreen) document.exitFullscreen().catch(() => { });
           else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
           return;
         }
@@ -3709,20 +3697,30 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     const text = chatInputText.trim();
     if ((!text && !gifUrl) || !socket) {
-      closeFloatingBubbleChat();
+      setTimeout(() => {
+        setChatOpen(false);
+        setShowFloatingGiphy(false);
+        setChatInputText('');
+      }, 50);
+      if (activePlayerType === 'neko') {
+        setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
+      } else {
+        setTimeout(() => focusTheaterStage(), 50);
+      }
       return;
     }
 
-    if (renderFloatingChat) setIsFloatingChatClosing(true);
     socket.emit('chat:send_message', { text, image: gifUrl || null });
-    setChatInputText('');
-    setChatOpen(false);
-    setShowFloatingGiphy(false);
-    if (activePlayerType === 'neko') {
-      setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
-    } else {
-      setTimeout(() => focusTheaterStage(), 50);
-    }
+    setTimeout(() => {
+      setChatInputText('');
+      setChatOpen(false);
+      setShowFloatingGiphy(false);
+      if (activePlayerType === 'neko') {
+        setTimeout(() => nekoIframeRef.current?.focus?.(), 50);
+      } else {
+        setTimeout(() => focusTheaterStage(), 50);
+      }
+    }, 80);
   }
 
   async function handlePlayNow() {
@@ -3781,121 +3779,130 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     if (isSidebarActive) return null;
 
     const overlay = (
-          <div className="floating-chat-overlay" onClick={(e) => e.stopPropagation()}>
-            {recentMessages.length > 0 && (
-              <div className="floating-chat-bubbles-stack">
-                {recentMessages.map((m) => (
-                  <div key={m.id} className={`fc-row-slot ${m.fading ? 'fading' : ''}`}>
-                    <div className="fc-row-slot-inner">
-                      {m.image ? (
-                        <div
-                          className="floating-chat-media-card"
-                          onClick={() => {
-                            setIsChatSidebarOpen(true);
-                            setUnreadChatCount(0);
-                          }}
-                          title="Click to view full chat history in sidebar"
-                        >
-                          <div className="fc-media-head">
-                            <span className="fc-av">
-                              <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={22} showBorder={false} />
-                            </span>
-                            <span className="fc-sender">{m.sender}</span>
-                          </div>
-                          <img src={m.image} alt="GIF" className="floating-chat-media-img" />
-                        </div>
-                      ) : (
-                        <div
-                          className="floating-chat-pill"
-                          onClick={() => {
-                            setIsChatSidebarOpen(true);
-                            setUnreadChatCount(0);
-                          }}
-                          title="Click to view full chat history in sidebar"
-                        >
-                          <span className="fc-av">
-                            <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={24} showBorder={false} />
-                          </span>
-                          <span className="fc-sender">{m.sender}:</span>
-                          <span className="fc-text">{m.text}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {showFloatingGiphy && chatOpen && (
+      <div
+        className="floating-chat-overlay"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          bottom: (isTheaterFullscreen || activePlayerType === 'neko') ? (chatOpen ? '72px' : '64px') : '72px'
+        }}
+      >
+        <div className="floating-chat-bubbles-stack">
+          {recentMessages.map((m) => (
+            m.image ? (
               <div
-                style={{ position: 'absolute', bottom: '48px', left: 0, width: '310px', pointerEvents: 'auto', zIndex: 1002 }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
+                key={m.id}
+                className={`floating-chat-media-card ${m.fading ? 'fading' : ''}`}
+                onClick={() => {
+                  setIsChatSidebarOpen(true);
+                  setUnreadChatCount(0);
+                }}
+                title="Click to view full chat history in sidebar"
+                style={{ cursor: 'pointer' }}
               >
-                <GiphyPicker
-                  onSelectGif={(gifUrl) => {
-                    handleSendChat(null, gifUrl);
-                    setShowFloatingGiphy(false);
-                  }}
-                  onClose={() => setShowFloatingGiphy(false)}
-                  isDarkTheme={true}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
+                  <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontSize: '0.78rem' }}>
+                    {m.sender}
+                  </span>
+                </div>
+                <img
+                  src={m.image}
+                  alt="GIF"
+                  className="floating-chat-media-img"
                 />
               </div>
-            )}
+            ) : (
+              <div
+                key={m.id}
+                className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
+                onClick={() => {
+                  setIsChatSidebarOpen(true);
+                  setUnreadChatCount(0);
+                }}
+                title="Click to view full chat history in sidebar"
+                style={{ cursor: 'pointer' }}
+              >
+                <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
+                <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
+                  {m.sender}:
+                </span>
+                <span>{m.text}</span>
+              </div>
+            )
+          ))}
+        </div>
 
-            {renderFloatingChat && (
-              <form onSubmit={handleSendChat} className={`wfb-p3 ${isFloatingChatClosing ? 'is-closing' : ''}`}>
-                <UserAvatar user={currentProfile} size={26} showBorder={false} />
-                <button
-                  type="button"
-                  className={`wfb-gif-pill ${showFloatingGiphy ? 'active' : ''}`}
-                  onClick={() => setShowFloatingGiphy((prev) => !prev)}
-                  title="Send GIF"
-                >
-                  GIF
-                </button>
-                <div className="wfb-emoji-rack" title="Top 3 side-chat reactions">
-                  {quickBubbleEmojis.map((em) => (
-                    <button key={em} type="button" className="wfb-emoji-chip" onClick={() => handleFloatingEmojiTap(em)} title={`React ${em}`}>
-                      {em}
-                    </button>
-                  ))}
-                </div>
-                <span className="wfb-divider" />
-                <input
-                  ref={chatInputRef}
-                  type="text"
-                  value={chatInputText}
-                  onChange={(e) => {
-                    setChatInputText(e.target.value);
-                    resetChatInactivityTimer();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      closeFloatingBubbleChat();
-                    }
-                  }}
-                  placeholder="Message room..."
-                  className="floating-chat-input"
-                  autoFocus
-                />
-                <div className="wfb-actions">
-                  <button
-                    type="submit"
-                    className={`wfb-send ${chatInputText.trim() ? 'ready' : ''}`}
-                    title={chatInputText.trim() ? 'Send (Enter)' : 'Close (Enter)'}
-                  >
-                    <Send size={13} />
-                  </button>
-                  <button type="button" className="wfb-close" onClick={closeFloatingBubbleChat} title="Close (Esc)">
-                    <X size={13} />
-                  </button>
-                </div>
-              </form>
-            )}
+        {/* Floating In-Video GIPHY Picker popup */}
+        {showFloatingGiphy && chatOpen && (
+          <div
+            style={{ width: '310px', marginBottom: '8px', pointerEvents: 'auto', zIndex: 1002 }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GiphyPicker
+              onSelectGif={(gifUrl) => {
+                handleSendChat(null, gifUrl);
+                setShowFloatingGiphy(false);
+              }}
+              onClose={() => setShowFloatingGiphy(false)}
+              isDarkTheme={true}
+            />
           </div>
+        )}
+
+        {renderFloatingChat && (
+          <form onSubmit={handleSendChat} className={`wfb-v1 ${isFloatingChatClosing ? 'is-closing' : ''}`}>
+            <UserAvatar user={currentProfile} size={24} showBorder={true} />
+            <button
+              type="button"
+              className={`wfb-gif-pill ${showFloatingGiphy ? 'active' : ''}`}
+              onClick={() => setShowFloatingGiphy((prev) => !prev)}
+              title="Send GIF"
+            >
+              GIF
+            </button>
+            <div className="wfb-emoji-rack" title="Top 3 side-chat reactions">
+              {quickBubbleEmojis.map((em) => (
+                <button key={em} type="button" className="wfb-emoji-chip" onClick={() => handleFloatingEmojiTap(em)} title={`React ${em}`}>
+                  {em}
+                </button>
+              ))}
+            </div>
+            <span className="wfb-divider" />
+            <input
+              ref={chatInputRef}
+              type="text"
+              value={chatInputText}
+              onChange={(e) => {
+                setChatInputText(e.target.value);
+                resetChatInactivityTimer();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeFloatingBubbleChat();
+                }
+              }}
+              placeholder="Message room..."
+              className="floating-chat-input"
+              autoFocus
+            />
+            <div className="wfb-actions">
+              <button
+                type="submit"
+                className={`wfb-send ${chatInputText.trim() ? 'ready' : ''}`}
+                title={chatInputText.trim() ? 'Send (Enter)' : 'Close (Enter)'}
+              >
+                <Send size={13} />
+              </button>
+              <button type="button" className="wfb-close" onClick={closeFloatingBubbleChat} title="Close (Esc)">
+                <X size={13} />
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     );
 
     return overlay;
@@ -4341,7 +4348,980 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     );
 
     const popover = (
-          <div className="voice-studio-deck" onClick={(e) => e.stopPropagation()}>
+      <div data-impeccable-variants="949c7b3c" data-impeccable-variant-count="3" style={{ display: "contents" }}>
+        {/* impeccable-variants-start 949c7b3c */}
+        {/* Original */}
+        <div data-impeccable-variant="original">
+          <div className="pouf-popover-shell voice-studio-deck" onClick={(e) => e.stopPropagation()}>
+            <div className="voice-studio-topbar">
+              <div aria-hidden="true" />
+              <div className="voice-studio-pill-row" role="tablist" aria-label="Voice settings tabs">
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`voice-studio-pill voice-studio-btn ${voiceSettingsTab === 'mic' ? 'active' : ''}`}>
+                  {isVoiceConnected && !isMuted && <span className="vst-live-dot" aria-hidden="true" />}
+                  <span>My Mic</span>
+                </button>
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`voice-studio-pill voice-studio-btn ${voiceSettingsTab === 'peers' ? 'active' : ''}`}>
+                  <span>Member Mics ({otherPeers.length})</span>
+                </button>
+              </div>
+              <button type="button" onClick={() => setShowVoiceSettings(false)} className="voice-studio-close voice-studio-btn" title="Close" aria-label="Close voice settings">
+                <X size={14} />
+              </button>
+            </div>
+
+            {voiceSettingsTab === 'mic' ? (
+              <div className="voice-studio-cols">
+                <div className="voice-studio-col">
+                  <div className="voice-studio-box">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Microphone</span>
+                      <button type="button" onClick={refreshMediaDevices} className="voice-studio-btn" style={{ background: 'transparent', border: 'none', color: '#ec4899', fontSize: '0.69rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
+                        <RotateCcw size={10} /> Rescan
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '115px', overflowY: 'auto' }}>
+                      {audioInputDevices.length === 0 ? (
+                        <div style={{ fontSize: '0.74rem', opacity: 0.75, padding: '4px' }}>Default System Mic</div>
+                      ) : (
+                        audioInputDevices.map((dev, idx) => {
+                          const isSelected = dev.deviceId === selectedAudioInput;
+                          return (
+                            <button
+                              key={dev.deviceId || idx}
+                              type="button"
+                              onClick={() => switchAudioInput(dev.deviceId)}
+                              className="voice-studio-btn"
+                              style={{
+                                textAlign: 'left',
+                                padding: '6px 9px',
+                                borderRadius: '10px',
+                                border: isSelected ? '1.5px solid #ec4899' : '1px solid rgba(244,114,182,0.22)',
+                                background: isSelected ? 'rgba(236, 72, 153, 0.14)' : 'transparent',
+                                color: 'inherit',
+                                fontSize: '0.74rem',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
+                              {isSelected && <Check size={13} color="#ec4899" />}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="voice-studio-box" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontSize: '0.73rem', fontWeight: 800 }}>Echo Cancellation</div>
+                      <div style={{ fontSize: '0.66rem', opacity: 0.75 }}>{isEchoCancellationEnabled ? 'Speaker safe' : 'Headphones mode'}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleEchoCancellationToggle}
+                      className="voice-studio-btn"
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        border: 'none',
+                        background: isEchoCancellationEnabled ? '#ec4899' : 'rgba(148, 163, 184, 0.35)',
+                        color: '#fff',
+                        fontSize: '0.69rem',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {isEchoCancellationEnabled ? 'On' : 'Off'}
+                    </button>
+                  </div>
+
+                  {isVoiceConnected ? (
+                    <button type="button" onClick={leaveVoiceChat} className="voice-studio-disconnect voice-studio-btn">
+                      <MicOff size={14} /> Disconnect Mic
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => startMicrophone()} className="voice-studio-connect voice-studio-btn">
+                      <Mic size={14} /> Connect Mic
+                    </button>
+                  )}
+                </div>
+
+                <div className="voice-studio-col">
+                  <div className="voice-studio-box">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Suppression Engine</span>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#ec4899' }}>{noiseSuppressionMode.toUpperCase()}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                      {[
+                        { id: 'rnnoise', label: 'AI Neural' },
+                        { id: 'speex', label: 'Acoustic' },
+                        { id: 'raw', label: 'Bypass' }
+                      ].map((mode) => (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => handleNoiseModeChange(mode.id)}
+                          className="voice-studio-btn"
+                          style={{
+                            padding: '6px 3px',
+                            borderRadius: '9px',
+                            border: noiseSuppressionMode === mode.id ? '1.5px solid #ec4899' : '1px solid rgba(244,114,182,0.25)',
+                            background: noiseSuppressionMode === mode.id ? '#ec4899' : 'transparent',
+                            color: noiseSuppressionMode === mode.id ? '#fff' : 'inherit',
+                            fontSize: '0.69rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="voice-studio-box">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Noise Gate</span>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
+                        {noiseIntensity === 0 ? 'Off (Open)' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                      </span>
+                    </div>
+                    <div className="voice-gate-meter" title={`Gate threshold: ${noiseIntensity === 0 ? 0 : Math.max(1, Math.round(noiseIntensity * 0.55))}%`}>
+                      <div
+                        className="voice-gate-fill"
+                        style={{
+                          width: `${Math.min(100, micLevel)}%`,
+                          background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
+                          boxShadow: isNoiseGateOpen ? '0 0 8px rgba(16, 185, 129, 0.45)' : 'none',
+                        }}
+                      />
+                      {noiseIntensity > 0 && (
+                        <div
+                          className="voice-gate-threshold"
+                          style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }}
+                        />
+                      )}
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={noiseIntensity}
+                      aria-label="Noise Gate threshold"
+                      className="voice-studio-range"
+                      onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="voice-studio-box">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Mic Sensitivity</span>
+                      <span style={{ fontSize: '0.69rem', fontWeight: 700, color: '#f472b6' }}>
+                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="200"
+                      step="5"
+                      value={micGain}
+                      aria-label="Mic Sensitivity"
+                      className="voice-studio-range"
+                      onChange={(e) => handleMicGainChange(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="voice-studio-box voice-studio-panel-anim" style={{ maxHeight: '210px', overflowY: 'auto' }}>
+                {otherPeers.length === 0 ? (
+                  <div style={{ textAlign: 'center', fontSize: '0.78rem', padding: '16px', opacity: 0.75 }}>No other members in voice</div>
+                ) : (
+                  otherPeers.map((user) => {
+                    const pId = user.id || user.peerId || user.socketId;
+                    const peerVol = peerVolumes.get(pId) ?? 100;
+                    const isMuted = peerVol === 0;
+                    return (
+                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 4px', borderBottom: '1px solid rgba(244,114,182,0.16)' }}>
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
+                        <span style={{ fontSize: '0.77rem', fontWeight: 700, flex: 1 }}>{user.username || user.name || 'Friend'}</span>
+                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} style={{ width: '120px', accentColor: '#ec4899' }} />
+                        <span style={{ fontSize: '0.7rem', fontWeight: 800, minWidth: '36px', textAlign: 'right' }}>{peerVol}%</span>
+                        <button type="button" onClick={() => handlePeerVolume(pId, isMuted ? 100 : 0)} className="voice-studio-btn" style={{ background: 'none', border: 'none', color: '#ec4899', cursor: 'pointer', display: 'flex' }}>
+                          {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Variants: insert below this line */}
+        <style data-impeccable-css="949c7b3c">{`
+          @keyframes vs949Beacon {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+            50% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+          }
+          @keyframes vs949Enter {
+            from { opacity: 0; transform: translate3d(-50%, 8px, 0) scale(0.97); }
+            to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
+          }
+
+          @scope ([data-impeccable-variant="1"]) {
+            :scope > .vs949-v1 {
+              position: absolute;
+              bottom: calc(100% + 12px);
+              left: 50%;
+              transform: translate3d(-50%, 0, 0);
+              width: min(444px, calc(100vw - 24px));
+              max-height: 360px;
+              overflow: hidden;
+              padding: 11px 12px;
+              border-radius: 20px;
+              background: linear-gradient(160deg, rgba(255, 182, 222, 0.19) 0%, rgba(88, 20, 60, 0.54) 30%, rgba(20, 8, 22, 0.86) 100%);
+              border: 1px solid rgba(244, 114, 182, 0.36);
+              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.72), 0 0 34px rgba(236, 72, 153, 0.22), inset 0 1px 0 rgba(255, 232, 245, 0.46), inset 0 -1px 0 rgba(236, 72, 153, 0.30);
+              backdrop-filter: blur(16px) saturate(195%);
+              -webkit-backdrop-filter: blur(16px) saturate(195%);
+              color: #fdf2f8;
+              z-index: 1000;
+              display: flex;
+              flex-direction: column;
+              gap: 9px;
+              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+            :scope[data-p-shell-tint="deep-noir"] > .vs949-v1 {
+              background: linear-gradient(160deg, rgba(255, 210, 236, 0.09) 0%, rgba(24, 11, 26, 0.88) 100%);
+              border-color: rgba(251, 207, 232, 0.24);
+            }
+            :scope[data-p-compactness="cozy"] > .vs949-v1 {
+              width: min(468px, calc(100vw - 24px));
+              padding: 13px 14px;
+              gap: 11px;
+            }
+
+            :scope > .vs949-v1 .vs-head {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding-bottom: 8px;
+              border-bottom: 1px solid rgba(251, 207, 232, 0.16);
+            }
+            :scope > .vs949-v1 .vs-tabs {
+              flex: 1;
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 4px;
+              padding: 3px;
+              border-radius: 11px;
+              background: rgba(255, 226, 242, 0.06);
+              border: 1px solid rgba(251, 207, 232, 0.16);
+            }
+            :scope > .vs949-v1 .vs-tab {
+              border: none;
+              border-radius: 8px;
+              padding: 5px 8px;
+              font-size: 0.72rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 228, 242, 0.72);
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 6px;
+              transition: background 180ms ease, color 180ms ease, transform 140ms ease;
+            }
+            :scope > .vs949-v1 .vs-tab.is-on {
+              background: rgba(244, 114, 182, 0.28);
+              color: #fdf2f8;
+              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(251, 207, 232, 0.36);
+            }
+            :scope > .vs949-v1 .vs-dot {
+              width: 6px;
+              height: 6px;
+              border-radius: 50%;
+              background: #10b981;
+              animation: vs949Beacon 1.8s ease-in-out infinite;
+            }
+            :scope > .vs949-v1 .vs-close {
+              width: 28px;
+              height: 28px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.22);
+              background: rgba(255, 228, 244, 0.08);
+              color: #fbcfe8;
+              display: grid;
+              place-items: center;
+              cursor: pointer;
+              transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, border-color 160ms ease, color 160ms ease;
+            }
+            :scope > .vs949-v1 .vs-close:hover {
+              background: rgba(236, 72, 153, 0.28);
+              border-color: rgba(251, 207, 232, 0.48);
+              color: #ffffff;
+              transform: rotate(90deg) scale(1.06);
+            }
+            :scope > .vs949-v1 .vs-close:active { transform: rotate(90deg) scale(0.92); }
+
+            :scope > .vs949-v1 .vs-cols {
+              display: grid;
+              grid-template-columns: 1.05fr 1fr;
+              gap: 12px;
+              align-items: stretch;
+            }
+            :scope > .vs949-v1 .vs-col {
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+              min-width: 0;
+            }
+            :scope > .vs949-v1 .vs-col-right {
+              padding-left: 11px;
+              border-left: 1px solid rgba(251, 207, 232, 0.14);
+            }
+            :scope > .vs949-v1 .vs-sec-head {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              font-size: 0.7rem;
+              font-weight: 800;
+              color: #fce7f3;
+            }
+            :scope > .vs949-v1 .vs-rescan {
+              background: transparent;
+              border: none;
+              color: #f472b6;
+              font-size: 0.68rem;
+              font-weight: 700;
+              display: inline-flex;
+              align-items: center;
+              gap: 3px;
+              cursor: pointer;
+              padding: 2px 5px;
+              border-radius: 6px;
+              transition: background 150ms ease, color 150ms ease;
+            }
+            :scope > .vs949-v1 .vs-rescan:hover { background: rgba(244, 114, 182, 0.16); color: #ffffff; }
+
+            :scope > .vs949-v1 .vs-mic-list {
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+              min-height: 68px;
+              max-height: 112px;
+              overflow-y: auto;
+              padding-right: 2px;
+            }
+            :scope > .vs949-v1 .vs-mic-row {
+              text-align: left;
+              padding: 5px 8px;
+              border-radius: 9px;
+              border: 1px solid rgba(251, 207, 232, 0.14);
+              background: rgba(255, 228, 244, 0.05);
+              color: #fce7f3;
+              font-size: 0.71rem;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 6px;
+              cursor: pointer;
+              transition: background 150ms ease, border-color 150ms ease, transform 140ms ease;
+            }
+            :scope > .vs949-v1 .vs-mic-row:hover {
+              background: rgba(244, 114, 182, 0.16);
+              border-color: rgba(251, 207, 232, 0.32);
+            }
+            :scope > .vs949-v1 .vs-mic-row.is-on {
+              background: rgba(236, 72, 153, 0.24);
+              border-color: rgba(244, 114, 182, 0.65);
+              color: #ffffff;
+            }
+
+            :scope > .vs949-v1 .vs-action-pair {
+              display: grid;
+              grid-template-columns: 1fr 1.15fr;
+              gap: 6px;
+              margin-top: auto;
+            }
+            :scope > .vs949-v1 .vs-anim-btn {
+              position: relative;
+              height: 30px;
+              padding: 0 9px;
+              border-radius: 10px;
+              border: 1px solid rgba(251, 207, 232, 0.2);
+              background: rgba(255, 228, 244, 0.07);
+              color: #fce7f3;
+              font-size: 0.69rem;
+              font-weight: 800;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 5px;
+              cursor: pointer;
+              white-space: nowrap;
+              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
+            }
+            :scope > .vs949-v1 .vs-anim-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); border-color: rgba(251, 207, 232, 0.42); }
+            :scope > .vs949-v1 .vs-anim-btn:active { transform: translateY(1px) scale(0.96); }
+            :scope > .vs949-v1 .vs-anim-btn.is-echo-on {
+              background: rgba(236, 72, 153, 0.26);
+              border-color: rgba(244, 114, 182, 0.58);
+              color: #ffffff;
+              box-shadow: 0 4px 12px rgba(236, 72, 153, 0.25);
+            }
+            :scope > .vs949-v1 .vs-anim-btn.is-connect {
+              background: linear-gradient(135deg, #f472b6, #db2777);
+              border-color: rgba(255, 255, 255, 0.35);
+              color: #ffffff;
+              box-shadow: 0 5px 14px rgba(236, 72, 153, 0.36);
+            }
+            :scope > .vs949-v1 .vs-anim-btn.is-disconnect {
+              background: rgba(239, 68, 68, 0.2);
+              border-color: rgba(248, 113, 113, 0.46);
+              color: #fecaca;
+            }
+
+            :scope > .vs949-v1 .vs-seg3 {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 3px;
+              padding: 3px;
+              border-radius: 10px;
+              background: rgba(255, 226, 242, 0.06);
+              border: 1px solid rgba(251, 207, 232, 0.14);
+            }
+            :scope > .vs949-v1 .vs-seg-btn {
+              border: none;
+              border-radius: 7px;
+              padding: 4px 2px;
+              font-size: 0.67rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 232, 243, 0.78);
+              transition: background 150ms ease, color 150ms ease;
+            }
+            :scope > .vs949-v1 .vs-seg-btn.is-on {
+              background: rgba(236, 72, 153, 0.34);
+              color: #ffffff;
+              box-shadow: inset 0 0 0 1px rgba(251, 207, 232, 0.36);
+            }
+
+            :scope > .vs949-v1 .vs-meter {
+              position: relative;
+              width: 100%;
+              height: 5px;
+              border-radius: 9999px;
+              background: rgba(255, 224, 240, 0.14);
+              overflow: visible;
+            }
+            :scope > .vs949-v1 .vs-meter-fill {
+              height: 100%;
+              border-radius: 9999px;
+              transition: width 70ms linear, background 150ms ease;
+            }
+            :scope > .vs949-v1 .vs-meter-mark {
+              position: absolute;
+              top: -2px;
+              bottom: -2px;
+              width: 2px;
+              border-radius: 9999px;
+              background: #fdf2f8;
+              transform: translateX(-50%);
+              pointer-events: none;
+            }
+
+            :scope > .vs949-v1 .vs-range {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 100%;
+              height: 5px;
+              border-radius: 9999px;
+              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
+              outline: none;
+              cursor: pointer;
+            }
+            :scope > .vs949-v1 .vs-range::-webkit-slider-thumb {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 13px;
+              height: 13px;
+              border-radius: 50%;
+              background: #ffffff;
+              border: 2px solid #ec4899;
+              box-shadow: 0 2px 8px rgba(236, 72, 153, 0.55);
+              cursor: pointer;
+              transition: transform 140ms ease, box-shadow 140ms ease;
+            }
+            :scope > .vs949-v1 .vs-range::-webkit-slider-thumb:hover {
+              transform: scale(1.18);
+              box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.28);
+            }
+
+            :scope > .vs949-v1 .vs-peers {
+              max-height: 190px;
+              overflow-y: auto;
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+            :scope > .vs949-v1 .vs-peer-row {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 6px 8px;
+              border-radius: 11px;
+              background: rgba(255, 228, 244, 0.05);
+              border: 1px solid rgba(251, 207, 232, 0.14);
+            }
+            :scope > .vs949-v1 .vs-peer-mute {
+              width: 26px;
+              height: 26px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.18);
+              background: rgba(255, 228, 244, 0.06);
+              color: #f472b6;
+              display: grid;
+              place-items: center;
+              cursor: pointer;
+              transition: background 150ms ease, transform 140ms ease;
+            }
+            :scope > .vs949-v1 .vs-peer-mute:hover { background: rgba(236, 72, 153, 0.22); transform: scale(1.06); }
+          }
+
+          @scope ([data-impeccable-variant="2"]) {
+            :scope > .vs949-v2 {
+              position: absolute;
+              bottom: calc(100% + 12px);
+              left: 50%;
+              transform: translate3d(-50%, 0, 0);
+              width: min(calc(var(--p-drawer-width, 340) * 1px), calc(100vw - 24px));
+              max-height: 410px;
+              overflow-y: auto;
+              padding: 10px 12px;
+              border-radius: 20px;
+              background: linear-gradient(160deg, rgba(255, 182, 222, 0.19) 0%, rgba(88, 20, 60, 0.54) 30%, rgba(20, 8, 22, 0.85) 100%);
+              border: 1px solid rgba(244, 114, 182, 0.36);
+              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.72), 0 0 34px rgba(236, 72, 153, 0.22), inset 0 1px 0 rgba(255, 232, 245, 0.46), inset 0 -1px 0 rgba(236, 72, 153, 0.30);
+              backdrop-filter: blur(calc(var(--p-glass-blur, 16) * 1px)) saturate(195%);
+              -webkit-backdrop-filter: blur(calc(var(--p-glass-blur, 16) * 1px)) saturate(195%);
+              color: #fdf2f8;
+              z-index: 1000;
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+            :scope > .vs949-v2 .vs-head {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding-bottom: 6px;
+              border-bottom: 1px solid rgba(251, 207, 232, 0.18);
+            }
+            :scope > .vs949-v2 .vs-tabs {
+              flex: 1;
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 4px;
+              padding: 3px;
+              border-radius: 10px;
+              background: rgba(255, 226, 242, 0.06);
+              border: 1px solid rgba(251, 207, 232, 0.16);
+            }
+            :scope > .vs949-v2 .vs-tab {
+              border: none;
+              border-radius: 7px;
+              padding: 4px 6px;
+              font-size: 0.71rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 228, 242, 0.72);
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 5px;
+              transition: background 160ms ease, color 160ms ease;
+            }
+            :scope > .vs949-v2 .vs-tab.is-on {
+              background: rgba(244, 114, 182, 0.28);
+              color: #fdf2f8;
+              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(251, 207, 232, 0.36);
+            }
+            :scope > .vs949-v2 .vs-dot {
+              width: 6px;
+              height: 6px;
+              border-radius: 50%;
+              background: #10b981;
+              animation: vs949Beacon 1.8s ease-in-out infinite;
+            }
+            :scope > .vs949-v2 .vs-close {
+              width: 26px;
+              height: 26px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.2);
+              background: rgba(255, 228, 244, 0.07);
+              color: #fbcfe8;
+              display: grid;
+              place-items: center;
+              cursor: pointer;
+              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, color 160ms ease;
+            }
+            :scope > .vs949-v2 .vs-close:hover { background: rgba(236, 72, 153, 0.28); color: #ffffff; transform: scale(1.08); }
+            :scope > .vs949-v2 .vs-mic-list {
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+              max-height: 92px;
+              overflow-y: auto;
+            }
+            :scope > .vs949-v2 .vs-mic-row {
+              padding: 5px 8px;
+              border-radius: 9px;
+              border: 1px solid rgba(251, 207, 232, 0.14);
+              background: rgba(255, 228, 244, 0.05);
+              color: #fce7f3;
+              font-size: 0.71rem;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              cursor: pointer;
+              transition: background 150ms ease, border-color 150ms ease;
+            }
+            :scope > .vs949-v2 .vs-mic-row.is-on {
+              background: rgba(236, 72, 153, 0.24);
+              border-color: rgba(244, 114, 182, 0.62);
+              color: #ffffff;
+            }
+            :scope > .vs949-v2 .vs-pair {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 6px;
+            }
+            :scope > .vs949-v2 .vs-anim-btn {
+              height: 29px;
+              padding: 0 8px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.2);
+              background: rgba(255, 228, 244, 0.07);
+              color: #fce7f3;
+              font-size: 0.69rem;
+              font-weight: 800;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 5px;
+              cursor: pointer;
+              transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, border-color 160ms ease;
+            }
+            :scope > .vs949-v2 .vs-anim-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); }
+            :scope > .vs949-v2 .vs-anim-btn:active { transform: scale(0.95); }
+            :scope > .vs949-v2 .vs-anim-btn.is-echo-on { background: rgba(236, 72, 153, 0.26); border-color: rgba(244, 114, 182, 0.56); color: #ffffff; }
+            :scope > .vs949-v2 .vs-anim-btn.is-connect { background: linear-gradient(135deg, #f472b6, #db2777); border-color: rgba(255, 255, 255, 0.34); color: #ffffff; }
+            :scope > .vs949-v2 .vs-anim-btn.is-disconnect { background: rgba(239, 68, 68, 0.2); border-color: rgba(248, 113, 113, 0.44); color: #fecaca; }
+
+            :scope > .vs949-v2 .vs-seg3 {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 3px;
+              padding: 3px;
+              border-radius: 9px;
+              background: rgba(255, 226, 242, 0.06);
+              border: 1px solid rgba(251, 207, 232, 0.14);
+            }
+            :scope > .vs949-v2 .vs-seg-btn {
+              border: none;
+              border-radius: 6px;
+              padding: 4px 2px;
+              font-size: 0.67rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 232, 243, 0.76);
+            }
+            :scope > .vs949-v2 .vs-seg-btn.is-on {
+              background: rgba(236, 72, 153, 0.32);
+              color: #ffffff;
+            }
+            :scope > .vs949-v2 .vs-range {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 100%;
+              height: 5px;
+              border-radius: 9999px;
+              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
+              outline: none;
+              cursor: pointer;
+            }
+            :scope > .vs949-v2 .vs-range::-webkit-slider-thumb {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 13px;
+              height: 13px;
+              border-radius: 50%;
+              background: #ffffff;
+              border: 2px solid #ec4899;
+              box-shadow: 0 2px 7px rgba(236, 72, 153, 0.5);
+              cursor: pointer;
+            }
+            :scope > .vs949-v2 .vs-meter {
+              position: relative;
+              width: 100%;
+              height: 4px;
+              border-radius: 9999px;
+              background: rgba(255, 224, 240, 0.14);
+            }
+            :scope > .vs949-v2 .vs-meter-fill { height: 100%; border-radius: 9999px; transition: width 70ms linear; }
+            :scope > .vs949-v2 .vs-meter-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 9999px; background: #fdf2f8; transform: translateX(-50%); }
+          }
+
+          @scope ([data-impeccable-variant="3"]) {
+            :scope > .vs949-v3 {
+              position: absolute;
+              bottom: calc(100% + 12px);
+              left: 50%;
+              transform: translate3d(-50%, 0, 0);
+              width: min(466px, calc(100vw - 24px));
+              max-height: 350px;
+              overflow: hidden;
+              padding: 10px 12px;
+              border-radius: 20px;
+              background: linear-gradient(160deg, rgba(255, 182, 222, 0.16) 0%, rgba(72, 18, 52, 0.56) 34%, rgba(16, 8, 20, 0.88) 100%);
+              border: 1px solid rgba(244, 114, 182, 0.34);
+              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.74), 0 0 calc(36px * var(--p-accent-glow, 0.75)) rgba(236, 72, 153, 0.28), inset 0 1px 0 rgba(255, 232, 245, 0.44);
+              backdrop-filter: blur(16px) saturate(190%);
+              -webkit-backdrop-filter: blur(16px) saturate(190%);
+              color: #fdf2f8;
+              z-index: 1000;
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+            }
+            :scope > .vs949-v3 .vs-head {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 8px;
+            }
+            :scope > .vs949-v3 .vs-tabs {
+              display: inline-flex;
+              align-items: center;
+              gap: 3px;
+              padding: 3px;
+              border-radius: 9999px;
+              background: rgba(255, 226, 242, 0.06);
+              border: 1px solid rgba(251, 207, 232, 0.16);
+            }
+            :scope > .vs949-v3 .vs-tab {
+              border: none;
+              border-radius: 9999px;
+              padding: 4px 12px;
+              font-size: 0.71rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 228, 242, 0.72);
+              display: inline-flex;
+              align-items: center;
+              gap: 5px;
+              transition: background 170ms ease, color 170ms ease;
+            }
+            :scope > .vs949-v3 .vs-tab.is-on {
+              background: rgba(236, 72, 153, 0.34);
+              color: #ffffff;
+              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 0 0 1px rgba(251, 207, 232, 0.38);
+            }
+            :scope > .vs949-v3 .vs-dot {
+              width: 6px;
+              height: 6px;
+              border-radius: 50%;
+              background: #10b981;
+              animation: vs949Beacon 1.8s ease-in-out infinite;
+            }
+            :scope > .vs949-v3 .vs-close {
+              width: 28px;
+              height: 28px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.2);
+              background: rgba(255, 228, 244, 0.07);
+              color: #fbcfe8;
+              display: grid;
+              place-items: center;
+              cursor: pointer;
+              transition: background 160ms ease, border-color 160ms ease, transform 170ms cubic-bezier(0.22, 1, 0.36, 1), color 160ms ease;
+            }
+            :scope > .vs949-v3 .vs-close:hover {
+              background: rgba(236, 72, 153, 0.28);
+              border-color: rgba(251, 207, 232, 0.5);
+              color: #ffffff;
+              transform: scale(1.08);
+            }
+
+            :scope > .vs949-v3 .vs-split {
+              display: grid;
+              grid-template-columns: 1fr 1.05fr;
+              gap: 10px;
+              align-items: stretch;
+            }
+            :scope > .vs949-v3 .vs-zone {
+              padding: 8px 10px;
+              border-radius: 14px;
+              background: rgba(255, 228, 244, 0.045);
+              border: 1px solid rgba(251, 207, 232, 0.14);
+              display: flex;
+              flex-direction: column;
+              gap: 7px;
+              min-width: 0;
+            }
+            :scope > .vs949-v3 .vs-mic-list {
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+              min-height: 70px;
+              max-height: 112px;
+              overflow-y: auto;
+            }
+            :scope > .vs949-v3 .vs-mic-row {
+              padding: 5px 8px;
+              border-radius: 8px;
+              border: 1px solid rgba(251, 207, 232, 0.12);
+              background: rgba(255, 255, 255, 0.03);
+              color: #fce7f3;
+              font-size: 0.7rem;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              cursor: pointer;
+              transition: background 140ms ease, border-color 140ms ease;
+            }
+            :scope > .vs949-v3 .vs-mic-row.is-on {
+              background: rgba(236, 72, 153, 0.22);
+              border-color: rgba(244, 114, 182, 0.58);
+              color: #ffffff;
+            }
+
+            :scope > .vs949-v3 .vs-dock-pair {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 6px;
+              margin-top: auto;
+            }
+            :scope > .vs949-v3 .vs-dock-btn {
+              height: 30px;
+              padding: 0 8px;
+              border-radius: 9999px;
+              border: 1px solid rgba(251, 207, 232, 0.18);
+              background: rgba(255, 228, 244, 0.07);
+              color: #fce7f3;
+              font-size: 0.68rem;
+              font-weight: 800;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              gap: 5px;
+              cursor: pointer;
+              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
+            }
+            :scope > .vs949-v3 .vs-dock-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); }
+            :scope > .vs949-v3 .vs-dock-btn:active { transform: scale(0.95); }
+            :scope > .vs949-v3 .vs-dock-btn.is-echo-on {
+              background: rgba(236, 72, 153, 0.24);
+              border-color: rgba(244, 114, 182, 0.56);
+              color: #ffffff;
+            }
+            :scope > .vs949-v3 .vs-dock-btn.is-connect {
+              background: linear-gradient(135deg, #f472b6, #db2777);
+              border-color: rgba(255, 255, 255, 0.34);
+              color: #ffffff;
+              box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
+            }
+            :scope > .vs949-v3 .vs-dock-btn.is-disconnect {
+              background: rgba(239, 68, 68, 0.2);
+              border-color: rgba(248, 113, 113, 0.44);
+              color: #fecaca;
+            }
+
+            :scope > .vs949-v3 .vs-seg3 {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 3px;
+              padding: 3px;
+              border-radius: 9px;
+              background: rgba(255, 226, 242, 0.05);
+              border: 1px solid rgba(251, 207, 232, 0.14);
+            }
+            :scope > .vs949-v3 .vs-seg-btn {
+              border: none;
+              border-radius: 6px;
+              padding: 4px 2px;
+              font-size: 0.66rem;
+              font-weight: 700;
+              cursor: pointer;
+              background: transparent;
+              color: rgba(253, 232, 243, 0.76);
+            }
+            :scope > .vs949-v3 .vs-seg-btn.is-on {
+              background: rgba(236, 72, 153, 0.32);
+              color: #ffffff;
+            }
+
+            :scope > .vs949-v3 .vs-range {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 100%;
+              height: 5px;
+              border-radius: 9999px;
+              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
+              outline: none;
+              cursor: pointer;
+            }
+            :scope[data-p-slider-style="minimal"] > .vs949-v3 .vs-range {
+              height: 3px;
+              background: rgba(255, 224, 240, 0.2);
+            }
+            :scope > .vs949-v3 .vs-range::-webkit-slider-thumb {
+              -webkit-appearance: none;
+              appearance: none;
+              width: 13px;
+              height: 13px;
+              border-radius: 50%;
+              background: #ffffff;
+              border: 2px solid #ec4899;
+              box-shadow: 0 2px 8px rgba(236, 72, 153, 0.55);
+              cursor: pointer;
+            }
+            :scope > .vs949-v3 .vs-meter {
+              position: relative;
+              width: 100%;
+              height: 5px;
+              border-radius: 9999px;
+              background: rgba(255, 224, 240, 0.14);
+            }
+            :scope > .vs949-v3 .vs-meter-fill { height: 100%; border-radius: 9999px; transition: width 70ms linear; }
+            :scope > .vs949-v3 .vs-meter-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 9999px; background: #fdf2f8; transform: translateX(-50%); }
+          }
+        `}</style>
+
+        <div
+          data-impeccable-variant="1"
+          data-impeccable-params='[{"id":"shell-tint","kind":"steps","default":"rose-obsidian","label":"Glass tint","options":[{"value":"rose-obsidian","label":"Rose Glass"},{"value":"deep-noir","label":"Obsidian"}]},{"id":"compactness","kind":"steps","default":"tight","label":"Density","options":[{"value":"tight","label":"Compact"},{"value":"cozy","label":"Cozy"}]}]'
+        >
+          <div className="vs949-v1" onClick={(e) => e.stopPropagation()}>
             <div className="vs-head">
               <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
                 <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
@@ -4368,7 +5348,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   </div>
                   <div className="vs-mic-list">
                     {audioInputDevices.length === 0 ? (
-                      <div style={{ fontSize: '0.71rem', opacity: 0.78, padding: '6px' }}>Default System Mic</div>
+                      <div style={{ fontSize: '0.71rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
                     ) : (
                       audioInputDevices.map((dev, idx) => {
                         const isSelected = dev.deviceId === selectedAudioInput;
@@ -4411,7 +5391,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <div className="vs-sec-head">
                       <span>Suppression</span>
-                      <span className="vs-stat-pill" style={{ color: '#f9a8d4' }}>{noiseSuppressionMode.toUpperCase()}</span>
+                      <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
                     </div>
                     <div className="vs-seg3">
                       {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
@@ -4425,7 +5405,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                     <div className="vs-sec-head">
                       <span>Noise Gate</span>
-                      <span className="vs-stat-pill" style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f9a8d4' }}>
+                      <span style={{ fontSize: '0.65rem', color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
                         {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
                       </span>
                     </div>
@@ -4451,7 +5431,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                     <div className="vs-sec-head">
                       <span>Mic Sensitivity</span>
-                      <span className="vs-stat-pill" style={{ color: '#f9a8d4' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>
                         {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
                       </span>
                     </div>
@@ -4468,7 +5448,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             ) : (
               <div className="vs-peers">
                 {otherPeers.length === 0 ? (
-                  <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.78)' }}>
+                  <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.72)' }}>
                     No other members connected in voice yet
                   </div>
                 ) : (
@@ -4497,6 +5477,254 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               </div>
             )}
           </div>
+        </div>
+
+        <div
+          data-impeccable-variant="2"
+          style={{ display: 'none' }}
+          data-impeccable-params='[{"id":"drawer-width","kind":"range","min":310,"max":390,"step":20,"default":340,"label":"Panel width (px)"},{"id":"glass-blur","kind":"range","min":10,"max":24,"step":2,"default":16,"label":"Blur (px)"}]'
+        >
+          <div className="vs949-v2" onClick={(e) => e.stopPropagation()}>
+            <div className="vs-head">
+              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
+                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
+                  <span>My Mic</span>
+                </button>
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
+                  <span>Members ({otherPeers.length})</span>
+                </button>
+              </div>
+              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
+                <X size={13} />
+              </button>
+            </div>
+
+            {voiceSettingsTab === 'mic' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                  <span>Microphone</span>
+                  <button type="button" onClick={refreshMediaDevices} style={{ background: 'none', border: 'none', color: '#f472b6', fontSize: '0.67rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
+                    <RotateCcw size={10} /> Rescan
+                  </button>
+                </div>
+                <div className="vs-mic-list">
+                  {audioInputDevices.length === 0 ? (
+                    <div style={{ fontSize: '0.7rem', opacity: 0.75, padding: '4px' }}>Default System Mic</div>
+                  ) : (
+                    audioInputDevices.map((dev, idx) => {
+                      const isSelected = dev.deviceId === selectedAudioInput;
+                      return (
+                        <button key={dev.deviceId || idx} type="button" onClick={() => switchAudioInput(dev.deviceId)} className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
+                          {isSelected && <Check size={12} color="#f472b6" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="vs-pair">
+                  <button type="button" onClick={handleEchoCancellationToggle} className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}>
+                    <span>{isEchoCancellationEnabled ? 'Echo Cancel: On' : 'Echo Cancel: Off'}</span>
+                  </button>
+                  {isVoiceConnected ? (
+                    <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
+                      <MicOff size={12} /> <span>Disconnect</span>
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
+                      <Mic size={12} /> <span>Connect Mic</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="vs-seg3">
+                  {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
+                    <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 700 }}>
+                    <span>Noise Gate</span>
+                    <span style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
+                      {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                    </span>
+                  </div>
+                  <div className="vs-meter">
+                    <div className="vs-meter-fill" style={{ width: `${Math.min(100, micLevel)}%`, background: isNoiseGateOpen ? '#10b981' : '#ec4899' }} />
+                    {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
+                  </div>
+                  <input type="range" min="0" max="100" step="5" value={noiseIntensity} aria-label="Noise Gate threshold" className="vs-range" style={{ '--pct': `${noiseIntensity}%` }} onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))} />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 700 }}>
+                    <span>Mic Sensitivity</span>
+                    <span style={{ color: '#f472b6' }}>{micGain}%</span>
+                  </div>
+                  <input type="range" min="50" max="200" step="5" value={micGain} aria-label="Mic Sensitivity" className="vs-range" style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }} onChange={(e) => handleMicGainChange(Number(e.target.value))} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
+                {otherPeers.length === 0 ? (
+                  <div style={{ textAlign: 'center', fontSize: '0.73rem', padding: '16px 8px', opacity: 0.75 }}>No other members in voice</div>
+                ) : (
+                  otherPeers.map((user) => {
+                    const pId = user.id || user.peerId || user.socketId;
+                    const peerVol = peerVolumes.get(pId) ?? 100;
+                    const isPeerMuted = peerVol === 0;
+                    return (
+                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 6px', borderRadius: '9px', background: 'rgba(255,228,244,0.05)' }}>
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="18px" />
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
+                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} className="vs-range" style={{ width: '84px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }} />
+                        <span style={{ fontSize: '0.67rem', fontWeight: 800, minWidth: '32px', textAlign: 'right' }}>{peerVol}%</span>
+                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', display: 'flex' }}>
+                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div
+          data-impeccable-variant="3"
+          style={{ display: 'none' }}
+          data-impeccable-params='[{"id":"accent-glow","kind":"range","min":0,"max":1,"step":0.25,"default":0.75,"label":"Rose glow"},{"id":"slider-style","kind":"steps","default":"filled","label":"Slider style","options":[{"value":"filled","label":"Filled Track"},{"value":"minimal","label":"Minimal Hairline"}]}]'
+        >
+          <div className="vs949-v3" onClick={(e) => e.stopPropagation()}>
+            <div className="vs-head">
+              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
+                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
+                  <span>My Mic</span>
+                </button>
+                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
+                  <span>Member Mics ({otherPeers.length})</span>
+                </button>
+              </div>
+              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
+                <X size={13} />
+              </button>
+            </div>
+
+            {voiceSettingsTab === 'mic' ? (
+              <div className="vs-split">
+                <div className="vs-zone">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                    <span>Microphones</span>
+                    <button type="button" onClick={refreshMediaDevices} style={{ background: 'none', border: 'none', color: '#f472b6', fontSize: '0.67rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
+                      <RotateCcw size={10} /> Rescan
+                    </button>
+                  </div>
+                  <div className="vs-mic-list">
+                    {audioInputDevices.length === 0 ? (
+                      <div style={{ fontSize: '0.7rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
+                    ) : (
+                      audioInputDevices.map((dev, idx) => {
+                        const isSelected = dev.deviceId === selectedAudioInput;
+                        return (
+                          <button key={dev.deviceId || idx} type="button" onClick={() => switchAudioInput(dev.deviceId)} className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
+                            {isSelected && <Check size={12} color="#f472b6" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="vs-dock-pair">
+                    <button type="button" onClick={handleEchoCancellationToggle} className={`vs-dock-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}>
+                      <span>{isEchoCancellationEnabled ? 'Echo On' : 'Echo Off'}</span>
+                    </button>
+                    {isVoiceConnected ? (
+                      <button type="button" onClick={leaveVoiceChat} className="vs-dock-btn is-disconnect">
+                        <MicOff size={12} /> <span>Leave</span>
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => startMicrophone()} className="vs-dock-btn is-connect">
+                        <Mic size={12} /> <span>Connect</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="vs-zone">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
+                      <span>Suppression</span>
+                      <span style={{ color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
+                    </div>
+                    <div className="vs-seg3">
+                      {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
+                        <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
+                          {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
+                      <span>Noise Gate</span>
+                      <span style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
+                        {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                      </span>
+                    </div>
+                    <div className="vs-meter">
+                      <div className="vs-meter-fill" style={{ width: `${Math.min(100, micLevel)}%`, background: isNoiseGateOpen ? '#10b981' : '#ec4899' }} />
+                      {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
+                    </div>
+                    <input type="range" min="0" max="100" step="5" value={noiseIntensity} aria-label="Noise Gate threshold" className="vs-range" style={{ '--pct': `${noiseIntensity}%` }} onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))} />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
+                      <span>Sensitivity</span>
+                      <span style={{ color: '#f472b6' }}>
+                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
+                      </span>
+                    </div>
+                    <input type="range" min="50" max="200" step="5" value={micGain} aria-label="Mic Sensitivity" className="vs-range" style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }} onChange={(e) => handleMicGainChange(Number(e.target.value))} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="vs-zone" style={{ maxHeight: '185px', overflowY: 'auto' }}>
+                {otherPeers.length === 0 ? (
+                  <div style={{ textAlign: 'center', fontSize: '0.73rem', padding: '16px 8px', opacity: 0.72 }}>No other members in voice</div>
+                ) : (
+                  otherPeers.map((user) => {
+                    const pId = user.id || user.peerId || user.socketId;
+                    const peerVol = peerVolumes.get(pId) ?? 100;
+                    const isPeerMuted = peerVol === 0;
+                    return (
+                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 2px', borderBottom: '1px solid rgba(251, 207, 232, 0.12)' }}>
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="19px" />
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
+                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} className="vs-range" style={{ width: '108px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }} />
+                        <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
+                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', display: 'flex' }}>
+                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* impeccable-variants-end 949c7b3c */}
+      </div>
     );
 
     return popover;
@@ -4511,608 +5739,608 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       {/* Left Column: Video Stage + Bottom Control Deck */}
       <div className="theater-stage-column" data-ambient={isAmbientActive ? 'on' : 'off'}>
-      {/* Video Canvas */}
-      <div
-        ref={theaterCanvasRef}
-        className="theater-canvas"
-        onClick={() => {
-          setChatOpen(false);
-          setShowSubtitlePopover(false);
-          setShowAudioPopover(false);
-        }}
-      >
-        
-        {/* Video Toast Notification */}
-        <div className={`player-toast ${isToastActive ? 'active' : ''}`}>
-          {toastContent.icon && (
-            <span className="toast-icon-wrap" style={{ display: 'inline-flex', alignItems: 'center' }}>
-              {toastContent.icon}
-            </span>
+        {/* Video Canvas */}
+        <div
+          ref={theaterCanvasRef}
+          className="theater-canvas"
+          onClick={() => {
+            setChatOpen(false);
+            setShowSubtitlePopover(false);
+            setShowAudioPopover(false);
+          }}
+        >
+
+          {/* Video Toast Notification */}
+          <div className={`player-toast ${isToastActive ? 'active' : ''}`}>
+            {toastContent.icon && (
+              <span className="toast-icon-wrap" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                {toastContent.icon}
+              </span>
+            )}
+            <span>{toastContent.text}</span>
+          </div>
+
+          {/* Mobile Voice Audio Unlock Pill */}
+          {needsVoiceAudioUnlock && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                unlockAudio();
+              }}
+              style={{
+                position: 'absolute',
+                top: '18px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 90,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 18px',
+                borderRadius: '9999px',
+                background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+                color: '#ffffff',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                border: 'none',
+                boxShadow: '0 4px 16px rgba(236, 72, 153, 0.5)',
+                cursor: 'pointer'
+              }}
+              title="Tap to listen to voice chat"
+            >
+              <Volume2 size={15} color="#ffffff" />
+              <span>Tap to enable voice audio</span>
+            </button>
           )}
-          <span>{toastContent.text}</span>
-        </div>
 
-        {/* Mobile Voice Audio Unlock Pill */}
-        {needsVoiceAudioUnlock && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              unlockAudio();
-            }}
-            style={{
-              position: 'absolute',
-              top: '18px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 90,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 18px',
-              borderRadius: '9999px',
-              background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-              color: '#ffffff',
-              fontSize: '0.82rem',
-              fontWeight: 700,
-              border: 'none',
-              boxShadow: '0 4px 16px rgba(236, 72, 153, 0.5)',
-              cursor: 'pointer'
-            }}
-            title="Tap to listen to voice chat"
-          >
-            <Volume2 size={15} color="#ffffff" />
-            <span>Tap to enable voice audio</span>
-          </button>
-        )}
+          {/* Browser Autoplay Block Overlay removed in favor of in-player muted playback & tap-to-unmute pill */}
 
-        {/* Browser Autoplay Block Overlay removed in favor of in-player muted playback & tap-to-unmute pill */}
+          {/* Neko Virtual Shared Browser Container */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#0e0813', zIndex: 3, display: activePlayerType === 'neko' ? 'flex' : 'none', flexDirection: 'column' }}>
+            {activePlayerType === 'neko' && (
+              <>
+                {/* Invisible Top Hover Trigger in Fullscreen to reveal controls */}
+                {isTheaterFullscreen && (
+                  <div
+                    onMouseEnter={() => setIsTopBarHovered(true)}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '20px',
+                      zIndex: 99,
+                      cursor: 'default'
+                    }}
+                  />
+                )}
 
-        {/* Neko Virtual Shared Browser Container */}
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#0e0813', zIndex: 3, display: activePlayerType === 'neko' ? 'flex' : 'none', flexDirection: 'column' }}>
-          {activePlayerType === 'neko' && (
-            <>
-              {/* Invisible Top Hover Trigger in Fullscreen to reveal controls */}
-              {isTheaterFullscreen && (
+                {/* Neko Management Header Bar (Auto-hides in True Fullscreen, slides down on top hover) */}
                 <div
                   onMouseEnter={() => setIsTopBarHovered(true)}
+                  onMouseLeave={() => setIsTopBarHovered(false)}
                   style={{
-                    position: 'absolute',
+                    position: isTheaterFullscreen ? 'absolute' : 'relative',
                     top: 0,
                     left: 0,
                     width: '100%',
-                    height: '20px',
-                    zIndex: 99,
-                    cursor: 'default'
+                    height: '42px',
+                    background: 'rgba(23, 15, 32, 0.95)',
+                    backdropFilter: 'blur(14px)',
+                    borderBottom: '1px solid rgba(244, 114, 182, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0 1rem',
+                    zIndex: 100,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                    transform: (isTheaterFullscreen && !isTopBarHovered) ? 'translateY(-100%)' : 'translateY(0)',
+                    opacity: (isTheaterFullscreen && !isTopBarHovered) ? 0 : 1,
+                    transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
+                    pointerEvents: (isTheaterFullscreen && !isTopBarHovered) ? 'none' : 'auto'
                   }}
-                />
-              )}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Globe size={14} color="var(--gold-primary)" />
+                      <span>Virtual Shared Browser (Neko)</span>
+                    </span>
+                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                      Active • Synchronized
+                    </span>
+                    {isTheaterFullscreen && (
+                      <span style={{ fontSize: '10px', background: 'rgba(244, 114, 182, 0.2)', color: '#f472b6', border: '1px solid rgba(244, 114, 182, 0.4)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                        True Cinema Fullscreen
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      onClick={handleReloadNeko}
+                      className="pink-btn-icon"
+                      style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
+                      title="Reload browser frame"
+                    >
+                      <RotateCcw size={12} />
+                      <span>Reload</span>
+                    </button>
+                    <button
+                      onClick={handleResetNeko}
+                      className="pink-btn-icon"
+                      style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
+                      title="Clear heavy runaway tabs and reset Chromium to blank page"
+                    >
+                      <span>Reset Tabs</span>
+                    </button>
+                    <button
+                      onClick={toggleVideoFullscreen}
+                      className="pink-btn-icon"
+                      style={{
+                        fontSize: '11px',
+                        padding: '3px 8px',
+                        height: '28px',
+                        gap: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: isTheaterFullscreen ? '#f472b6' : 'var(--text-muted)',
+                        border: isTheaterFullscreen ? '1px solid rgba(244, 114, 182, 0.35)' : 'none'
+                      }}
+                      title={isTheaterFullscreen ? "Exit Fullscreen (Esc or F)" : "True Cinema Fullscreen (F)"}
+                    >
+                      {isTheaterFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
+                      <span>{isTheaterFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                    </button>
+                    <button
+                      onClick={handleStopNeko}
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '3px 10px',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        boxShadow: '0 0 10px rgba(239, 68, 68, 0.4)'
+                      }}
+                      title="Close browser and immediately stop background CPU & audio usage"
+                    >
+                      <Power size={12} />
+                      <span>Exit & Stop Browser</span>
+                    </button>
+                  </div>
+                </div>
+                {!isNekoReady ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#0e0813' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '4px solid rgba(244,114,182,0.2)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite' }} />
+                    <div style={{ color: '#f472b6', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '0.3px' }}>{nekoStatusMsg}</div>
+                    <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Warming up Chromium engine & WebRTC audio/video feeds</div>
+                  </div>
+                ) : (
+                  <iframe
+                    ref={nekoIframeRef}
+                    onLoad={handleNekoIframeLoad}
+                    key={nekoIframeKey}
+                    src={`/neko/?usr=${encodeURIComponent(currentProfile?.username || currentProfile?.name || 'Viewer')}&pwd=admin&embed=1`}
+                    title="Shared Virtual Browser (Neko)"
+                    allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
+                    style={{
+                      width: '100%',
+                      height: isTheaterFullscreen ? '100%' : 'calc(100% - 42px)',
+                      border: 'none',
+                      display: 'block'
+                    }}
+                  />
+                )}
+              </>
+            )}
+        </div>
 
-              {/* Neko Management Header Bar (Auto-hides in True Fullscreen, slides down on top hover) */}
-              <div
-                onMouseEnter={() => setIsTopBarHovered(true)}
-                onMouseLeave={() => setIsTopBarHovered(false)}
-                style={{
-                  position: isTheaterFullscreen ? 'absolute' : 'relative',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '42px',
-                  background: 'rgba(23, 15, 32, 0.95)',
-                  backdropFilter: 'blur(14px)',
-                  borderBottom: '1px solid rgba(244, 114, 182, 0.25)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '0 1rem',
-                  zIndex: 100,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-                  transform: (isTheaterFullscreen && !isTopBarHovered) ? 'translateY(-100%)' : 'translateY(0)',
-                  opacity: (isTheaterFullscreen && !isTopBarHovered) ? 0 : 1,
-                  transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
-                  pointerEvents: (isTheaterFullscreen && !isTopBarHovered) ? 'none' : 'auto'
+          {/* YouTube Container */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: activePlayerType === 'youtube' ? 'block' : 'none', zIndex: 2 }}>
+            <div id="react-yt-player" style={{ width: '100%', height: '100%' }}></div>
+          </div>
+
+          {/* PoufPlayer Container (MKV, MP4, HLS, WebM) - Mounted only for direct media */}
+          {activePlayerType !== 'youtube' && activePlayerType !== 'neko' && (
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2 }}>
+              <PoufPlayer
+                socket={socket}
+                url={currentUrl}
+                title={currentTitle}
+                type={activePlayerType === 'hls' || currentUrl.includes('.m3u8') ? 'hls' : 'direct'}
+                audioTracks={audioTracks}
+                activeAudioIndex={activeAudioIndex}
+                onAudioTrackChange={(idx) => handleSwitchAudioTrack(idx)}
+                subtitleTracks={subtitleTracks}
+                activeSubtitleIndex={activeSubtitleIndex}
+                onSubtitleChange={(idx) => handleSwitchSubtitle(idx)}
+                onAddSubtitleTrack={(newTrack) => {
+                  setSubtitleTracks((prev) => [newTrack, ...prev]);
+                  setActiveSubtitleIndex(0);
+                  showToast(`Loaded Subtitle: ${newTrack.title}`, <Type size={15} />);
+                }}
+                subtitleSize={subtitleSize}
+                subtitlePos={subtitlePos}
+                onSubtitleSizeChange={(sz) => handleChangeSubtitleSize(sz)}
+                onSubtitlePosChange={(pos) => handleChangeSubtitlePos(pos)}
+                isPlaying={roomPlaybackState.isPlaying}
+                currentTime={roomPlaybackState.currentTime}
+                onPlay={(t) => {
+                  isRemoteActionRef.current = false;
+                  if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
+                  const video = document.querySelector('.pouf-player-container video');
+                  const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
+                  serverSyncStateRef.current = {
+                    currentTime: curTime,
+                    isPlaying: true,
+                    playbackRate: 1.0,
+                    receivedAt: Date.now()
+                  };
+                  setRoomPlaybackState({ currentTime: curTime, isPlaying: true });
+                  setRemoteLock(300);
+                  if (socket) {
+                    socket.emit('player:play', { currentTime: curTime });
+                  }
+                }}
+                onPause={(t) => {
+                  isRemoteActionRef.current = false;
+                  if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
+                  const video = document.querySelector('.pouf-player-container video');
+                  const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
+                  serverSyncStateRef.current = {
+                    currentTime: curTime,
+                    isPlaying: false,
+                    playbackRate: 1.0,
+                    receivedAt: Date.now()
+                  };
+                  setRoomPlaybackState({ currentTime: curTime, isPlaying: false });
+                  setRemoteLock(300);
+                  if (socket) {
+                    socket.emit('player:pause', { currentTime: curTime });
+                  }
+                }}
+                onSeek={(t) => {
+                  isRemoteActionRef.current = false;
+                  if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
+
+                  const targetTime = typeof t === 'number' && !isNaN(t) ? t : 0;
+                  isSeekingRef.current = true;
+                  if (socket) {
+                    socket.emit('player:seek', { currentTime: targetTime, wasPlaying: roomPlaybackState.isPlaying });
+                  }
+                }}
+                barrierState={barrierState}
+                onForceSyncAll={() => handleForceSync()}
+                viewerCount={connectedUsers.length || 1}
+                isHost={isHost}
+                canControl={true}
+                isChitChatMode={isChitChatMode}
+                onToggleChat={handleToggleSideChat}
+                onToggleFullscreen={toggleVideoFullscreen}
+                onEnterChat={() => {
+                  const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
+                  if (!isSidebarActive) {
+                    setChatOpen(true);
+                    resetChatInactivityTimer();
+                    setTimeout(() => {
+                      if (chatInputRef.current) chatInputRef.current.focus();
+                    }, 40);
+                  }
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Globe size={14} color="var(--gold-primary)" />
-                    <span>Virtual Shared Browser (Neko)</span>
-                  </span>
-                  <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                    Active • Synchronized
-                  </span>
-                  {isTheaterFullscreen && (
-                    <span style={{ fontSize: '10px', background: 'rgba(244, 114, 182, 0.2)', color: '#f472b6', border: '1px solid rgba(244, 114, 182, 0.4)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                      True Cinema Fullscreen
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    onClick={handleReloadNeko}
-                    className="pink-btn-icon"
-                    style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
-                    title="Reload browser frame"
-                  >
-                    <RotateCcw size={12} />
-                    <span>Reload</span>
-                  </button>
-                  <button
-                    onClick={handleResetNeko}
-                    className="pink-btn-icon"
-                    style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
-                    title="Clear heavy runaway tabs and reset Chromium to blank page"
-                  >
-                    <span>Reset Tabs</span>
-                  </button>
-                  <button
-                    onClick={toggleVideoFullscreen}
-                    className="pink-btn-icon"
-                    style={{
-                      fontSize: '11px',
-                      padding: '3px 8px',
-                      height: '28px',
-                      gap: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      color: isTheaterFullscreen ? '#f472b6' : 'var(--text-muted)',
-                      border: isTheaterFullscreen ? '1px solid rgba(244, 114, 182, 0.35)' : 'none'
-                    }}
-                    title={isTheaterFullscreen ? "Exit Fullscreen (Esc or F)" : "True Cinema Fullscreen (F)"}
-                  >
-                    {isTheaterFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
-                    <span>{isTheaterFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
-                  </button>
-                  <button
-                    onClick={handleStopNeko}
-                    style={{
-                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      padding: '3px 10px',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      boxShadow: '0 0 10px rgba(239, 68, 68, 0.4)'
-                    }}
-                    title="Close browser and immediately stop background CPU & audio usage"
-                  >
-                    <Power size={12} />
-                    <span>Exit & Stop Browser</span>
-                  </button>
-                </div>
-              </div>
-              {!isNekoReady ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#0e0813' }}>
-                  <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '4px solid rgba(244,114,182,0.2)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite' }} />
-                  <div style={{ color: '#f472b6', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '0.3px' }}>{nekoStatusMsg}</div>
-                  <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Warming up Chromium engine & WebRTC audio/video feeds</div>
-                </div>
-              ) : (
-                <iframe
-                  ref={nekoIframeRef}
-                  onLoad={handleNekoIframeLoad}
-                  key={nekoIframeKey}
-                  src={`/neko/?usr=${encodeURIComponent(currentProfile?.username || currentProfile?.name || 'Viewer')}&pwd=${currentProfile?.role === 'admin' ? 'admin' : 'neko'}&embed=1`}
-                  title="Shared Virtual Browser (Neko)"
-                  allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
-                  style={{
-                    width: '100%',
-                    height: isTheaterFullscreen ? '100%' : 'calc(100% - 42px)',
-                    border: 'none',
-                    display: 'block'
-                  }}
-                />
-              )}
-            </>
+                {renderChatOverlay()}
+              </PoufPlayer>
+            </div>
           )}
-        </div>
 
-        {/* YouTube Container */}
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: activePlayerType === 'youtube' ? 'block' : 'none', zIndex: 2 }}>
-          <div id="react-yt-player" style={{ width: '100%', height: '100%' }}></div>
-        </div>
+          {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
+          {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
 
-        {/* PoufPlayer Container (MKV, MP4, HLS, WebM) - Mounted only for direct media */}
-        {activePlayerType !== 'youtube' && activePlayerType !== 'neko' && (
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2 }}>
-            <PoufPlayer
-            socket={socket}
-            url={currentUrl}
-            title={currentTitle}
-            type={activePlayerType === 'hls' || currentUrl.includes('.m3u8') ? 'hls' : 'direct'}
-            audioTracks={audioTracks}
-            activeAudioIndex={activeAudioIndex}
-            onAudioTrackChange={(idx) => handleSwitchAudioTrack(idx)}
-            subtitleTracks={subtitleTracks}
-            activeSubtitleIndex={activeSubtitleIndex}
-            onSubtitleChange={(idx) => handleSwitchSubtitle(idx)}
-            onAddSubtitleTrack={(newTrack) => {
-              setSubtitleTracks((prev) => [newTrack, ...prev]);
-              setActiveSubtitleIndex(0);
-              showToast(`Loaded Subtitle: ${newTrack.title}`, <Type size={15} />);
-            }}
-            subtitleSize={subtitleSize}
-            subtitlePos={subtitlePos}
-            onSubtitleSizeChange={(sz) => handleChangeSubtitleSize(sz)}
-            onSubtitlePosChange={(pos) => handleChangeSubtitlePos(pos)}
-            isPlaying={roomPlaybackState.isPlaying}
-            currentTime={roomPlaybackState.currentTime}
-            onPlay={(t) => {
-              isRemoteActionRef.current = false;
-              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
-
-              const video = document.querySelector('.pouf-player-container video');
-              const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
-              serverSyncStateRef.current = {
-                currentTime: curTime,
-                isPlaying: true,
-                playbackRate: 1.0,
-                receivedAt: Date.now()
-              };
-              setRoomPlaybackState({ currentTime: curTime, isPlaying: true });
-              setRemoteLock(300);
-              if (socket) {
-                socket.emit('player:play', { currentTime: curTime });
-              }
-            }}
-            onPause={(t) => {
-              isRemoteActionRef.current = false;
-              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
-
-              const video = document.querySelector('.pouf-player-container video');
-              const curTime = typeof t === 'number' && !isNaN(t) ? t : (video ? video.currentTime : (serverSyncStateRef.current.currentTime || 0));
-              serverSyncStateRef.current = {
-                currentTime: curTime,
-                isPlaying: false,
-                playbackRate: 1.0,
-                receivedAt: Date.now()
-              };
-              setRoomPlaybackState({ currentTime: curTime, isPlaying: false });
-              setRemoteLock(300);
-              if (socket) {
-                socket.emit('player:pause', { currentTime: curTime });
-              }
-            }}
-            onSeek={(t) => {
-              isRemoteActionRef.current = false;
-              if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
-
-              const targetTime = typeof t === 'number' && !isNaN(t) ? t : 0;
-              isSeekingRef.current = true;
-              if (socket) {
-                socket.emit('player:seek', { currentTime: targetTime, wasPlaying: roomPlaybackState.isPlaying });
-              }
-            }}
-            barrierState={barrierState}
-            onForceSyncAll={() => handleForceSync()}
-            viewerCount={connectedUsers.length || 1}
-            isHost={isHost}
-            canControl={true}
-            isChitChatMode={isChitChatMode}
-            onToggleChat={handleToggleSideChat}
-            onToggleFullscreen={toggleVideoFullscreen}
-            onEnterChat={() => {
-              const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
-              if (!isSidebarActive) {
+          {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
+          {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
                 setChatOpen(true);
                 resetChatInactivityTimer();
                 setTimeout(() => {
-                  if (chatInputRef.current) chatInputRef.current.focus();
+                  chatInputRef.current?.focus();
                 }, 40);
-              }
-            }}
-          >
-            {renderChatOverlay()}
-          </PoufPlayer>
-        </div>
-        )}
-
-        {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
-        {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
-
-        {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
-        {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setChatOpen(true);
-              resetChatInactivityTimer();
-              setTimeout(() => {
-                chatInputRef.current?.focus();
-              }, 40);
-            }}
-            className="pouf-btn-tactile"
-            style={{
-              position: 'absolute',
-              bottom: isTheaterFullscreen ? '20px' : '16px',
-              left: '20px',
-              zIndex: 999,
-              background: 'rgba(23, 15, 32, 0.88)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid rgba(244, 114, 182, 0.45)',
-              borderRadius: '9999px',
-              padding: '6px 14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              color: '#fff',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 12px rgba(244, 114, 182, 0.25)',
-              transition: 'all 0.2s ease',
-              pointerEvents: 'auto'
-            }}
-            title="Open In-Video Chat (or press Enter)"
-          >
-            <MessageSquare size={13} color="#f472b6" />
-            <span>Chat (Enter)</span>
-            {unreadChatCount > 0 && (
-              <span style={{
-                background: '#f472b6',
-                color: '#fff',
-                fontSize: '10px',
-                borderRadius: '999px',
-                padding: '1px 6px',
-                fontWeight: 800
-              }}>
-                {unreadChatCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Floating Subtitle & Audio Popovers */}
-        {renderTrackPopovers()}
-
-        {/* Push-to-Talk HUD Banner */}
-        {isPushToTalking && (
-          <div style={{
-            position: 'absolute',
-            top: '24px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 65,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 20px',
-            borderRadius: '999px',
-            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95))',
-            color: '#fff',
-            fontWeight: 800,
-            fontSize: '0.86rem',
-            boxShadow: '0 0 24px rgba(16, 185, 129, 0.7), 0 8px 16px rgba(0,0,0,0.4)',
-            pointerEvents: 'none',
-            letterSpacing: '0.04em'
-          }}>
-            <Radio size={16} />
-            <span>TRANSMITTING (HOLDING 'V')</span>
-          </div>
-        )}
-
-        {/* Minimal Docked Arrow Button when Chat is Closed */}
-        {!isChatSidebarOpen && (
-          <button
-            type="button"
-            onClick={handleToggleSideChat}
-            className="clay-docked-chat-trigger"
-            title="Open Chat (Shortcut: C)"
-            aria-label="Open Chat"
-          >
-            <ChevronLeft size={18} strokeWidth={2.4} />
-            {unreadChatCount > 0 && (
-              <span className="clay-chat-compact-badge">
-                {unreadChatCount}
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Glittering Pink Theater Control Deck (Bottom bar) */}
-      <div ref={theaterDeckRef} className="theater-deck" data-ambient={isAmbientActive ? 'on' : 'off'}>
-        <div className="amb-blur-backdrop" aria-hidden="true">
-          <canvas ref={ambientDeckCanvasRef} width={64} height={1} className="amb-blur-canvas" />
-        </div>
-        <div className="amb-row">
-          <div className="amb-dock-group">
-            <button
-              onClick={handleForceSync}
-              className="btn-gold-shimmer amb-sync-cta"
-              title="Snap both users to exact timestamp"
-            >
-              <ClaySparkle size={15} />
-              <span>Sync Both</span>
-            </button>
-            <button
-              onClick={() => setCreateModalOpen(true)}
-              className="btn-pink-secondary amb-btn-sm"
-            >
-              <ClayPopcorn size={15} />
-              <span>Change Media</span>
-            </button>
-            <button
-              onClick={openLibrary}
-              className="btn-pink-secondary amb-btn-sm"
-            >
-              <ClayFolder size={15} />
-              <span>Library</span>
-            </button>
-          </div>
-
-          <div className="amb-dock-group">
-            <div className="amb-voice-dock">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleMicButtonClick();
-                }}
-                className="amb-voice-btn"
-                style={{
-                  background: !isVoiceConnected
-                    ? undefined
-                    : isLocalSpeaking && !isMuted
-                      ? 'rgba(236, 72, 153, 0.38)'
-                      : isMuted
-                        ? 'rgba(239, 68, 68, 0.26)'
-                        : 'rgba(236, 72, 153, 0.24)',
-                  color: !isVoiceConnected ? '#fff5fa' : (isMuted ? '#fca5a5' : '#ffffff')
-                }}
-                title={!isVoiceConnected ? "Turn Mic On (Hold V for Push-to-Talk)" : (isMuted ? "Unmute Mic (Hold V for Push-to-Talk)" : "Mute Mic")}
-              >
-                {!isVoiceConnected ? (
-                  <>
-                    <Mic size={13} color="#f472b6" />
-                    <span>Mic Off</span>
-                  </>
-                ) : isMuted ? (
-                  <>
-                    <MicOff size={13} color="#ef4444" />
-                    <span>Muted</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic size={13} color="#34d399" />
-                    <span>Live</span>
-                  </>
-                )}
-              </button>
-              <div className="amb-dock-divider" />
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowVoiceSettings((prev) => {
-                    const next = !prev;
-                    if (next) refreshMediaDevices();
-                    return next;
-                  });
-                  setShowSubtitlePopover(false);
-                  setShowAudioPopover(false);
-                }}
-                className="amb-voice-btn"
-                style={{
-                  background: showVoiceSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
-                  color: '#fff5fa',
-                  maxWidth: '150px'
-                }}
-                title="Voice & Audio Settings"
-              >
-                <Sliders size={12} color="var(--pink-primary)" />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
-                </span>
-                <ChevronDown size={11} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
-              </button>
-              {renderVoiceSettingsPopover()}
-            </div>
-          </div>
-
-          <div className="amb-dock-group">
-            <input
-              ref={subtitleFileInputRef}
-              type="file"
-              accept=".srt,.vtt,.ass"
-              style={{ display: 'none' }}
-              onChange={handleCustomSubtitleUpload}
-            />
-
-            {isVoiceConnected && (
-              <span
-                onClick={() => setShowVoiceSettings(true)}
-                className="amb-status-pill"
-                style={{
-                  background: isMuted ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)',
-                  border: isMuted ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(16, 185, 129, 0.35)',
-                  color: isMuted ? '#f87171' : 'var(--emerald-accent)',
-                  cursor: 'pointer'
-                }}
-                title="Click to open Voice Hardware Settings"
-              >
-                <span className="status-dot" style={{ background: isMuted ? '#ef4444' : 'var(--emerald-accent)' }}></span>
-                <span className="amb-status-text">{isMuted ? 'Muted' : 'Voice'}</span>
-              </span>
-            )}
-
-            {Array.from(remotePeers.entries()).map(([pId, p]) => (
-              <span
-                key={pId}
-                className="amb-status-pill"
-                style={{
-                  background: p.isSpeaking ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255, 255, 255, 0.08)',
-                  border: p.isSpeaking ? `1px solid ${p.color || '#10b981'}` : '1px solid rgba(255, 255, 255, 0.14)',
-                  color: '#fff'
-                }}
-                title={p.isSpeaking ? `${p.username} is speaking` : `${p.username} in voice`}
-              >
-                <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
-                <span className="amb-status-text">{p.username}</span>
-                {p.isMuted ? <MicOff size={10} color="#f87171" /> : p.isSpeaking ? <Radio size={10} color="#10b981" /> : <Mic size={10} color="#fbcfe8" />}
-              </span>
-            ))}
-
-            <span
-              className="amb-status-pill"
-              style={{
-                background: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.34)',
-                color: 'var(--emerald-accent)'
               }}
-              title={syncStatus}
+              className="pouf-btn-tactile"
+              style={{
+                position: 'absolute',
+                bottom: isTheaterFullscreen ? '20px' : '16px',
+                left: '20px',
+                zIndex: 999,
+                background: 'rgba(23, 15, 32, 0.88)',
+                backdropFilter: 'blur(16px)',
+                border: '1px solid rgba(244, 114, 182, 0.45)',
+                borderRadius: '9999px',
+                padding: '6px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#fff',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 12px rgba(244, 114, 182, 0.25)',
+                transition: 'all 0.2s ease',
+                pointerEvents: 'auto'
+              }}
+              title="Open In-Video Chat (or press Enter)"
             >
-              <span className="status-dot" style={{ background: 'var(--emerald-accent)' }}></span>
-              <span className="amb-status-text">{syncStatus}</span>
-            </span>
-
-            <div className="amb-dock-divider" />
-
-            <button
-              onClick={handleToggleSideChat}
-              className={`${isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'} amb-btn-sm`}
-              style={{ position: 'relative' }}
-              title="Toggle Chit Chat Split Screen (Shortcut: C)"
-            >
-              <ClayChat size={15} />
-              <span>Chit Chat</span>
-              {unreadChatCount > 0 && !isChatSidebarOpen && (
-                <span className="clay-unread-badge" style={{ marginLeft: '2px' }}>
+              <MessageSquare size={13} color="#f472b6" />
+              <span>Chat (Enter)</span>
+              {unreadChatCount > 0 && (
+                <span style={{
+                  background: '#f472b6',
+                  color: '#fff',
+                  fontSize: '10px',
+                  borderRadius: '999px',
+                  padding: '1px 6px',
+                  fontWeight: 800
+                }}>
                   {unreadChatCount}
                 </span>
               )}
             </button>
+          )}
 
-            {isLoungeScreen && (
-              <button
-                type="button"
-                aria-pressed={ambientEnabled}
-                aria-label="Toggle Ambient Glow"
-                data-active={ambientEnabled ? 'true' : 'false'}
-                onClick={toggleAmbientMode}
-                className="amb-icon-keycap"
-                title={ambientEnabled ? 'Ambient Glow: On' : 'Ambient Glow: Off'}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="4" y="6" width="16" height="12" rx="3" fill={ambientEnabled ? 'currentColor' : 'none'} fillOpacity={ambientEnabled ? '0.24' : '0'} />
-                  <path d="M8 2.75h8M8 21.25h8M1.75 9.5v5M22.25 9.5v5" />
-                </svg>
-              </button>
-            )}
+          {/* Floating Subtitle & Audio Popovers */}
+          {renderTrackPopovers()}
 
+          {/* Push-to-Talk HUD Banner */}
+          {isPushToTalking && (
+            <div style={{
+              position: 'absolute',
+              top: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 65,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 20px',
+              borderRadius: '999px',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95))',
+              color: '#fff',
+              fontWeight: 800,
+              fontSize: '0.86rem',
+              boxShadow: '0 0 24px rgba(16, 185, 129, 0.7), 0 8px 16px rgba(0,0,0,0.4)',
+              pointerEvents: 'none',
+              letterSpacing: '0.04em'
+            }}>
+              <Radio size={16} />
+              <span>TRANSMITTING (HOLDING 'V')</span>
+            </div>
+          )}
+
+          {/* Minimal Docked Arrow Button when Chat is Closed */}
+          {!isChatSidebarOpen && (
             <button
-              onClick={toggleVideoFullscreen}
-              className="btn-pink-secondary amb-btn-sm"
-              title="Toggle Fullscreen (Shortcut: F)"
+              type="button"
+              onClick={handleToggleSideChat}
+              className="clay-docked-chat-trigger"
+              title="Open Chat (Shortcut: C)"
+              aria-label="Open Chat"
             >
-              <Maximize size={13} color="var(--pink-primary)" />
-              <span>Fullscreen</span>
+              <ChevronLeft size={18} strokeWidth={2.4} />
+              {unreadChatCount > 0 && (
+                <span className="clay-chat-compact-badge">
+                  {unreadChatCount}
+                </span>
+              )}
             </button>
+          )}
+        </div>
+
+        {/* Glittering Pink Theater Control Deck (Bottom bar) */}
+        <div ref={theaterDeckRef} className="theater-deck" data-ambient={isAmbientActive ? 'on' : 'off'}>
+          <div className="amb-blur-backdrop" aria-hidden="true">
+            <canvas ref={ambientDeckCanvasRef} width={64} height={1} className="amb-blur-canvas" />
+          </div>
+          <div className="amb-row">
+            <div className="amb-dock-group">
+              <button
+                onClick={handleForceSync}
+                className="btn-gold-shimmer amb-sync-cta"
+                title="Snap both users to exact timestamp"
+              >
+                <ClaySparkle size={15} />
+                <span>Sync Both</span>
+              </button>
+              <button
+                onClick={() => setCreateModalOpen(true)}
+                className="btn-pink-secondary amb-btn-sm"
+              >
+                <ClayPopcorn size={15} />
+                <span>Change Media</span>
+              </button>
+              <button
+                onClick={openLibrary}
+                className="btn-pink-secondary amb-btn-sm"
+              >
+                <ClayFolder size={15} />
+                <span>Library</span>
+              </button>
+            </div>
+
+            <div className="amb-dock-group">
+              <div className="amb-voice-dock">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMicButtonClick();
+                  }}
+                  className="amb-voice-btn"
+                  style={{
+                    background: !isVoiceConnected
+                      ? undefined
+                      : isLocalSpeaking && !isMuted
+                        ? 'rgba(236, 72, 153, 0.38)'
+                        : isMuted
+                          ? 'rgba(239, 68, 68, 0.26)'
+                          : 'rgba(236, 72, 153, 0.24)',
+                    color: !isVoiceConnected ? '#fff5fa' : (isMuted ? '#fca5a5' : '#ffffff')
+                  }}
+                  title={!isVoiceConnected ? "Turn Mic On (Hold V for Push-to-Talk)" : (isMuted ? "Unmute Mic (Hold V for Push-to-Talk)" : "Mute Mic")}
+                >
+                  {!isVoiceConnected ? (
+                    <>
+                      <Mic size={13} color="#f472b6" />
+                      <span>Mic Off</span>
+                    </>
+                  ) : isMuted ? (
+                    <>
+                      <MicOff size={13} color="#ef4444" />
+                      <span>Muted</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic size={13} color="#34d399" />
+                      <span>Live</span>
+                    </>
+                  )}
+                </button>
+                <div className="amb-dock-divider" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowVoiceSettings((prev) => {
+                      const next = !prev;
+                      if (next) refreshMediaDevices();
+                      return next;
+                    });
+                    setShowSubtitlePopover(false);
+                    setShowAudioPopover(false);
+                  }}
+                  className="amb-voice-btn"
+                  style={{
+                    background: showVoiceSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
+                    color: '#fff5fa',
+                    maxWidth: '150px'
+                  }}
+                  title="Voice & Audio Settings"
+                >
+                  <Sliders size={12} color="var(--pink-primary)" />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
+                  </span>
+                  <ChevronDown size={11} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
+                </button>
+                {renderVoiceSettingsPopover()}
+              </div>
+            </div>
+
+            <div className="amb-dock-group">
+              <input
+                ref={subtitleFileInputRef}
+                type="file"
+                accept=".srt,.vtt,.ass"
+                style={{ display: 'none' }}
+                onChange={handleCustomSubtitleUpload}
+              />
+
+              {isVoiceConnected && (
+                <span
+                  onClick={() => setShowVoiceSettings(true)}
+                  className="amb-status-pill"
+                  style={{
+                    background: isMuted ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)',
+                    border: isMuted ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(16, 185, 129, 0.35)',
+                    color: isMuted ? '#f87171' : 'var(--emerald-accent)',
+                    cursor: 'pointer'
+                  }}
+                  title="Click to open Voice Hardware Settings"
+                >
+                  <span className="status-dot" style={{ background: isMuted ? '#ef4444' : 'var(--emerald-accent)' }}></span>
+                  <span className="amb-status-text">{isMuted ? 'Muted' : 'Voice'}</span>
+                </span>
+              )}
+
+              {Array.from(remotePeers.entries()).map(([pId, p]) => (
+                <span
+                  key={pId}
+                  className="amb-status-pill"
+                  style={{
+                    background: p.isSpeaking ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255, 255, 255, 0.08)',
+                    border: p.isSpeaking ? `1px solid ${p.color || '#10b981'}` : '1px solid rgba(255, 255, 255, 0.14)',
+                    color: '#fff'
+                  }}
+                  title={p.isSpeaking ? `${p.username} is speaking` : `${p.username} in voice`}
+                >
+                  <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
+                  <span className="amb-status-text">{p.username}</span>
+                  {p.isMuted ? <MicOff size={10} color="#f87171" /> : p.isSpeaking ? <Radio size={10} color="#10b981" /> : <Mic size={10} color="#fbcfe8" />}
+                </span>
+              ))}
+
+              <span
+                className="amb-status-pill"
+                style={{
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.34)',
+                  color: 'var(--emerald-accent)'
+                }}
+                title={syncStatus}
+              >
+                <span className="status-dot" style={{ background: 'var(--emerald-accent)' }}></span>
+                <span className="amb-status-text">{syncStatus}</span>
+              </span>
+
+              <div className="amb-dock-divider" />
+
+              <button
+                onClick={handleToggleSideChat}
+                className={`${isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'} amb-btn-sm`}
+                style={{ position: 'relative' }}
+                title="Toggle Chit Chat Split Screen (Shortcut: C)"
+              >
+                <ClayChat size={15} />
+                <span>Chit Chat</span>
+                {unreadChatCount > 0 && !isChatSidebarOpen && (
+                  <span className="clay-unread-badge" style={{ marginLeft: '2px' }}>
+                    {unreadChatCount}
+                  </span>
+                )}
+              </button>
+
+              {isLoungeScreen && (
+                <button
+                  type="button"
+                  aria-pressed={ambientEnabled}
+                  aria-label="Toggle Ambient Glow"
+                  data-active={ambientEnabled ? 'true' : 'false'}
+                  onClick={toggleAmbientMode}
+                  className="amb-icon-keycap"
+                  title={ambientEnabled ? 'Ambient Glow: On' : 'Ambient Glow: Off'}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="4" y="6" width="16" height="12" rx="3" fill={ambientEnabled ? 'currentColor' : 'none'} fillOpacity={ambientEnabled ? '0.24' : '0'} />
+                    <path d="M8 2.75h8M8 21.25h8M1.75 9.5v5M22.25 9.5v5" />
+                  </svg>
+                </button>
+              )}
+
+              <button
+                onClick={toggleVideoFullscreen}
+                className="btn-pink-secondary amb-btn-sm"
+                title="Toggle Fullscreen (Shortcut: F)"
+              >
+                <Maximize size={13} color="var(--pink-primary)" />
+                <span>Fullscreen</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       </div>
 
       {/* Dedicated Split-Screen Chat Sidebar in ALL scenarios */}

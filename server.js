@@ -185,6 +185,28 @@ const nekoProxy = createProxyMiddleware({
     '^/neko': ''
   },
   on: {
+    proxyReq: (proxyReq, req, res) => {
+      // Normalize origin so Neko backend accepts cross-origin API requests without CORS rejection
+      try {
+        const u = new URL(NEKO_URL);
+        proxyReq.setHeader('origin', u.origin);
+      } catch {}
+    },
+    proxyRes: (proxyRes, req, res) => {
+      // Rewrite session cookies so browsers allow them inside iframes (SameSite=None; Secure; Partitioned)
+      const setCookie = proxyRes.headers['set-cookie'];
+      if (setCookie) {
+        proxyRes.headers['set-cookie'] = (Array.isArray(setCookie) ? setCookie : [setCookie]).map(cookie => {
+          let updated = cookie
+            .replace(/SameSite=(Lax|Strict)/gi, 'SameSite=None')
+            .replace(/;\s*Secure/gi, '');
+          if (!updated.includes('SameSite=')) {
+            updated += '; SameSite=None';
+          }
+          return updated + '; Secure; Partitioned';
+        });
+      }
+    },
     error: (err, req, res) => {
       console.warn(`[Neko Proxy] Connection notice: ${err.message}`);
       if (res && !res.headersSent) {
@@ -301,6 +323,19 @@ app.use('/neko', async (req, res, next) => {
   if (status === 'unavailable') {
     return res.status(503).json({ error: 'Docker socket is not available on this server to manage Neko.', code: 'DOCKER_UNAVAILABLE' });
   }
+
+  // Auto-inject admin credentials for seamless auto-login if accessing Neko root page without credentials
+  if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
+    const rawUrl = req.url || '';
+    if (!rawUrl.includes('pwd=')) {
+      const glue = rawUrl.includes('?') ? '&' : '?';
+      const user = getAuthUser(req);
+      const name = encodeURIComponent(user?.username || user?.name || 'Friend');
+      const pwd = encodeURIComponent(process.env.NEKO_ADMIN_PASSWORD || 'admin');
+      req.url = `${rawUrl}${glue}pwd=${pwd}&usr=${name}&embed=1`;
+    }
+  }
+
   nekoProxy(req, res, next);
 });
 
@@ -4707,6 +4742,15 @@ server.on('upgrade', async (req, socket, head) => {
       socket.destroy();
       return;
     }
+    // Normalize Origin to target host so gorilla/websocket checkOrigin allows the handshake from any tunnel/domain
+    try {
+      const u = new URL(NEKO_URL);
+      req.headers.origin = u.origin;
+    } catch {
+      req.headers.origin = 'http://neko:8080';
+    }
+    req.headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || 'https';
+    req.headers['x-forwarded-host'] = req.headers['x-forwarded-host'] || req.headers.host;
     // Strip /neko subpath prefix so Neko backend receives /api/ws?token=... instead of /neko/api/ws
     req.url = req.url.replace(/^\/neko/, '') || '/';
     nekoProxy.upgrade(req, socket, head);
