@@ -193,17 +193,22 @@ const nekoProxy = createProxyMiddleware({
       } catch {}
     },
     proxyRes: (proxyRes, req, res) => {
-      // Rewrite session cookies so browsers allow them inside iframes (SameSite=None; Secure; Partitioned)
+      // Rewrite session cookies so browsers allow them inside iframes
       const setCookie = proxyRes.headers['set-cookie'];
       if (setCookie) {
+        const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https' || (req.headers.host && req.headers.host.includes('trycloudflare.com'));
         proxyRes.headers['set-cookie'] = (Array.isArray(setCookie) ? setCookie : [setCookie]).map(cookie => {
-          let updated = cookie
-            .replace(/SameSite=(Lax|Strict)/gi, 'SameSite=None')
-            .replace(/;\s*Secure/gi, '');
-          if (!updated.includes('SameSite=')) {
-            updated += '; SameSite=None';
+          let updated = cookie;
+          if (isHttps) {
+            updated = updated
+              .replace(/SameSite=(Lax|Strict)/gi, 'SameSite=None')
+              .replace(/;\s*Secure/gi, '');
+            if (!updated.includes('SameSite=')) {
+              updated += '; SameSite=None';
+            }
+            return updated + '; Secure; Partitioned';
           }
-          return updated + '; Secure; Partitioned';
+          return updated;
         });
       }
     },
