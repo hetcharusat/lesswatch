@@ -194,8 +194,30 @@ const nekoProxy = createProxyMiddleware({
   },
   on: {
     error: (err, req, res) => {
+      console.warn(`[Neko Proxy] Connection notice: ${err.message}`);
       if (res && typeof res.status === 'function' && !res.headersSent) {
-        res.status(502).json({ error: `Neko proxy unreachable: ${err.message}` });
+        if (req.accepts && req.accepts('html') && !req.xhr && !req.headers['x-requested-with']) {
+          res.status(502).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Warming up Virtual Browser...</title>
+              <meta http-equiv="refresh" content="3">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+            </head>
+            <body style="font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 20px;">
+              <div style="max-width: 440px; background: #1e293b; padding: 32px; border-radius: 20px; border: 1px solid rgba(244,114,182,0.3); text-align: center; box-shadow: 0 12px 36px rgba(0,0,0,0.4);">
+                <div style="width: 42px; height: 42px; border: 3px solid rgba(236,72,153,0.2); border-top-color: #ec4899; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+                <h3 style="color: #f472b6; margin: 0 0 8px; font-size: 1.15rem;">Launching Virtual Browser...</h3>
+                <p style="color: #94a3b8; font-size: 13.5px; line-height: 1.5; margin: 0;">Chromium is starting on-demand inside Docker. Auto-refreshing in 3 seconds...</p>
+                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+              </div>
+            </body>
+            </html>
+          `);
+        } else {
+          res.status(502).json({ error: `Virtual browser is warming up (${err.message}). Retrying shortly...`, retryIn: 3 });
+        }
       } else if (res && typeof res.destroy === 'function') {
         try { res.destroy(); } catch {}
       }
@@ -223,22 +245,35 @@ const livekitProxy = createProxyMiddleware({
 });
 
 async function ensureNekoRunning() {
-  if (!appConfig?.modules?.neko) return;
-  if (isNekoStarting) return;
+  if (!appConfig?.modules?.neko) return 'disabled';
+  if (isNekoStarting) return 'starting';
   try {
     const status = await checkNekoStatus();
-    if (status === 'not_found' || status === 'unavailable') return;
+    if (status === 'not_found' || status === 'unavailable') return status;
     if (status !== 'running') {
       isNekoStarting = true;
-      await startNeko();
+      console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
+      const startRes = await startNeko();
+      if (!startRes.success) {
+        isNekoStarting = false;
+        return 'failed';
+      }
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const s = await checkNekoStatus();
+        if (s === 'running') break;
+      }
       if (nekoStartTimer) clearTimeout(nekoStartTimer);
       nekoStartTimer = setTimeout(() => {
         isNekoStarting = false;
         nekoStartTimer = null;
-      }, 3000);
+      }, 5000);
+      return 'running';
     }
+    return 'running';
   } catch (err) {
     isNekoStarting = false;
+    return 'error';
   }
 }
 
@@ -246,7 +281,33 @@ app.use('/neko', async (req, res, next) => {
   if (!appConfig?.modules?.neko) {
     return res.status(403).json({ error: 'Shared Browser (Neko) is disabled on this server.' });
   }
-  ensureNekoRunning();
+  const status = await ensureNekoRunning();
+  if (status === 'not_found') {
+    const errorMsg = `Neko container "${NEKO_CONTAINER_NAME}" was not found. Please provision it with: docker compose --profile neko up --no-start neko`;
+    if (req.accepts && req.accepts('html') && !req.xhr && !req.headers['x-requested-with']) {
+      return res.status(503).send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Virtual Browser Not Provisioned</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+        <body style="font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 20px;">
+          <div style="max-width: 480px; background: #1e293b; padding: 32px; border-radius: 20px; border: 1px solid rgba(244,114,182,0.3); text-align: center; box-shadow: 0 12px 36px rgba(0,0,0,0.4);">
+            <div style="width: 48px; height: 48px; border-radius: 14px; background: rgba(236,72,153,0.15); color: #f472b6; display: grid; place-items: center; margin: 0 auto 16px; font-size: 24px;">🌐</div>
+            <h2 style="color: #f472b6; margin: 0 0 10px; font-size: 1.25rem;">Virtual Browser Not Provisioned</h2>
+            <p style="color: #94a3b8; font-size: 13.5px; line-height: 1.5; margin: 0 0 18px;">To enable on-demand shared web browsing, run this single command in your server terminal:</p>
+            <div style="background: #0f172a; padding: 12px 14px; border-radius: 10px; font-family: monospace; font-size: 13px; color: #38bdf8; margin: 0 0 18px; user-select: all; border: 1px solid rgba(56,189,248,0.2);">
+              docker compose --profile neko up --no-start neko
+            </div>
+            <p style="color: #64748b; font-size: 12px; margin: 0;">Once provisioned, Watch Together automatically starts and stops Neko on-demand to save memory.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    return res.status(503).json({ error: errorMsg, code: 'NEKO_NOT_PROVISIONED' });
+  }
+  if (status === 'unavailable') {
+    return res.status(503).json({ error: 'Docker socket is not available on this server to manage Neko.', code: 'DOCKER_UNAVAILABLE' });
+  }
   nekoProxy(req, res, next);
 });
 
@@ -1038,7 +1099,8 @@ app.post('/api/setup/complete', (req, res) => {
     quickLoginEnabled: quickLoginEnabled !== false,
     quickLoginMode: quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
     modules: {
-      neko: modules?.neko !== false,
+      neko: modules?.neko !== false && modules?.neko !== 'disabled',
+      nekoMode: modules?.nekoMode || (modules?.neko === false ? 'disabled' : 'ondemand'),
       downloader: modules?.downloader !== false,
       mediaStudio: modules?.mediaStudio !== false,
       livekit: modules?.livekit !== false
@@ -1053,6 +1115,8 @@ app.post('/api/setup/complete', (req, res) => {
 
   if (!appConfig.modules.neko) {
     stopNeko().catch(() => {});
+  } else if (appConfig.modules.nekoMode === 'always') {
+    startNeko().catch(() => {});
   }
   if (appConfig.modules.downloader) {
     startAria2Daemon();
@@ -4356,13 +4420,17 @@ io.on('connection', (socket) => {
   });
 });
 
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', async (req, socket, head) => {
   if (req.url && req.url.startsWith('/neko')) {
     if (!appConfig?.modules?.neko) {
       socket.destroy();
       return;
     }
-    ensureNekoRunning();
+    const status = await ensureNekoRunning();
+    if (status === 'not_found' || status === 'unavailable' || status === 'failed') {
+      socket.destroy();
+      return;
+    }
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
     if (!appConfig?.modules?.livekit) {

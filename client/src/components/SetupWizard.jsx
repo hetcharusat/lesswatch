@@ -21,23 +21,40 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
   const [quickLoginEnabled, setQuickLoginEnabled] = useState(true);
   const [quickLoginMode, setQuickLoginMode] = useState('autofill');
   const [modules, setModules] = useState({
-    neko: initialConfig?.modules?.neko !== false,
+    neko: initialConfig?.modules?.neko !== false && initialConfig?.modules?.neko !== 'disabled',
     downloader: initialConfig?.modules?.downloader !== false,
     mediaStudio: initialConfig?.modules?.mediaStudio !== false,
     livekit: initialConfig?.modules?.livekit !== false
   });
+  const [nekoMode, setNekoMode] = useState(
+    initialConfig?.modules?.nekoMode || (initialConfig?.modules?.neko === false ? 'disabled' : 'ondemand')
+  );
   const [diagSnapshot, setDiagSnapshot] = useState(null);
   const nekoTouchedRef = useRef(false);
 
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const handleNekoModeChange = (mode) => {
+    nekoTouchedRef.current = true;
+    setNekoMode(mode);
+    setModules(m => ({ ...m, neko: mode !== 'disabled', nekoMode: mode }));
+  };
+
   const handleDiagnosticsLoaded = (data) => {
     setDiagSnapshot(data);
     if (!nekoTouchedRef.current && data?.neko && !data.neko.capable) {
-      setModules(m => (m.neko ? { ...m, neko: false } : m));
+      // By default keep as ondemand so it's ready when provisioned
+      setNekoMode('ondemand');
     }
   };
+
+  const readyCount = [
+    diagSnapshot?.transcoding?.capable !== false,
+    diagSnapshot?.downloader?.capable !== false,
+    diagSnapshot?.livekit?.capable !== false,
+    diagSnapshot?.neko?.capable !== false && nekoMode !== 'disabled'
+  ].filter(Boolean).length;
 
   const validateStep1 = () => {
     if (!instanceName.trim()) return 'Instance name is required.';
@@ -104,7 +121,11 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
           allowPublicSignup,
           quickLoginEnabled,
           quickLoginMode,
-          modules
+          modules: {
+            ...modules,
+            neko: nekoMode !== 'disabled',
+            nekoMode
+          }
         })
       });
       const data = await res.json();
@@ -602,7 +623,7 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
                           {/* Feature Modules */}
                           <div className="setup-flow-feature-box">
                             <div style={{ fontWeight: 800, color: '#831843', fontSize: '0.92rem' }}>
-                              Feature Modules
+                              Core Streaming Toolchains
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
@@ -624,20 +645,11 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
                                   icon: Radio,
                                   title: 'LiveKit Voice & Cam SFU',
                                   desc: 'Low-latency crystal clear voice chat and webcam video tiles.'
-                                },
-                                {
-                                  key: 'neko',
-                                  icon: Globe,
-                                  title: 'Shared Browser (Neko)',
-                                  desc: diagSnapshot?.neko && !diagSnapshot.neko.capable
-                                    ? 'Unavailable on this host (Docker container required); disabled by default.'
-                                    : 'Synchronized virtual Chromium browser inside rooms.'
                                 }
                               ].map(({ key, icon: Icon, title, desc }) => (
                                 <div
                                   key={key}
                                   onClick={() => {
-                                    if (key === 'neko') nekoTouchedRef.current = true;
                                     setModules(m => ({ ...m, [key]: !m[key] }));
                                   }}
                                   className={`setup-flow-module-tile ${modules[key] ? 'is-active' : ''}`}
@@ -661,6 +673,73 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
                                 </div>
                               ))}
                             </div>
+                          </div>
+
+                          {/* Shared Virtual Browser (Neko) Dedicated 3-Way Mode Card */}
+                          <div className="setup-flow-feature-box">
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Globe size={18} style={{ color: '#db2777' }} />
+                                <span style={{ fontWeight: 800, color: '#831843', fontSize: '0.92rem' }}>
+                                  Shared Virtual Browser (Neko Chromium)
+                                </span>
+                              </div>
+                              <span className={`setup-status-pill ${nekoMode !== 'disabled' ? 'success' : ''}`}>
+                                {nekoMode === 'ondemand' ? '⚡ On-Demand (0 MB Idle RAM)' : nekoMode === 'always' ? '🟢 Always Active' : '🛑 Disabled'}
+                              </span>
+                            </div>
+
+                            <div className="setup-neko-mode-grid">
+                              <div
+                                onClick={() => handleNekoModeChange('ondemand')}
+                                className={`setup-neko-mode-card ${nekoMode === 'ondemand' ? 'is-active' : ''}`}
+                              >
+                                <div className="setup-neko-mode-header">
+                                  <span className="setup-neko-mode-title">
+                                    <span>🌙</span> On-Demand
+                                  </span>
+                                  <span className="setup-status-pill success">Recommended</span>
+                                </div>
+                                <div className="setup-neko-mode-desc">
+                                  Spins up Chromium only when a room member opens the virtual browser. Auto-sleeps when idle to save 100% of memory.
+                                </div>
+                              </div>
+
+                              <div
+                                onClick={() => handleNekoModeChange('always')}
+                                className={`setup-neko-mode-card ${nekoMode === 'always' ? 'is-active' : ''}`}
+                              >
+                                <div className="setup-neko-mode-header">
+                                  <span className="setup-neko-mode-title">
+                                    <span>⚡</span> Always-On
+                                  </span>
+                                </div>
+                                <div className="setup-neko-mode-desc">
+                                  Keeps container running continuously for zero-wait access. Requires ~2GB dedicated RAM.
+                                </div>
+                              </div>
+
+                              <div
+                                onClick={() => handleNekoModeChange('disabled')}
+                                className={`setup-neko-mode-card ${nekoMode === 'disabled' ? 'is-active' : ''}`}
+                              >
+                                <div className="setup-neko-mode-header">
+                                  <span className="setup-neko-mode-title">
+                                    <span>🛑</span> Disabled
+                                  </span>
+                                </div>
+                                <div className="setup-neko-mode-desc">
+                                  Disables virtual browser module completely. Saves all RAM strictly for video streaming and voice chat.
+                                </div>
+                              </div>
+                            </div>
+
+                            {diagSnapshot?.neko && !diagSnapshot.neko.capable && nekoMode !== 'disabled' && (
+                              <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: 12, background: '#fffbeb', border: '1px solid rgba(245, 158, 11, 0.4)', fontSize: '0.78rem', color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                                <span>Container image not created yet in Docker. Run in server terminal: <code style={{ background: '#fef3c7', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>docker compose --profile neko up --no-start neko</code></span>
+                              </div>
+                            )}
                           </div>
 
             <div className="setup-flow-actions">
@@ -768,6 +847,77 @@ export default function SetupWizard({ initialConfig, onComplete, isPreview = fal
             </div>
           </div>
         )}
+
+        {/* Floating Glassmorphic Sticky Dock */}
+        <div className="setup-flow-sticky-dock">
+          <div className="setup-dock-status-group">
+            <div className="setup-pulse-orb" />
+            <div className="setup-dock-text">
+              <div className="setup-dock-title">
+                <span>Step {step} of 5: {stepList[step - 1]?.label}</span>
+              </div>
+              <div className="setup-dock-sub">
+                <span className="setup-status-pill success">
+                  <Check size={11} /> {readyCount}/4 Toolchains
+                </span>
+                {diagSnapshot?.memory?.free && (
+                  <span className="setup-status-pill">
+                    ⚡ {diagSnapshot.memory.free} Free RAM
+                  </span>
+                )}
+                <span className="setup-status-pill">
+                  {nekoMode === 'ondemand' ? '🌙 Neko: On-Demand' : nekoMode === 'always' ? '⚡ Neko: Always' : '🛑 Neko: Off'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="setup-dock-actions">
+            {step > 1 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="setup-flow-btn-secondary"
+                style={{ padding: '8px 14px', fontSize: '0.82rem' }}
+              >
+                <ArrowLeft size={15} /> Back
+              </button>
+            )}
+
+            {step < 5 ? (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="setup-flow-btn-primary"
+                style={{ padding: '8px 18px', fontSize: '0.84rem' }}
+              >
+                {step === 1 && <>Begin Health Check <ArrowRight size={15} /></>}
+                {step === 2 && <>Continue to Admin <ArrowRight size={15} /></>}
+                {step === 3 && <>Continue to Modules <ArrowRight size={15} /></>}
+                {step === 4 && <>Review & Finalize <ArrowRight size={15} /></>}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleFinish}
+                disabled={submitting}
+                className="setup-flow-btn-primary"
+                style={{
+                  padding: '8px 20px',
+                  fontSize: '0.86rem',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  boxShadow: '0 6px 20px -2px rgba(16, 185, 129, 0.45)'
+                }}
+              >
+                {submitting ? (
+                  <>Saving...</>
+                ) : (
+                  <>Launch Watch Together 🍿 <Sparkles size={16} /></>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
