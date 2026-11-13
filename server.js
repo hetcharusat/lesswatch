@@ -108,10 +108,18 @@ function callDockerAPI(apiPath, method = 'POST', postData = null) {
 
 async function checkNekoStatus() {
   if (!hasDockerSocket()) {
+    try {
+      const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
+      if (probe.status < 500) return 'running';
+    } catch {}
     return 'unavailable';
   }
   const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/json`, 'GET');
   if (res.status === 404) {
+    try {
+      const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
+      if (probe.status < 500) return 'running';
+    } catch {}
     return 'not_found';
   }
   if (res.body?.State?.Status) {
@@ -196,7 +204,8 @@ const nekoProxy = createProxyMiddleware({
       // Rewrite session cookies so browsers allow them inside iframes
       const setCookie = proxyRes.headers['set-cookie'];
       if (setCookie) {
-        const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https' || (req.headers.host && req.headers.host.includes('trycloudflare.com'));
+        const proto = req.headers['x-forwarded-proto'] || '';
+        const isHttps = req.secure || proto.includes('https') || (req.headers.host && req.headers.host.includes('trycloudflare.com'));
         proxyRes.headers['set-cookie'] = (Array.isArray(setCookie) ? setCookie : [setCookie]).map(cookie => {
           let updated = cookie;
           if (isHttps) {
@@ -266,12 +275,36 @@ async function ensureNekoRunning() {
 
   nekoStartupPromise = (async () => {
     try {
+      // First probe NEKO_URL directly: if Neko is already running, return 'running'
+      // so WebSocket upgrades and HTTP requests are never blocked when the Docker socket is unmounted or restricted.
+      try {
+        const directProbe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
+        if (directProbe.status < 500) {
+          return 'running';
+        }
+      } catch {}
+
       const status = await checkNekoStatus();
-      if (status === 'not_found' || status === 'unavailable') return status;
+      if (status === 'not_found' || status === 'unavailable') {
+        // Probe NEKO_URL before failing with 'unavailable' or 'not_found'
+        try {
+          const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
+          if (probe.status < 500) {
+            return 'running';
+          }
+        } catch {}
+        return status;
+      }
       if (status !== 'running') {
         console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
         const startRes = await startNeko();
-        if (!startRes.success) return 'failed';
+        if (!startRes.success) {
+          try {
+            const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
+            if (probe.status < 500) return 'running';
+          } catch {}
+          return 'failed';
+        }
       }
 
       // Wait until Neko HTTP endpoint is actively accepting connections
@@ -288,6 +321,10 @@ async function ensureNekoRunning() {
       return 'running';
     } catch (err) {
       console.error('Neko startup error:', err);
+      try {
+        const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
+        if (probe.status < 500) return 'running';
+      } catch {}
       return 'error';
     } finally {
       setTimeout(() => { nekoStartupPromise = null; }, 2000);
@@ -301,6 +338,27 @@ app.use('/neko', async (req, res, next) => {
   if (!appConfig?.modules?.neko) {
     return res.status(403).json({ error: 'Shared Browser (Neko) is disabled on this server.' });
   }
+
+  // If a request arrives at /neko or /neko/ without pwd=, or arrives at /neko without a trailing slash,
+  // return an HTTP 302 redirect with ?pwd=admin&usr=...&embed=1 so Neko's client reads the query params in window.location.search
+  // and relative assets/API calls (assets/..., api/...) resolve correctly under /neko/
+  if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
+    const rawUrl = req.url || '';
+    const hasTrailingSlash = (req.originalUrl || '').split('?')[0].endsWith('/');
+    const hasPwd = rawUrl.includes('pwd=') || (req.query && req.query.pwd);
+
+    if (!hasTrailingSlash || !hasPwd) {
+      const user = getAuthUser(req);
+      const name = user?.username || user?.name || 'Friend';
+      const pwd = process.env.NEKO_ADMIN_PASSWORD || process.env.NEKO_PASSWORD || 'admin';
+      const searchParams = new URLSearchParams(req.query);
+      if (!searchParams.has('pwd')) searchParams.set('pwd', pwd);
+      if (!searchParams.has('usr')) searchParams.set('usr', name);
+      if (!searchParams.has('embed')) searchParams.set('embed', '1');
+      return res.redirect(302, `/neko/?${searchParams.toString()}`);
+    }
+  }
+
   const status = await ensureNekoRunning();
   if (status === 'not_found') {
     const errorMsg = `Neko container "${NEKO_CONTAINER_NAME}" was not found. Please provision it with: docker compose --profile neko up --no-start neko`;
@@ -327,18 +385,6 @@ app.use('/neko', async (req, res, next) => {
   }
   if (status === 'unavailable') {
     return res.status(503).json({ error: 'Docker socket is not available on this server to manage Neko.', code: 'DOCKER_UNAVAILABLE' });
-  }
-
-  // Auto-inject admin credentials for seamless auto-login if accessing Neko root page without credentials
-  if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
-    const rawUrl = req.url || '';
-    if (!rawUrl.includes('pwd=')) {
-      const glue = rawUrl.includes('?') ? '&' : '?';
-      const user = getAuthUser(req);
-      const name = encodeURIComponent(user?.username || user?.name || 'Friend');
-      const pwd = encodeURIComponent(process.env.NEKO_ADMIN_PASSWORD || 'admin');
-      req.url = `${rawUrl}${glue}pwd=${pwd}&usr=${name}&embed=1`;
-    }
   }
 
   nekoProxy(req, res, next);
@@ -4742,11 +4788,16 @@ server.on('upgrade', async (req, socket, head) => {
       socket.destroy();
       return;
     }
+    socket.pause();
     const status = await ensureNekoRunning();
-    if (status === 'not_found' || status === 'unavailable' || status === 'failed') {
+    if (socket.destroyed) {
+      return;
+    }
+    if (status !== 'running') {
       socket.destroy();
       return;
     }
+    socket.resume();
     // Normalize Origin to target host so gorilla/websocket checkOrigin allows the handshake from any tunnel/domain
     try {
       const u = new URL(NEKO_URL);
@@ -4757,7 +4808,9 @@ server.on('upgrade', async (req, socket, head) => {
     req.headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || 'https';
     req.headers['x-forwarded-host'] = req.headers['x-forwarded-host'] || req.headers.host;
     // Strip /neko subpath prefix so Neko backend receives /api/ws?token=... instead of /neko/api/ws
-    req.url = req.url.replace(/^\/neko/, '') || '/';
+    let cleanUrl = req.url.replace(/^\/neko/, '') || '/';
+    if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
+    req.url = cleanUrl;
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
     if (!appConfig?.modules?.livekit) {
@@ -4765,7 +4818,9 @@ server.on('upgrade', async (req, socket, head) => {
       return;
     }
     // Strip /livekit subpath prefix so LiveKit SFU receives /rtc instead of /livekit/rtc
-    req.url = req.url.replace(/^\/livekit/, '') || '/';
+    let cleanUrl = req.url.replace(/^\/livekit/, '') || '/';
+    if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
+    req.url = cleanUrl;
     livekitProxy.upgrade(req, socket, head);
   }
 });

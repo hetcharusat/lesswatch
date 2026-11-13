@@ -438,6 +438,27 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
   else
     echo \"NEKO_ADMIN_PASSWORD=admin\" >> .env
   fi
+  DEFAULT_ICESERVERS='[{\"urls\":[\"stun:stun.l.google.com:19302\"]},{\"urls\":[\"turn:openrelay.metered.ca:443?transport=tcp\",\"turn:openrelay.metered.ca:80\",\"turn:openrelay.metered.ca:443\"],\"username\":\"openrelayproject\",\"credential\":\"openrelayproject\"}]'
+  if grep -q '^NEKO_ICELITE=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_ICELITE=.*/NEKO_ICELITE=0/\" .env
+  else
+    echo \"NEKO_ICELITE=0\" >> .env
+  fi
+  if grep -q '^NEKO_WEBRTC_ICELITE=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_WEBRTC_ICELITE=.*/NEKO_WEBRTC_ICELITE=0/\" .env
+  else
+    echo \"NEKO_WEBRTC_ICELITE=0\" >> .env
+  fi
+  if grep -q '^NEKO_WEBRTC_ICESERVERS_FRONTEND=' .env 2>/dev/null; then
+    sed -i \"s|^NEKO_WEBRTC_ICESERVERS_FRONTEND=.*|NEKO_WEBRTC_ICESERVERS_FRONTEND='\${DEFAULT_ICESERVERS}'|\" .env
+  else
+    echo \"NEKO_WEBRTC_ICESERVERS_FRONTEND='\${DEFAULT_ICESERVERS}'\" >> .env
+  fi
+  if grep -q '^NEKO_WEBRTC_ICESERVERS_BACKEND=' .env 2>/dev/null; then
+    sed -i \"s|^NEKO_WEBRTC_ICESERVERS_BACKEND=.*|NEKO_WEBRTC_ICESERVERS_BACKEND='\${DEFAULT_ICESERVERS}'|\" .env
+  else
+    echo \"NEKO_WEBRTC_ICESERVERS_BACKEND='\${DEFAULT_ICESERVERS}'\" >> .env
+  fi
   mkdir -p ./data ./downloads
   chown -R \"\$ACTUAL_USER:\$ACTUAL_USER\" ./data ./downloads 2>/dev/null || true
 "

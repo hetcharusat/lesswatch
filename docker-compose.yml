@@ -25,7 +25,7 @@ services:
       - SUBDL_API_KEY=${SUBDL_API_KEY:-}
       - NEKO_CONTAINER_NAME=${NEKO_CONTAINER_NAME:-neko}
       - NEKO_URL=${NEKO_URL:-http://neko:8080}
-      - NEKO_PASSWORD=${NEKO_PASSWORD:-neko}
+      - NEKO_PASSWORD=${NEKO_PASSWORD:-admin}
       - NEKO_ADMIN_PASSWORD=${NEKO_ADMIN_PASSWORD:-admin}
     depends_on:
       - livekit
@@ -74,10 +74,14 @@ services:
       - NEKO_SERVER_CORS=*
       - NEKO_EPR=52000-52100
       - NEKO_WEBRTC_EPR=52000-52100
-      - NEKO_ICELITE=1
-      - NEKO_WEBRTC_ICELITE=1
+      - NEKO_ICELITE=0
+      - NEKO_WEBRTC_ICELITE=0
       - NEKO_NAT1TO1=${NEKO_NAT1TO1:-}
       - NEKO_WEBRTC_NAT1TO1=${NEKO_NAT1TO1:-}
+      - NEKO_WEBRTC_ICESERVERS_FRONTEND=${NEKO_WEBRTC_ICESERVERS_FRONTEND:-[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:openrelay.metered.ca:443?transport=tcp","turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]}
+      - NEKO_WEBRTC_ICESERVERS_BACKEND=${NEKO_WEBRTC_ICESERVERS_BACKEND:-[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:openrelay.metered.ca:443?transport=tcp","turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]}
+      - NEKO_WEBRTC_ICESERVERS=${NEKO_WEBRTC_ICESERVERS_BACKEND:-[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:openrelay.metered.ca:443?transport=tcp","turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]}
+      - NEKO_ICESERVERS=${NEKO_WEBRTC_ICESERVERS_BACKEND:-[{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:openrelay.metered.ca:443?transport=tcp","turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]}
 
   caddy:
     image: caddy:2-alpine

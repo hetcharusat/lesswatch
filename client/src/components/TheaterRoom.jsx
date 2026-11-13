@@ -3261,32 +3261,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       const win = iframe.contentWindow;
       if (!doc || !win) return;
 
-      // Auto-submit / bypass any Neko login screen seamlessly for everyone in the room
-      const tryAutoLogin = () => {
-        try {
-          if (!doc) return;
-          const uInput = doc.querySelector('input[name="username"]') || doc.querySelector('input[type="text"]');
-          const pInput = doc.querySelector('input[name="password"]') || doc.querySelector('input[type="password"]');
-          const submitBtn = doc.querySelector('button[type="submit"]') || doc.querySelector('.login-submit') || doc.querySelector('form button');
-          if (uInput && !uInput.value) {
-            uInput.value = currentProfile?.username || currentProfile?.name || 'Viewer';
-            uInput.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-          if (pInput && !pInput.value) {
-            pInput.value = 'admin';
-            pInput.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-          if (submitBtn) {
-            submitBtn.click();
-          }
-        } catch {}
-      };
-      tryAutoLogin();
-      setTimeout(tryAutoLogin, 250);
-      setTimeout(tryAutoLogin, 750);
-      setTimeout(tryAutoLogin, 1500);
-      setTimeout(tryAutoLogin, 3000);
-
       const triggerTheaterFullscreen = (options) => {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;
