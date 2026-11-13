@@ -120,15 +120,7 @@ async function checkNekoStatus() {
   return 'unknown';
 }
 
-let isNekoStarting = false;
-let nekoStartTimer = null;
-
 async function stopNeko() {
-  isNekoStarting = false;
-  if (nekoStartTimer) {
-    clearTimeout(nekoStartTimer);
-    nekoStartTimer = null;
-  }
   if (!hasDockerSocket()) {
     return { success: false, error: 'Docker socket not available' };
   }
@@ -195,7 +187,7 @@ const nekoProxy = createProxyMiddleware({
   on: {
     error: (err, req, res) => {
       console.warn(`[Neko Proxy] Connection notice: ${err.message}`);
-      if (res && typeof res.status === 'function' && !res.headersSent) {
+      if (res && !res.headersSent) {
         if (req.accepts && req.accepts('html') && !req.xhr && !req.headers['x-requested-with']) {
           res.status(502).send(`
             <!DOCTYPE html>
@@ -218,8 +210,6 @@ const nekoProxy = createProxyMiddleware({
         } else {
           res.status(502).json({ error: `Virtual browser is warming up (${err.message}). Retrying shortly...`, retryIn: 3 });
         }
-      } else if (res && typeof res.destroy === 'function') {
-        try { res.destroy(); } catch {}
       }
     }
   }
@@ -235,15 +225,14 @@ const livekitProxy = createProxyMiddleware({
   },
   on: {
     error: (err, req, res) => {
-      if (res && typeof res.status === 'function' && !res.headersSent) {
+      if (res && !res.headersSent) {
         res.status(502).json({ error: `LiveKit signaling unreachable: ${err.message}` });
-      } else if (res && typeof res.destroy === 'function') {
-        try { res.destroy(); } catch {}
       }
     }
   }
 });
 
+let isNekoStarting = false;
 async function ensureNekoRunning() {
   if (!appConfig?.modules?.neko) return 'disabled';
   if (isNekoStarting) return 'starting';
@@ -713,27 +702,11 @@ app.get('/api/health', (req, res) => {
 let aria2Process = null;
 const ARIA2_PORT = 6800;
 
-function stopAria2Daemon() {
-  if (aria2Process) {
-    try { aria2Process.kill('SIGTERM'); } catch {}
-    aria2Process = null;
-  }
-}
-
 function startAria2Daemon() {
-  if (!appConfig?.modules?.downloader) {
-    return;
-  }
-  if (aria2Process && !aria2Process.killed) {
-    return;
-  }
   // Check if aria2c is installed
   exec('aria2c --version', (err) => {
     if (err) {
       console.log('ℹ️ aria2c binary not detected on this machine. Direct torrent/aria downloads will use HTTP/webtorrent fallback.');
-      return;
-    }
-    if (!appConfig?.modules?.downloader || (aria2Process && !aria2Process.killed)) {
       return;
     }
     console.log('🚀 Launching aria2c daemon with DHT & BitTorrent support...');
@@ -746,6 +719,11 @@ function startAria2Daemon() {
       '--max-connection-per-server=16',
       '--split=16',
       '--min-split-size=1M',
+      '--check-certificate=false',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      '--allow-overwrite=true',
+      '--auto-file-renaming=true',
+      '--file-allocation=none',
       '--enable-dht=true',
       '--enable-peer-exchange=true',
       '--bt-enable-lpd=true',
@@ -753,10 +731,15 @@ function startAria2Daemon() {
       '--summary-interval=0'
     ];
 
-    const proc = spawn('aria2c', args, { stdio: 'ignore' });
-    aria2Process = proc;
-    proc.on('exit', () => { if (aria2Process === proc) aria2Process = null; });
-    proc.on('error', (e) => console.log('aria2c process notice:', e.message));
+    if (aria2Process) {
+      try { aria2Process.kill(); } catch {}
+    }
+    aria2Process = spawn('aria2c', args, { stdio: 'ignore' });
+    aria2Process.on('error', (e) => console.log('aria2c process notice:', e.message));
+    aria2Process.on('close', (code) => {
+      console.log(`aria2c exited with code ${code}. Auto-restarting daemon in 2s...`);
+      setTimeout(startAria2Daemon, 2000);
+    });
   });
 }
 startAria2Daemon();
@@ -772,11 +755,13 @@ async function callAria2(method, params = []) {
         id: `aria-${Date.now()}`,
         method,
         params
-      })
+      }),
+      signal: AbortSignal.timeout(5000)
     });
     return await res.json();
   } catch (err) {
-    return { error: { message: 'Aria2 daemon not reachable' } };
+    startAria2Daemon();
+    return { error: { message: 'Aria2 daemon not reachable. Re-initializing background service...' } };
   }
 }
 
@@ -1114,14 +1099,9 @@ app.post('/api/setup/complete', (req, res) => {
   persistSessions();
 
   if (!appConfig.modules.neko) {
-    stopNeko().catch(() => {});
+    stopNeko().catch(() => { });
   } else if (appConfig.modules.nekoMode === 'always') {
     startNeko().catch(() => {});
-  }
-  if (appConfig.modules.downloader) {
-    startAria2Daemon();
-  } else {
-    stopAria2Daemon();
   }
 
   res.json({ success: true, token, user: safeUser, config: getPublicConfig() });
@@ -1347,12 +1327,7 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
   io.emit('config:updated', pubCfg);
 
   if (!pubCfg.modules.neko) {
-    stopNeko().catch(() => {});
-  }
-  if (pubCfg.modules.downloader) {
-    startAria2Daemon();
-  } else {
-    stopAria2Daemon();
+    stopNeko().catch(() => { });
   }
 
   res.json({ success: true, config: pubCfg });
@@ -1599,11 +1574,8 @@ app.post('/api/user/avatar', (req, res) => {
   }
 });
 
-// 4.4 Downloads / Aria2 API (Restricted to Admin & gated by downloader module)
+// 4.4 Downloads / Aria2 API (Restricted to Het / Admin)
 app.get('/api/downloads/active', (req, res, next) => {
-  if (!appConfig?.modules?.downloader) {
-    return res.status(403).json({ error: 'Media Downloader module is disabled by administrator.' });
-  }
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
     return res.json({ active: [], waiting: [], stopped: [], restricted: true });
@@ -1622,11 +1594,23 @@ app.get('/api/downloads/active', (req, res, next) => {
 });
 
 app.post('/api/downloads/add', requireAdmin, async (req, res) => {
-  if (!appConfig?.modules?.downloader) {
-    return res.status(403).json({ error: 'Media Downloader module is disabled by administrator.' });
-  }
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL or Magnet is required' });
+
+  const media = detectMediaType(url);
+  if (media.type === 'youtube') {
+    console.log(`🎬 [Downloader] Spawning yt-dlp for YouTube download: ${url}`);
+    const ytProcess = spawn('yt-dlp', [
+      '--no-playlist',
+      '--no-warnings',
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '-P', DOWNLOADS_DIR,
+      '-o', '%(title)s [%(id)s].%(ext)s',
+      url.trim()
+    ]);
+    ytProcess.on('error', (e) => console.warn('yt-dlp error:', e.message));
+    return res.json({ success: true, message: 'YouTube download initiated via yt-dlp' });
+  }
 
   const result = await callAria2('aria2.addUri', [[url.trim()]]);
   if (result.error) {
@@ -1935,7 +1919,7 @@ function resolveExistingMediaFile(relativePath = '') {
           return fullPath;
         }
       }
-    } catch {}
+    } catch { }
     return null;
   }
 
@@ -2796,13 +2780,7 @@ app.get('/api/system/diagnostics', async (req, res) => {
   const transcodingCapable = ffmpeg.installed && ffprobe.installed;
   const downloaderCapable = aria2c.installed && ytdlp.installed && downloadsWrite.writable;
   const livekitKeysConfigured = !!(LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
-  const weakDefaultSecrets = [
-    'devsecret',
-    'change_me_to_a_long_random_secret',
-    'change-this-to-a-long-random-secret-key',
-    'changeme',
-    'secret'
-  ];
+  const weakDefaultSecrets = ['devsecret', 'change_me_to_a_long_random_secret', 'changeme', 'secret'];
   const livekitDefaultSecretInUse = weakDefaultSecrets.includes(LIVEKIT_API_SECRET) || LIVEKIT_API_SECRET.length < 16;
   const livekitCapable = livekitKeysConfigured && lkProbe.reachable;
 
@@ -3333,10 +3311,7 @@ app.get(['/api/media/audio-status/:filename', '/api/media/audio-status/*'], asyn
 });
 
 // Trigger One-Click Processing of All Audio Tracks
-app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], requireAuth, async (req, res) => {
-  if (!appConfig?.modules?.mediaStudio) {
-    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
-  }
+app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], async (req, res) => {
   const relPath = req.params[0] || req.params.filename;
   const filePath = resolveExistingMediaFile(relPath);
 
@@ -3366,10 +3341,7 @@ app.post(['/api/media/process-audio/:filename', '/api/media/process-audio/*'], r
 // ==========================================================================
 const activeVideoTranscodeJobs = new Map(); // relativePath -> jobInfo
 
-app.get('/api/media/process/status', requireAuth, (req, res) => {
-  if (!appConfig?.modules?.mediaStudio) {
-    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
-  }
+app.get('/api/media/process/status', (req, res) => {
   const jobs = Array.from(activeVideoTranscodeJobs.values()).map(j => ({
     id: j.id,
     relativePath: j.relativePath,
@@ -3385,10 +3357,7 @@ app.get('/api/media/process/status', requireAuth, (req, res) => {
   res.json({ activeJobs: jobs });
 });
 
-app.post('/api/media/process/start', requireAuth, async (req, res) => {
-  if (!appConfig?.modules?.mediaStudio) {
-    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
-  }
+app.post('/api/media/process/start', async (req, res) => {
   const { relativePath, crf = 22, preset = 'veryfast' } = req.body;
   if (!relativePath) return res.status(400).json({ error: 'Relative path is required' });
 
@@ -3550,10 +3519,7 @@ app.post('/api/media/process/start', requireAuth, async (req, res) => {
   });
 });
 
-app.post('/api/media/process/cancel', requireAuth, (req, res) => {
-  if (!appConfig?.modules?.mediaStudio) {
-    return res.status(403).json({ error: 'Media Studio module is disabled by administrator.' });
-  }
+app.post('/api/media/process/cancel', (req, res) => {
   const { relativePath } = req.body;
   if (!relativePath || !activeVideoTranscodeJobs.has(relativePath)) {
     return res.status(404).json({ error: 'No active job for this file' });
@@ -3573,7 +3539,7 @@ app.post('/api/media/process/cancel', requireAuth, (req, res) => {
 });
 
 // Upload media or subtitle files directly
-app.post('/api/media/upload', requireAuth, upload.single('mediaFile'), (req, res) => {
+app.post('/api/media/upload', upload.single('mediaFile'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({
     success: true,
@@ -4075,6 +4041,13 @@ io.on('connection', (socket) => {
     const detected = detectMediaType(url);
     const resolvedType = type || (url?.includes('.m3u8') ? 'hls' : detected.type);
 
+    // If switching away from Neko, stop container if no other Neko rooms are active to free CPU/RAM
+    if (oldMedia?.type === 'neko' && resolvedType !== 'neko') {
+      stopNekoIfIdle();
+    } else if (resolvedType === 'neko') {
+      ensureNekoRunning();
+    }
+
     room.media = {
       type: resolvedType,
       url: detected.cleanUrl || url,
@@ -4082,13 +4055,6 @@ io.on('connection', (socket) => {
       title: title || (detected.type === 'youtube' ? 'YouTube Stream' : 'Video Item'),
       audioTrack: typeof audioTrack === 'number' ? audioTrack : 0
     };
-
-    // Stop Neko AFTER updating room.media so anyActiveNekoUsers() sees the updated state
-    if (oldMedia?.type === 'neko' && resolvedType !== 'neko') {
-      stopNekoIfIdle();
-    } else if (resolvedType === 'neko') {
-      ensureNekoRunning();
-    }
 
     room.playback.isPlaying = true;
     room.playback.currentTime = 0;
@@ -4302,7 +4268,7 @@ io.on('connection', (socket) => {
     currentUser.inVoice = true;
     currentUser.hasVideo = !!data.hasVideo;
     currentUser.hasAudio = data.hasAudio !== false;
-    
+
     // 1. Announce to room that a new peer joined voice
     socket.to(currentRoomId).emit('voice:peer_joined', {
       peerId: socket.id,
@@ -4460,6 +4426,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🍿 Watch Together Media Hub running on http://0.0.0.0:${PORT}`);
   // Ensure Neko container isn't left consuming CPU/RAM on startup if no users are in a Neko room
   setTimeout(() => {
-    stopNekoIfIdle().catch(() => {});
+    stopNekoIfIdle().catch(() => { });
   }, 1500);
 });

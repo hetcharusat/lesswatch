@@ -40,15 +40,15 @@ export function Downloader() {
         },
         body: JSON.stringify({ url })
       });
-      const data = await res.json();
-      if (data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         setUrl('');
         fetchDownloads();
       } else {
-        alert('Error: ' + data.error);
+        alert('Download Error: ' + (data.error || `Server returned HTTP ${res.status}`));
       }
     } catch (err) {
-      alert('Failed to connect to download daemon: ' + err.message);
+      alert('Network error connecting to server: ' + err.message);
     } finally {
       setLoading(false);
     }
