@@ -134,6 +134,20 @@ case "$ACCESS_CHOICE" in
 esac
 echo ""
 
+# Shared Virtual Browser (Neko) Choice
+echo -e "${PURPLE}${BOLD}[3/5] Virtual Shared Browser (Neko)${RESET}"
+echo -e "Do you want to enable the Shared Virtual Browser (Neko)?"
+echo -e "  ${DIM}(Runs a shared Chromium browser inside rooms. Starts on-demand only when in use)${RESET}"
+read -rp "Enable Virtual Browser? [y/N, default N]: " NEKO_INPUT || NEKO_INPUT="N"
+ENABLE_NEKO=false
+if [[ "$NEKO_INPUT" =~ ^[Yy]$ ]]; then
+  ENABLE_NEKO=true
+  echo -e "${GREEN}✔${RESET} Virtual Browser (Neko) will be provisioned on-demand"
+else
+  echo -e "${GRAY}ℹ${RESET} Virtual Browser skipped (saves RAM for pure video streaming)"
+fi
+echo ""
+
 # ------------------------------------------------------------------------------
 # 3. System Tuning & Swap
 # ------------------------------------------------------------------------------
@@ -259,6 +273,13 @@ if [ "$ENABLE_TUNNEL" = true ]; then
   done
 fi
 
+# Optional Neko Virtual Browser creation
+if [ "${ENABLE_NEKO:-false}" = "true" ]; then
+  echo -e "  ${CYAN}🌐 Pulling Neko Virtual Browser container...${RESET}"
+  docker compose --profile neko up --no-start neko 2>/dev/null || true
+  echo -e "  ${GREEN}✔${RESET} Neko container provisioned"
+fi
+
 # Determine IP
 PUBLIC_IP=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "localhost")
 
@@ -295,3 +316,4 @@ echo -e "${PINK}${BOLD}│${RESET}  ${GRAY}Local Server URL :${RESET} http://loc
 echo -e "${PINK}${BOLD}│${RESET}  ${GRAY}Direct Public IP :${RESET} http://${PUBLIC_IP}:${TARGET_PORT}                                ${PINK}${BOLD}│${RESET}"
 echo -e "${PINK}${BOLD}│${RESET}  ${GRAY}First-Run Setup  :${RESET} http://localhost:${TARGET_PORT}/?setup                               ${PINK}${BOLD}│${RESET}"
 echo -e "${PINK}${BOLD}╰─────────────────────────────────────────────────────────────────────────────╯${RESET}\n"
+
