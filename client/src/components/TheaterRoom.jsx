@@ -3265,7 +3265,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       const autoClickOverlay = () => {
         try {
           if (!doc) return;
-          const overlayBtn = doc.querySelector('button, [role="button"], .cursor-pointer');
+          const overlayBtn = doc.querySelector('.neko-video-overlay button, .video-overlay button, [data-action="play"]');
           if (overlayBtn) {
             overlayBtn.click();
           }

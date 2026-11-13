@@ -63,6 +63,7 @@ services:
     volumes:
       - ./neko.yaml:/etc/neko/neko.yaml:ro
     environment:
+      - NEKO_CONFIG=/etc/neko/neko.yaml
       - NEKO_SCREEN=${NEKO_SCREEN:-1280x720@30}
       - NEKO_DESKTOP_SCREEN=${NEKO_SCREEN:-1280x720@30}
       - NEKO_VIDEO_BITRATE=${NEKO_VIDEO_BITRATE:-3072}

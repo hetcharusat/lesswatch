@@ -42,6 +42,24 @@ fi
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME")
 
+# Pre-pull cloudflared in the background so tunnel launch is instantaneous
+( docker pull cloudflare/cloudflared:latest >/dev/null 2>&1 & ) 2>/dev/null || true
+
+# If Node.js is available, hand off to the next-gen Animated TUI CLI
+if command -v node >/dev/null 2>&1; then
+  if [ -f "scripts/deploy-tui.mjs" ]; then
+    exec node scripts/deploy-tui.mjs "$@"
+  fi
+fi
+
+# Attempt quick install of nodejs on Debian/Ubuntu to unlock modern Animated TUI
+if command -v apt-get >/dev/null 2>&1; then
+  ( apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq nodejs >/dev/null 2>&1 ) || true
+  if command -v node >/dev/null 2>&1 && [ -f "scripts/deploy-tui.mjs" ]; then
+    exec node scripts/deploy-tui.mjs "$@"
+  fi
+fi
+
 # ------------------------------------------------------------------------------
 # 1. ANIMATION UTILITIES
 # ------------------------------------------------------------------------------
@@ -171,7 +189,7 @@ select_menu() {
 
     if [[ "$key" == $'\x1b' ]]; then
       local rest=""
-      IFS= read -rsn2 -t 0.05 rest 2>/dev/null || true
+      IFS= read -rsn2 -t 0.2 rest 2>/dev/null || true
       key+="$rest"
     fi
 
@@ -183,6 +201,12 @@ select_menu() {
       $'\x1b[B'|[jJ]) # Down
         current=$(( (current + 1) % count ))
         redraw
+        ;;
+      [1-9]) # Number hotkey
+        if [ "$key" -le "$count" ]; then
+          current=$((key - 1))
+          break
+        fi
         ;;
       ""|$'\n'|$'\r'|" ") # Enter or Space
         break

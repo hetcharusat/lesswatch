@@ -1,19 +1,4 @@
-# Stage 1: Build React/Vite frontend inside Docker
-FROM node:20-bookworm-slim AS client-builder
-
-WORKDIR /build
-
-# Copy existing static public assets (icons, extension zip, etc.) first
-COPY public ./public
-
-# Install client dependencies and build frontend into /build/public
-COPY client/package*.json ./client/
-RUN npm ci --prefix ./client || npm install --prefix ./client
-
-COPY client ./client
-RUN npm run build --prefix ./client
-
-# Stage 2: Production runtime with Node + ffmpeg + aria2 + yt-dlp + gosu
+# Production runtime with Node 20 + ffmpeg + aria2 + yt-dlp + gosu
 FROM node:20-bookworm-slim
 
 WORKDIR /app
@@ -33,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp binary for stream extraction
+# Install latest yt-dlp binary for web video stream extraction
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
@@ -41,7 +26,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
 COPY server.js ./
-COPY --from=client-builder /build/public ./public
+COPY public ./public
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 

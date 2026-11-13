@@ -15,7 +15,7 @@ import {
   ClayCheck,
   ClayArrow
 } from './ClayIcons';
-import { LayoutGrid, List, AlertTriangle, HardDrive, Filter, X, Check, FolderOpen, Film, Play, Headphones, Captions, FolderInput, Pencil, Trash2 } from 'lucide-react';
+import { LayoutGrid, List, AlertTriangle, HardDrive, Filter, X, Check, FolderOpen, Film, Play, Headphones, Captions, FolderInput, Pencil, Trash2, Download } from 'lucide-react';
 
 function FileRenameInput({ initialFilename, fileRelPath, onRename, onCancel, size = 'normal' }) {
   const [val, setVal] = useState(initialFilename);
@@ -503,10 +503,127 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
   }
 
+  // Resumable Chunked Upload for videos of ANY size (bypasses Cloudflare 100MB body limit)
+  async function uploadFileInChunks(file, folder, token, inputEl) {
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB slices (safely below Cloudflare tunnel limit)
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = `upl_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    let activeXhr = null;
+
+    setUploading(true);
+    setUploadProgress({
+      filename: file.name,
+      percent: 0,
+      loadedMB: '0.0',
+      totalMB: (file.size / (1024 * 1024)).toFixed(1),
+      xhr: {
+        abort: () => {
+          if (activeXhr) activeXhr.abort();
+          setUploading(false);
+          setUploadProgress(null);
+          if (inputEl) inputEl.value = '';
+          showToast('Upload cancelled');
+        }
+      }
+    });
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(file.size, start + CHUNK_SIZE);
+      const chunk = file.slice(start, end);
+
+      let success = false;
+      let lastError = '';
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            activeXhr = xhr;
+
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const chunkLoaded = start + event.loaded;
+                const percent = Math.min(99, Math.round((chunkLoaded / file.size) * 100));
+                setUploadProgress(prev => prev ? {
+                  ...prev,
+                  percent,
+                  loadedMB: (chunkLoaded / (1024 * 1024)).toFixed(1)
+                } : null);
+              }
+            };
+
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  if (data.success) {
+                    resolve(data);
+                  } else {
+                    reject(new Error(data.error || `Chunk ${i} rejected`));
+                  }
+                } catch {
+                  reject(new Error(`Invalid JSON in chunk ${i}`));
+                }
+              } else {
+                reject(new Error(`HTTP ${xhr.status} on chunk ${i}`));
+              }
+            };
+
+            xhr.onerror = () => reject(new Error(`Network error on chunk ${i}`));
+            xhr.onabort = () => reject(new Error('aborted'));
+
+            const fd = new FormData();
+            fd.append('uploadId', uploadId);
+            fd.append('chunkIndex', i);
+            fd.append('totalChunks', totalChunks);
+            fd.append('filename', file.name);
+            if (folder) fd.append('folder', folder);
+            fd.append('chunk', chunk, `${file.name}.part_${i}`);
+
+            xhr.open('POST', '/api/media/upload/chunk', true);
+            xhr.withCredentials = true;
+            if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.send(fd);
+          });
+
+          success = true;
+          break;
+        } catch (err) {
+          if (err.message === 'aborted') return;
+          lastError = err.message;
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+      }
+
+      if (!success) {
+        setUploading(false);
+        setUploadProgress(null);
+        if (inputEl) inputEl.value = '';
+        showToast(`Upload failed on chunk ${i + 1}/${totalChunks}: ${lastError}`);
+        return;
+      }
+    }
+
+    setUploading(false);
+    setUploadProgress(null);
+    if (inputEl) inputEl.value = '';
+    showToast(`✓ Uploaded "${file.name}"`);
+    fetchLibrary(folder);
+  }
+
   // File Upload directly to current folder with real-time progress
   function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const token = localStorage.getItem('wt_token') || '';
+
+    // If file is larger than 25MB, automatically use Chunked Upload to guarantee smooth passage through Cloudflare Tunnel
+    if (file.size > 25 * 1024 * 1024) {
+      uploadFileInChunks(file, currentFolder, token, e.target);
+      return;
+    }
 
     const formData = new FormData();
     if (currentFolder) {
@@ -515,7 +632,6 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     formData.append('mediaFile', file);
 
     const xhr = new XMLHttpRequest();
-    const token = localStorage.getItem('wt_token') || '';
 
     setUploadProgress({
       filename: file.name,
@@ -1294,6 +1410,15 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                           <Play size={14} fill="currentColor" strokeWidth={2} />
                           <span>Play in Lounge</span>
                         </button>
+                        <a
+                          href={file.streamUrl}
+                          download={file.filename}
+                          className="ml1-icon-btn"
+                          style={{ borderColor: 'rgba(59, 130, 246, 0.45)', color: '#2563eb', textDecoration: 'none', background: '#eff6ff' }}
+                          title="Download file to device"
+                        >
+                          <Download size={14} strokeWidth={2.15} />
+                        </a>
                         {isAdmin && (
                           <div style={{ display: 'flex', gap: '5px' }}>
                             <button type="button" onClick={() => { setMoveModalFile(file); setSelectedMoveTarget(currentFolder); }} className="ml1-icon-btn" style={{ borderColor: 'rgba(147, 51, 234, 0.3)', color: '#7e22ce' }} title="Move to another folder">
@@ -1338,6 +1463,15 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                         <button type="button" onClick={() => { if (onPlayMedia) onPlayMedia(file); else if (onStartWatch) onStartWatch(file.filename, file.streamUrl); }} className="ml1-play" style={{ flex: 'none', padding: '6px 14px', fontSize: '0.78rem' }}>
                           <Play size={13} fill="currentColor" /><span>Play</span>
                         </button>
+                        <a
+                          href={file.streamUrl}
+                          download={file.filename}
+                          className="ml1-icon-btn"
+                          style={{ width: '30px', height: '30px', borderColor: 'rgba(59, 130, 246, 0.45)', color: '#2563eb', textDecoration: 'none', background: '#eff6ff' }}
+                          title="Download to device"
+                        >
+                          <Download size={13} strokeWidth={2.15} />
+                        </a>
                         {isAdmin && (
                           <div style={{ display: 'flex', gap: '4px' }}>
                             <button type="button" onClick={() => { setMoveModalFile(file); setSelectedMoveTarget(currentFolder); }} className="ml1-icon-btn" style={{ width: '30px', height: '30px', color: '#7e22ce' }} title="Move"><FolderInput size={13} /></button>

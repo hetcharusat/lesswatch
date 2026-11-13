@@ -1713,9 +1713,26 @@ app.post('/api/user/avatar', (req, res) => {
 });
 
 // 4.4 Unified Downloads API (Aria2c BitTorrent + yt-dlp Stream Engine)
-app.get('/api/downloads/active', async (req, res) => {
+function hasDownloadAccess(req) {
   const user = getAuthUser(req);
-  if (!user || user.role !== 'admin') {
+  return (
+    user?.role === 'admin' ||
+    !appConfig.setupCompleted ||
+    (usersData?.users?.length || 0) <= 1 ||
+    appConfig.allowUserDownloads !== false
+  );
+}
+
+function requireDownloadAccess(req, res, next) {
+  if (!hasDownloadAccess(req)) {
+    return res.status(403).json({ error: 'Administrator privileges required for downloads' });
+  }
+  req.authUser = getAuthUser(req);
+  next();
+}
+
+app.get('/api/downloads/active', async (req, res) => {
+  if (!hasDownloadAccess(req)) {
     return res.json({ active: [], waiting: [], stopped: [], restricted: true });
   }
 
@@ -1786,7 +1803,7 @@ app.get('/api/downloads/active', async (req, res) => {
   });
 });
 
-app.post('/api/downloads/add', requireAdmin, async (req, res) => {
+app.post('/api/downloads/add', requireDownloadAccess, async (req, res) => {
   const { url } = req.body;
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'URL or Magnet link is required' });
@@ -1796,9 +1813,10 @@ app.post('/api/downloads/add', requireAdmin, async (req, res) => {
   const media = detectMediaType(cleanUrl);
   const isMagnet = cleanUrl.startsWith('magnet:?');
   const isTorrent = cleanUrl.endsWith('.torrent') || cleanUrl.includes('.torrent?');
-  const isStreamSite = media.type === 'youtube' || media.type === 'hls' || cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be') || cleanUrl.includes('.m3u8') || cleanUrl.includes('twitch.tv') || cleanUrl.includes('vimeo.com');
+  const isDirectFile = /\.(mp4|mkv|avi|mov|wmv|flv|webm|ts|m4v|mp3|m4a|aac|wav|flac|zip|tar|gz|iso)($|\?)/i.test(cleanUrl);
+  const isStreamSite = !isMagnet && !isTorrent && !isDirectFile;
 
-  // 1. YouTube & Streaming Video Sites -> Spawn yt-dlp with live progress
+  // 1. YouTube, Anime sites & Any Web Video Streams -> Spawn yt-dlp with live progress
   if (isStreamSite) {
     const gid = `ytdl_${Date.now()}`;
     const task = {
@@ -1881,8 +1899,8 @@ app.post('/api/downloads/add', requireAdmin, async (req, res) => {
     return res.json({ success: true, gid: result.result, mode: isMagnet ? 'torrent' : 'direct' });
   }
 
-  // If aria2 daemon returned an error or was unavailable on HTTP links, fallback to yt-dlp
-  if (!isMagnet) {
+  // If aria2 daemon returned an error or was unavailable on direct file links, fallback to yt-dlp
+  if (!isMagnet && !isTorrent) {
     console.log(`⚡ [Downloader] Aria2 returned notice (${result.error?.message}). Falling back to yt-dlp engine for: ${cleanUrl}`);
     const gid = `ytdl_${Date.now()}`;
     const task = {
@@ -1951,11 +1969,11 @@ app.post('/api/downloads/add', requireAdmin, async (req, res) => {
     return res.json({ success: true, gid, mode: 'stream_fallback' });
   }
 
-  return res.status(500).json({ error: result.error?.message || 'Failed to queue download task' });
+  return res.status(500).json({ error: result.error?.message || 'Failed to queue download task in aria2 daemon' });
 });
 
 // Cancel active download task
-app.post('/api/downloads/cancel', requireAdmin, async (req, res) => {
+app.post('/api/downloads/cancel', requireDownloadAccess, async (req, res) => {
   const { gid } = req.body;
   if (!gid) return res.status(400).json({ error: 'GID required' });
 
@@ -1982,7 +2000,7 @@ app.post('/api/downloads/cancel', requireAdmin, async (req, res) => {
 });
 
 // Clear finished / failed download history
-app.post('/api/downloads/clear', requireAdmin, async (req, res) => {
+app.post('/api/downloads/clear', requireDownloadAccess, async (req, res) => {
   try {
     await callAria2('aria2.purgeDownloadResult');
   } catch {}
@@ -3938,6 +3956,100 @@ app.post('/api/media/upload', (req, res) => {
       relativePath: safeRelPath,
       streamUrl: `/api/media/stream/${encodeURIComponent(safeRelPath)}`
     });
+  });
+});
+
+// Chunked Upload for Large Video Files (Bypasses Cloudflare Tunnel 100MB body limit)
+const chunkStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const chunkDir = path.join(DOWNLOADS_DIR, '.upload_chunks');
+    if (!fs.existsSync(chunkDir)) {
+      try { fs.mkdirSync(chunkDir, { recursive: true }); } catch (err) { return cb(err); }
+    }
+    cb(null, chunkDir);
+  },
+  filename: (req, file, cb) => {
+    const uploadId = (req.body && req.body.uploadId) || (req.query && req.query.uploadId) || 'upload';
+    const chunkIndex = (req.body && req.body.chunkIndex) || (req.query && req.query.chunkIndex) || '0';
+    const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `${safeUploadId}.chunk_${chunkIndex}`);
+  }
+});
+const chunkUpload = multer({
+  storage: chunkStorage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100 MB per chunk
+});
+
+app.post('/api/media/upload/chunk', (req, res) => {
+  chunkUpload.single('chunk')(req, res, async (err) => {
+    if (err) {
+      console.error('❌ Chunk upload error:', err);
+      return res.status(500).json({ success: false, error: err.message || 'Chunk upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No chunk file received' });
+    }
+
+    const uploadId = String(req.body.uploadId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = String(req.body.filename || 'video.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const folder = String(req.body.folder || '').replace(/(\.\.[\/\\])+/g, '').replace(/^[\\\/]+/, '');
+    const chunkIndex = parseInt(req.body.chunkIndex, 10);
+    const totalChunks = parseInt(req.body.totalChunks, 10);
+
+    if (!uploadId || isNaN(chunkIndex) || isNaN(totalChunks) || totalChunks <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid chunk parameters' });
+    }
+
+    const chunkDir = path.join(DOWNLOADS_DIR, '.upload_chunks');
+    const partFile = path.join(chunkDir, `${uploadId}.part`);
+    const thisChunkPath = req.file.path;
+
+    try {
+      const chunkBuf = fs.readFileSync(thisChunkPath);
+      fs.appendFileSync(partFile, chunkBuf);
+      try { fs.unlinkSync(thisChunkPath); } catch {}
+
+      // If this was the last chunk, finalize into target directory
+      if (chunkIndex === totalChunks - 1) {
+        let targetDir = DOWNLOADS_DIR;
+        if (folder) {
+          targetDir = path.join(DOWNLOADS_DIR, folder);
+          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        let candidate = filename;
+        let counter = 1;
+        const ext = path.extname(filename);
+        const base = path.basename(filename, ext);
+        while (fs.existsSync(path.join(targetDir, candidate))) {
+          candidate = `${base}_${counter}${ext}`;
+          counter++;
+        }
+
+        const finalPath = path.join(targetDir, candidate);
+        fs.renameSync(partFile, finalPath);
+
+        const safeRelPath = folder ? path.join(folder, candidate).replace(/\\/g, '/') : candidate;
+        const finalStats = fs.statSync(finalPath);
+        console.log(`📁 [Chunked Upload Complete] Saved "${candidate}" (${(finalStats.size / (1024 * 1024)).toFixed(2)} MB)`);
+
+        return res.json({
+          success: true,
+          completed: true,
+          filename: candidate,
+          originalName: filename,
+          size: finalStats.size,
+          relativePath: safeRelPath,
+          streamUrl: `/api/media/stream/${encodeURIComponent(safeRelPath)}`
+        });
+      }
+
+      return res.json({ success: true, completed: false, chunkIndex, totalChunks });
+    } catch (finalizeErr) {
+      console.error('❌ Chunk assembly error:', finalizeErr);
+      try { if (fs.existsSync(partFile)) fs.unlinkSync(partFile); } catch {}
+      return res.status(500).json({ success: false, error: 'Chunk assembly failed: ' + finalizeErr.message });
+    }
   });
 });
 
