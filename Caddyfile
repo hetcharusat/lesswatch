@@ -6,6 +6,10 @@
     @notMedia not path /api/media/stream/* /api/media/audio/* /api/media/hls/* /api/media/subtitles/*
     encode @notMedia gzip zstd
 
+    request_body {
+        max_size 100GB
+    }
+
     # LiveKit WebSocket signaling proxy (strips /livekit prefix)
     handle_path /livekit* {
         reverse_proxy livekit:7880

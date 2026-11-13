@@ -49,7 +49,7 @@ if [ -n "$PUID" ] && [ "$PUID" != "0" ]; then
   fi
 
   chown -R "$PUID:$PGID" "$DATA_DIR"
-  chown "$PUID:$PGID" "$DOWNLOADS_DIR" || true
+  chown -R "$PUID:$PGID" "$DOWNLOADS_DIR" 2>/dev/null || true
 
   if [ -n "$USER_NAME" ]; then
     exec gosu "$USER_NAME" "$@"

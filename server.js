@@ -324,15 +324,45 @@ io.engine.on('connection_error', (err) => {
   console.log('⚡ Socket Engine event:', err.code, err.message, err.req?.url);
 });
 
-// Setup file uploads for subtitles, torrents, and videos
+// Setup file uploads for subtitles, torrents, and videos (Supporting up to 100GB uploads)
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, DOWNLOADS_DIR),
+  destination: (req, file, cb) => {
+    let targetDir = DOWNLOADS_DIR;
+    const folder = (req.body && req.body.folder) || (req.query && req.query.folder);
+    if (folder) {
+      const safeFolder = String(folder).replace(/(\.\.[\/\\])+/g, '').replace(/^[\\\/]+/, '');
+      targetDir = path.join(DOWNLOADS_DIR, safeFolder);
+    }
+    if (!fs.existsSync(targetDir)) {
+      try { fs.mkdirSync(targetDir, { recursive: true }); } catch (err) { return cb(err); }
+    }
+    cb(null, targetDir);
+  },
   filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, `${Date.now()}_${safeName}`);
+    let safeName = (file.originalname || 'upload.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const folder = (req.body && req.body.folder) || (req.query && req.query.folder);
+    let targetDir = DOWNLOADS_DIR;
+    if (folder) {
+      const safeFolder = String(folder).replace(/(\.\.[\/\\])+/g, '').replace(/^[\\\/]+/, '');
+      targetDir = path.join(DOWNLOADS_DIR, safeFolder);
+    }
+    let candidate = safeName;
+    let counter = 1;
+    const ext = path.extname(safeName);
+    const base = path.basename(safeName, ext);
+    while (fs.existsSync(path.join(targetDir, candidate))) {
+      candidate = `${base}_${counter}${ext}`;
+      counter++;
+    }
+    cb(null, candidate);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024 * 1024 // 100 GB max file size
+  }
+});
 
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
@@ -713,8 +743,9 @@ function startAria2Daemon() {
     const args = [
       '--enable-rpc=true',
       `--rpc-listen-port=${ARIA2_PORT}`,
-      '--rpc-listen-all=false',
+      '--rpc-listen-all=true',
       '--rpc-allow-origin-all=true',
+      '--rpc-max-request-size=100M',
       `--dir=${DOWNLOADS_DIR}`,
       '--max-connection-per-server=16',
       '--split=16',
@@ -743,6 +774,9 @@ function startAria2Daemon() {
   });
 }
 startAria2Daemon();
+
+// In-Memory Custom Stream/URL Downloader Tracker (yt-dlp & direct streams)
+const customDownloads = new Map();
 
 // Helper to make Aria2 JSON-RPC calls
 async function callAria2(method, params = []) {
@@ -1574,49 +1608,288 @@ app.post('/api/user/avatar', (req, res) => {
   }
 });
 
-// 4.4 Downloads / Aria2 API (Restricted to Het / Admin)
-app.get('/api/downloads/active', (req, res, next) => {
+// 4.4 Unified Downloads API (Aria2c BitTorrent + yt-dlp Stream Engine)
+app.get('/api/downloads/active', async (req, res) => {
   const user = getAuthUser(req);
   if (!user || user.role !== 'admin') {
     return res.json({ active: [], waiting: [], stopped: [], restricted: true });
   }
-  next();
-}, async (req, res) => {
-  const active = await callAria2('aria2.tellActive');
-  const waiting = await callAria2('aria2.tellWaiting', [0, 10]);
-  const stopped = await callAria2('aria2.tellStopped', [0, 10]);
+
+  const ariaActive = await callAria2('aria2.tellActive');
+  const ariaWaiting = await callAria2('aria2.tellWaiting', [0, 20]);
+  const ariaStopped = await callAria2('aria2.tellStopped', [0, 20]);
+
+  const mapAriaTask = (t) => {
+    let title = `Task ${t.gid}`;
+    if (t.bittorrent?.info?.name) {
+      title = t.bittorrent.info.name;
+    } else if (t.files?.[0]?.path && path.basename(t.files[0].path)) {
+      title = path.basename(t.files[0].path);
+    } else if (t.files?.[0]?.uris?.[0]?.uri) {
+      title = path.basename(t.files[0].uris[0].uri.split('?')[0]);
+    }
+    const completed = parseInt(t.completedLength || 0, 10);
+    const total = parseInt(t.totalLength || 0, 10);
+    const percent = total > 0 ? Math.floor((completed / total) * 100) : 0;
+    const speedBytes = parseInt(t.downloadSpeed || 0, 10);
+    const speed = (speedBytes / (1024 * 1024)).toFixed(2) + ' MB/s';
+
+    let status = t.status;
+    if (status === 'active' && percent >= 100) status = 'complete';
+
+    return {
+      gid: t.gid,
+      title,
+      status, // 'active' | 'waiting' | 'paused' | 'error' | 'complete'
+      percent,
+      downloadSpeed: speed,
+      completedLength: completed,
+      totalLength: total,
+      errorMessage: t.errorMessage || (t.errorCode && t.errorCode !== '0' ? `Error code ${t.errorCode}` : null),
+      type: t.bittorrent ? 'torrent' : 'direct'
+    };
+  };
+
+  const activeList = (ariaActive.result || []).map(mapAriaTask);
+  const waitingList = (ariaWaiting.result || []).map(mapAriaTask);
+  const stoppedList = (ariaStopped.result || []).map(mapAriaTask);
+
+  // Merge active and finished custom downloads (yt-dlp)
+  for (const [gid, custom] of customDownloads.entries()) {
+    const taskObj = {
+      gid: custom.gid,
+      title: custom.title || custom.url,
+      status: custom.status,
+      percent: custom.percent,
+      downloadSpeed: custom.downloadSpeed,
+      completedLength: custom.completedLength,
+      totalLength: custom.totalLength,
+      errorMessage: custom.errorMessage,
+      type: 'stream'
+    };
+    if (custom.status === 'active') {
+      activeList.push(taskObj);
+    } else if (custom.status === 'complete' || custom.status === 'error') {
+      stoppedList.unshift(taskObj);
+    }
+  }
 
   res.json({
-    active: active.result || [],
-    waiting: waiting.result || [],
-    stopped: stopped.result || []
+    success: true,
+    active: activeList,
+    waiting: waitingList,
+    stopped: stoppedList.slice(0, 30)
   });
 });
 
 app.post('/api/downloads/add', requireAdmin, async (req, res) => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL or Magnet is required' });
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'URL or Magnet link is required' });
+  }
 
-  const media = detectMediaType(url);
-  if (media.type === 'youtube') {
-    console.log(`🎬 [Downloader] Spawning yt-dlp for YouTube download: ${url}`);
+  const cleanUrl = url.trim();
+  const media = detectMediaType(cleanUrl);
+  const isMagnet = cleanUrl.startsWith('magnet:?');
+  const isTorrent = cleanUrl.endsWith('.torrent') || cleanUrl.includes('.torrent?');
+  const isStreamSite = media.type === 'youtube' || media.type === 'hls' || cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be') || cleanUrl.includes('.m3u8') || cleanUrl.includes('twitch.tv') || cleanUrl.includes('vimeo.com');
+
+  // 1. YouTube & Streaming Video Sites -> Spawn yt-dlp with live progress
+  if (isStreamSite) {
+    const gid = `ytdl_${Date.now()}`;
+    const task = {
+      gid,
+      url: cleanUrl,
+      title: cleanUrl,
+      type: 'ytdlp',
+      status: 'active',
+      percent: 0,
+      downloadSpeed: 'Starting...',
+      completedLength: 0,
+      totalLength: 0,
+      errorMessage: null,
+      startTime: Date.now()
+    };
+    customDownloads.set(gid, task);
+
+    console.log(`🎬 [Downloader] Spawning yt-dlp task ${gid} for: ${cleanUrl}`);
     const ytProcess = spawn('yt-dlp', [
+      '--newline',
+      '--progress',
       '--no-playlist',
       '--no-warnings',
+      '--no-check-certificates',
       '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '-P', DOWNLOADS_DIR,
-      '-o', '%(title)s [%(id)s].%(ext)s',
-      url.trim()
+      '-o', '%(title)s.%(ext)s',
+      cleanUrl
     ]);
-    ytProcess.on('error', (e) => console.warn('yt-dlp error:', e.message));
-    return res.json({ success: true, message: 'YouTube download initiated via yt-dlp' });
+    task.process = ytProcess;
+
+    ytProcess.stdout.on('data', (data) => {
+      const text = data.toString();
+      const match = text.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)([KMGT]iB)(?:\s+at\s+([\d.]+[KMGT]iB\/s))?/i);
+      if (match) {
+        task.percent = Math.min(100, parseFloat(match[1]));
+        const sizeVal = parseFloat(match[2]);
+        const unit = match[3];
+        const unitMultiplier = unit.startsWith('G') ? 1024 * 1024 * 1024 : unit.startsWith('M') ? 1024 * 1024 : 1024;
+        task.totalLength = Math.round(sizeVal * unitMultiplier);
+        task.completedLength = Math.round((task.percent / 100) * task.totalLength);
+        if (match[4]) task.downloadSpeed = match[4];
+      }
+      const destMatch = text.match(/Destination:\s*(.+)/i) || text.match(/\[download\]\s+Destination:\s*(.+)/i);
+      if (destMatch && destMatch[1]) {
+        task.title = path.basename(destMatch[1].trim());
+      }
+    });
+
+    ytProcess.stderr.on('data', (data) => {
+      const text = data.toString();
+      if (text.includes('ERROR:')) {
+        task.errorMessage = text.split('\n')[0].replace('ERROR:', '').trim();
+      }
+    });
+
+    ytProcess.on('close', (code) => {
+      if (code === 0) {
+        task.status = 'complete';
+        task.percent = 100;
+        task.downloadSpeed = 'Complete';
+      } else {
+        task.status = 'error';
+        task.errorMessage = task.errorMessage || `yt-dlp exited with code ${code}`;
+      }
+    });
+
+    return res.json({ success: true, gid, mode: 'stream' });
   }
 
-  const result = await callAria2('aria2.addUri', [[url.trim()]]);
-  if (result.error) {
-    return res.status(500).json({ error: result.error.message });
+  // 2. Direct HTTP/HTTPS or Magnet Links -> aria2c with auto-fallback to yt-dlp
+  const ariaOptions = {
+    dir: DOWNLOADS_DIR,
+    'check-certificate': 'false',
+    header: 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  };
+
+  const result = await callAria2('aria2.addUri', [[cleanUrl], ariaOptions]);
+  if (!result.error && result.result) {
+    return res.json({ success: true, gid: result.result, mode: isMagnet ? 'torrent' : 'direct' });
   }
-  res.json({ success: true, gid: result.result });
+
+  // If aria2 daemon returned an error or was unavailable on HTTP links, fallback to yt-dlp
+  if (!isMagnet) {
+    console.log(`⚡ [Downloader] Aria2 returned notice (${result.error?.message}). Falling back to yt-dlp engine for: ${cleanUrl}`);
+    const gid = `ytdl_${Date.now()}`;
+    const task = {
+      gid,
+      url: cleanUrl,
+      title: path.basename(cleanUrl.split('?')[0]) || 'Direct Download',
+      type: 'direct_stream',
+      status: 'active',
+      percent: 0,
+      downloadSpeed: 'Connecting...',
+      completedLength: 0,
+      totalLength: 0,
+      errorMessage: null,
+      startTime: Date.now()
+    };
+    customDownloads.set(gid, task);
+
+    const ytProcess = spawn('yt-dlp', [
+      '--newline',
+      '--progress',
+      '--no-playlist',
+      '--no-warnings',
+      '--no-check-certificates',
+      '-P', DOWNLOADS_DIR,
+      '-o', '%(title)s.%(ext)s',
+      cleanUrl
+    ]);
+    task.process = ytProcess;
+
+    ytProcess.stdout.on('data', (data) => {
+      const text = data.toString();
+      const match = text.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)([KMGT]iB)(?:\s+at\s+([\d.]+[KMGT]iB\/s))?/i);
+      if (match) {
+        task.percent = Math.min(100, parseFloat(match[1]));
+        const sizeVal = parseFloat(match[2]);
+        const unit = match[3];
+        const unitMultiplier = unit.startsWith('G') ? 1024 * 1024 * 1024 : unit.startsWith('M') ? 1024 * 1024 : 1024;
+        task.totalLength = Math.round(sizeVal * unitMultiplier);
+        task.completedLength = Math.round((task.percent / 100) * task.totalLength);
+        if (match[4]) task.downloadSpeed = match[4];
+      }
+      const destMatch = text.match(/Destination:\s*(.+)/i) || text.match(/\[download\]\s+Destination:\s*(.+)/i);
+      if (destMatch && destMatch[1]) {
+        task.title = path.basename(destMatch[1].trim());
+      }
+    });
+
+    ytProcess.stderr.on('data', (data) => {
+      const text = data.toString();
+      if (text.includes('ERROR:')) {
+        task.errorMessage = text.split('\n')[0].replace('ERROR:', '').trim();
+      }
+    });
+
+    ytProcess.on('close', (code) => {
+      if (code === 0) {
+        task.status = 'complete';
+        task.percent = 100;
+        task.downloadSpeed = 'Complete';
+      } else {
+        task.status = 'error';
+        task.errorMessage = task.errorMessage || `Download exited with code ${code}`;
+      }
+    });
+
+    return res.json({ success: true, gid, mode: 'stream_fallback' });
+  }
+
+  return res.status(500).json({ error: result.error?.message || 'Failed to queue download task' });
+});
+
+// Cancel active download task
+app.post('/api/downloads/cancel', requireAdmin, async (req, res) => {
+  const { gid } = req.body;
+  if (!gid) return res.status(400).json({ error: 'GID required' });
+
+  if (gid.startsWith('ytdl_')) {
+    const task = customDownloads.get(gid);
+    if (task) {
+      if (task.process) {
+        try { task.process.kill('SIGTERM'); } catch {}
+      }
+      customDownloads.delete(gid);
+    }
+    return res.json({ success: true });
+  }
+
+  // Aria2 cancel
+  try {
+    await callAria2('aria2.forceRemove', [gid]);
+  } catch {}
+  try {
+    await callAria2('aria2.removeDownloadResult', [gid]);
+  } catch {}
+
+  res.json({ success: true });
+});
+
+// Clear finished / failed download history
+app.post('/api/downloads/clear', requireAdmin, async (req, res) => {
+  try {
+    await callAria2('aria2.purgeDownloadResult');
+  } catch {}
+
+  for (const [gid, task] of customDownloads.entries()) {
+    if (task.status === 'complete' || task.status === 'error') {
+      customDownloads.delete(gid);
+    }
+  }
+
+  res.json({ success: true });
 });
 
 // Download Watch Together Browser Extension (.zip)
@@ -3538,14 +3811,29 @@ app.post('/api/media/process/cancel', (req, res) => {
   res.json({ success: true, message: 'Processing cancelled' });
 });
 
-// Upload media or subtitle files directly
-app.post('/api/media/upload', upload.single('mediaFile'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({
-    success: true,
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    streamUrl: `/api/media/stream/${encodeURIComponent(req.file.filename)}`
+// Upload media or subtitle files directly (Supports large multi-GB videos & subfolders)
+app.post('/api/media/upload', (req, res) => {
+  upload.single('mediaFile')(req, res, (err) => {
+    if (err) {
+      console.error('❌ Media upload error:', err);
+      return res.status(500).json({ success: false, error: err.message || 'File upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file received in upload payload' });
+    }
+
+    const folder = (req.body && req.body.folder) || (req.query && req.query.folder) || '';
+    const safeRelPath = folder ? path.join(folder, req.file.filename).replace(/\\/g, '/') : req.file.filename;
+
+    console.log(`📁 [Media Upload] Successfully stored "${req.file.filename}" in ${folder || 'root'} (${(req.file.size / (1024 * 1024)).toFixed(2)} MB)`);
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      size: req.file.size,
+      relativePath: safeRelPath,
+      streamUrl: `/api/media/stream/${encodeURIComponent(safeRelPath)}`
+    });
   });
 });
 
@@ -4429,3 +4717,9 @@ server.listen(PORT, '0.0.0.0', () => {
     stopNekoIfIdle().catch(() => { });
   }, 1500);
 });
+
+// Configure infinite request timeout for large multi-GB video uploads
+server.requestTimeout = 0;
+server.headersTimeout = 120000;
+server.keepAliveTimeout = 125000;
+server.setTimeout(0);

@@ -211,6 +211,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
   const [storageInfo, setStorageInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null); // { filename, percent, loadedMB, totalMB, xhr }
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'video' | 'subtitle'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
@@ -502,39 +503,80 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
     }
   }
 
-  // File Upload directly to current folder
-  async function handleFileUpload(e) {
+  // File Upload directly to current folder with real-time progress
+  function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
-    showToast(`Uploading "${file.name}"...`);
     const formData = new FormData();
-    formData.append('mediaFile', file);
     if (currentFolder) {
       formData.append('folder', currentFolder);
     }
+    formData.append('mediaFile', file);
 
-    try {
-      const res = await fetch('/api/media/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('wt_token') || ''}`
-        },
-        body: formData
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`✓ Uploaded "${file.name}"`);
-        fetchLibrary(currentFolder);
-      } else {
-        showToast(data.error || 'Upload failed');
+    const xhr = new XMLHttpRequest();
+    const token = localStorage.getItem('wt_token') || '';
+
+    setUploadProgress({
+      filename: file.name,
+      percent: 0,
+      loadedMB: '0.0',
+      totalMB: (file.size / (1024 * 1024)).toFixed(1),
+      xhr
+    });
+    setUploading(true);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+        setUploadProgress({
+          filename: file.name,
+          percent,
+          loadedMB: (event.loaded / (1024 * 1024)).toFixed(1),
+          totalMB: (event.total / (1024 * 1024)).toFixed(1),
+          xhr
+        });
       }
-    } catch (err) {
-      showToast('Upload failed: ' + err.message);
-    } finally {
+    };
+
+    xhr.onload = () => {
       setUploading(false);
+      setUploadProgress(null);
+      // Reset input value so re-uploading the same file works
+      e.target.value = '';
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+          showToast(`✓ Uploaded "${file.name}"`);
+          fetchLibrary(currentFolder);
+        } else {
+          showToast(data.error || `Upload failed (Status ${xhr.status})`);
+        }
+      } catch {
+        showToast(`Upload failed (Status ${xhr.status})`);
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploading(false);
+      setUploadProgress(null);
+      e.target.value = '';
+      showToast('Upload failed: Server connection dropped or blocked');
+    };
+
+    xhr.onabort = () => {
+      setUploading(false);
+      setUploadProgress(null);
+      e.target.value = '';
+      showToast('Upload cancelled');
+    };
+
+    const targetUrl = `/api/media/upload?folder=${encodeURIComponent(currentFolder || '')}`;
+    xhr.open('POST', targetUrl, true);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
+    xhr.send(formData);
   }
 
   // Breadcrumbs
@@ -578,6 +620,106 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
           }}
         >
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Live Video Upload Progress Card */}
+      {uploadProgress && (
+        <div
+          style={{
+            background: 'linear-gradient(180deg, #ffffff 0%, #fdf2f8 100%)',
+            borderRadius: '22px',
+            padding: '1.2rem 1.5rem',
+            border: '2px solid rgba(236, 72, 153, 0.45)',
+            boxShadow: '0 8px 25px rgba(236, 72, 153, 0.2), inset 0 2px 0 rgba(255, 255, 255, 0.95)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.65rem',
+            animation: 'fadeIn 0.25s ease-out'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(180deg, #f472b6, #ec4899)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <ClayUpload size={16} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <strong style={{ fontSize: '0.92rem', color: '#831843', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Uploading {uploadProgress.filename}
+                </strong>
+                <span style={{ fontSize: '0.78rem', color: '#be185d', fontWeight: 600 }}>
+                  {uploadProgress.loadedMB} MB of {uploadProgress.totalMB} MB transferred
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span
+                style={{
+                  padding: '3px 12px',
+                  borderRadius: '9999px',
+                  background: 'linear-gradient(180deg, #ec4899 0%, #db2777 100%)',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  boxShadow: '0 3px 8px rgba(219, 39, 119, 0.3)'
+                }}
+              >
+                {uploadProgress.percent}%
+              </span>
+              <button
+                onClick={() => uploadProgress.xhr?.abort()}
+                style={{
+                  border: 'none',
+                  background: '#fee2e2',
+                  color: '#b91c1c',
+                  padding: '5px 12px',
+                  borderRadius: '9999px',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div
+            style={{
+              width: '100%',
+              height: '10px',
+              background: 'rgba(244, 114, 182, 0.2)',
+              borderRadius: '9999px',
+              overflow: 'hidden',
+              padding: '2px',
+              boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.08)'
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(3, uploadProgress.percent)}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #f472b6, #ec4899, #db2777)',
+                borderRadius: '9999px',
+                boxShadow: '0 0 10px rgba(236, 72, 153, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.7)',
+                transition: 'width 0.25s ease-out'
+              }}
+            />
+          </div>
         </div>
       )}
 
