@@ -4693,6 +4693,10 @@ io.on('connection', (socket) => {
 });
 
 server.on('upgrade', async (req, socket, head) => {
+  socket.on('error', (err) => {
+    // Avoid unhandled socket error if client disconnects abruptly
+  });
+
   if (req.url && req.url.startsWith('/neko')) {
     if (!appConfig?.modules?.neko) {
       socket.destroy();
@@ -4703,12 +4707,16 @@ server.on('upgrade', async (req, socket, head) => {
       socket.destroy();
       return;
     }
+    // Strip /neko subpath prefix so Neko backend receives /api/ws?token=... instead of /neko/api/ws
+    req.url = req.url.replace(/^\/neko/, '') || '/';
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
     if (!appConfig?.modules?.livekit) {
       socket.destroy();
       return;
     }
+    // Strip /livekit subpath prefix so LiveKit SFU receives /rtc instead of /livekit/rtc
+    req.url = req.url.replace(/^\/livekit/, '') || '/';
     livekitProxy.upgrade(req, socket, head);
   }
 });

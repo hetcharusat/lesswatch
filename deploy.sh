@@ -391,6 +391,8 @@ fi
 # ------------------------------------------------------------------------------
 # 6. SECURE ENVIRONMENT CONFIGURATION
 # ------------------------------------------------------------------------------
+PUBLIC_IP=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "127.0.0.1")
+
 spin_cmd "Generating cryptographic secrets & .env parameters" "
   if [ ! -f .env ]; then
     cp .env.example .env 2>/dev/null || touch .env
@@ -417,6 +419,13 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
       sed -i \"s/^CADDY_DOMAIN=.*/CADDY_DOMAIN=${CUSTOM_DOMAIN}/\" .env
     else
       echo \"CADDY_DOMAIN=${CUSTOM_DOMAIN}\" >> .env
+    fi
+  fi
+  if [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
+    if grep -q '^NEKO_NAT1TO1=' .env 2>/dev/null; then
+      sed -i \"s/^NEKO_NAT1TO1=.*/NEKO_NAT1TO1=${PUBLIC_IP}/\" .env
+    else
+      echo \"NEKO_NAT1TO1=${PUBLIC_IP}\" >> .env
     fi
   fi
   mkdir -p ./data ./downloads
@@ -469,8 +478,8 @@ if [ "$ENABLE_TUNNEL" = true ]; then
   fi
 fi
 
-# Public IP detection
-PUBLIC_IP=$(curl -s -m 2 https://api.ipify.org 2>/dev/null || echo "YOUR-SERVER-IP")
+# Public IP display
+PUBLIC_IP="${PUBLIC_IP:-127.0.0.1}"
 
 # ------------------------------------------------------------------------------
 # 8. IMPECCABLE COMPLETION CARD
