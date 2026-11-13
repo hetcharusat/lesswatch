@@ -452,14 +452,16 @@ fi
 
 spin_cmd "Compiling & launching Watch Together services" "$DOCKER_CMD"
 
-# If Neko enabled, ensure the chromium image is pulled
+# If Neko enabled, pre-warm asynchronously for on-demand or with live progress for always-running
 if [ "$ENABLE_NEKO" = true ]; then
-  spin_cmd "Pre-warming Neko Chromium browser image" \
-    "docker compose --profile neko pull neko 2>/dev/null || docker pull m1k1o/neko:chromium"
   if [ "$NEKO_PROFILE" = "always" ]; then
-    docker compose --profile neko up -d neko 2>/dev/null || true
+    echo -e "  ${CYAN}📥 Downloading Neko Chromium browser image (live download)...${RESET}"
+    docker compose --profile neko pull neko || docker pull m1k1o/neko:chromium
+    spin_cmd "Starting persistent Neko browser container" "docker compose --profile neko up -d neko 2>/dev/null || true"
   else
-    docker compose --profile neko up --no-start neko 2>/dev/null || true
+    # On-demand: dispatch pre-warming in background so deployment finishes in seconds
+    ( docker compose --profile neko pull neko >/dev/null 2>&1 && docker compose --profile neko up --no-start neko >/dev/null 2>&1 ) &
+    echo -e "  ${GREEN}✔${RESET} Neko Chromium browser image pre-warming dispatched in background (${PURPLE}non-blocking${RESET})"
   fi
 fi
 
