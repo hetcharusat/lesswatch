@@ -48,7 +48,7 @@ services:
       - ./livekit.yaml:/livekit.yaml:ro
     command: --config /livekit.yaml
     environment:
-      - LIVEKIT_KEYS=${LIVEKIT_API_KEY:-watchtogether}: ${LIVEKIT_API_SECRET:-change-this-to-a-long-random-secret-key}
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-watchtogether}: ${LIVEKIT_API_SECRET:-change-this-to-a-long-random-secret-key}"
 
   neko:
     image: m1k1o/neko:chromium
