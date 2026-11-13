@@ -60,6 +60,8 @@ services:
       - "8080"
     ports:
       - "52000-52100:52000-52100/udp"
+    volumes:
+      - ./neko.yaml:/etc/neko/neko.yaml:ro
     environment:
       - NEKO_SCREEN=1920x1080@30
       - NEKO_DESKTOP_SCREEN=1920x1080@30

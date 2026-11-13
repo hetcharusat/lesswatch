@@ -1,0 +1,33 @@
+# ==============================================================================
+# Neko Virtual Browser Configuration
+# ==============================================================================
+
+server:
+  proxy: true
+  cors:
+    - "*"
+
+member:
+  provider: "noauth"
+
+webrtc:
+  icelite: false
+  epr: "52000-52100"
+  nat1to1: ""
+  iceservers:
+    backend:
+      - urls:
+          - "stun:stun.l.google.com:19302"
+          - "turn:openrelay.metered.ca:443?transport=tcp"
+          - "turn:openrelay.metered.ca:80"
+          - "turn:openrelay.metered.ca:443"
+        username: "openrelayproject"
+        credential: "openrelayproject"
+    frontend:
+      - urls:
+          - "stun:stun.l.google.com:19302"
+          - "turn:openrelay.metered.ca:443?transport=tcp"
+          - "turn:openrelay.metered.ca:80"
+          - "turn:openrelay.metered.ca:443"
+        username: "openrelayproject"
+        credential: "openrelayproject"

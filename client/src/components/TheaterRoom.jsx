@@ -3261,6 +3261,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       const win = iframe.contentWindow;
       if (!doc || !win) return;
 
+      // Auto-click any connect/play/join overlay button inside Neko if present
+      const autoClickOverlay = () => {
+        try {
+          if (!doc) return;
+          const overlayBtn = doc.querySelector('button, [role="button"], .cursor-pointer');
+          if (overlayBtn) {
+            overlayBtn.click();
+          }
+        } catch {}
+      };
+      setTimeout(autoClickOverlay, 600);
+      setTimeout(autoClickOverlay, 1500);
+
       const triggerTheaterFullscreen = (options) => {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const targetEl = theaterWrapperRef.current || theaterCanvasRef.current || document.documentElement;

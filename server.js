@@ -4817,6 +4817,16 @@ server.on('upgrade', async (req, socket, head) => {
       socket.destroy();
       return;
     }
+    socket.pause();
+    try {
+      const u = new URL(LIVEKIT_HTTP_TARGET);
+      req.headers.origin = u.origin;
+    } catch {
+      req.headers.origin = 'http://livekit:7880';
+    }
+    req.headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || 'https';
+    req.headers['x-forwarded-host'] = req.headers['x-forwarded-host'] || req.headers.host;
+    socket.resume();
     // Strip /livekit subpath prefix so LiveKit SFU receives /rtc instead of /livekit/rtc
     let cleanUrl = req.url.replace(/^\/livekit/, '') || '/';
     if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
