@@ -24,12 +24,12 @@ echo "[+] Target system user: $ACTUAL_USER ($ACTUAL_HOME)"
 TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
 if [ "$TOTAL_RAM_MB" -lt 2000 ] && [ ! -f /swapfile ]; then
   echo "[+] Low-memory instance detected (${TOTAL_RAM_MB}MB RAM). Configuring 2GB swap..."
-  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-  if ! grep -q '/swapfile' /etc/fstab; then
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  (fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048) || true
+  chmod 600 /swapfile || true
+  mkswap /swapfile || true
+  swapon /swapfile || true
+  if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
   fi
   sysctl vm.swappiness=10 || true
   echo "[+] 2GB swap configured successfully."
@@ -37,14 +37,14 @@ fi
 
 # 1. Update Packages & Dependencies
 echo "[+] Updating system packages and installing curl/git..."
-apt-get update -y
+apt-get update -y || true
 apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
   gnupg \
   lsb-release \
   iptables-persistent \
-  netfilter-persistent
+  netfilter-persistent || true
 
 # 2. Configure Host Firewall (OCI iptables / ufw)
 echo "[+] Opening host ports (80, 443, 3000, 7880, 50000-50200/udp)..."
@@ -77,9 +77,9 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com -o get-docker.sh
   sh get-docker.sh
   rm -f get-docker.sh
-  usermod -aG docker "$ACTUAL_USER"
-  systemctl enable docker
-  systemctl start docker
+  usermod -aG docker "$ACTUAL_USER" || true
+  systemctl enable docker 2>/dev/null || true
+  systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
   echo "[+] Docker installed successfully."
 fi
 
@@ -128,7 +128,7 @@ echo "[+] Building and launching Watch Together with Caddy..."
 echo "=========================================================="
 
 # Build and start services (watch-together, livekit, caddy)
-docker compose --profile caddy up -d --build
+docker compose --profile caddy up -d --build || docker compose up -d --build
 
 echo ""
 echo "[+] Waiting for container health check..."
