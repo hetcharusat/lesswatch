@@ -157,9 +157,8 @@ async function askStep({ stepNum, totalSteps, title, options, defaultIndex = 0 }
     }
 
     const onKeypress = (str, key) => {
-      if (!key) return;
-
-      if ((key.ctrl && key.name === 'c') || key.name === 'escape') {
+      // Quit ONLY on Ctrl+C (Never on bare escape or arrow prefixes!)
+      if (key && key.ctrl && key.name === 'c') {
         restoreCursor();
         process.stdout.write(`\n\n  ${AMBER}Installation cancelled.${RESET}\n\n`);
         process.exit(130);
@@ -175,13 +174,18 @@ async function askStep({ stepNum, totalSteps, title, options, defaultIndex = 0 }
         return;
       }
 
-      if (key.name === 'up' || key.name === 'k') {
+      // Arrow navigation (handles both key object and raw sequence strings)
+      const isUp = (key && (key.name === 'up' || key.name === 'k')) || str === '\x1b[A';
+      const isDown = (key && (key.name === 'down' || key.name === 'j')) || str === '\x1b[B';
+      const isConfirm = (key && (key.name === 'return' || key.name === 'enter')) || str === '\r' || str === '\n';
+
+      if (isUp) {
         selected = (selected - 1 + count) % count;
         redraw();
-      } else if (key.name === 'down' || key.name === 'j') {
+      } else if (isDown) {
         selected = (selected + 1) % count;
         redraw();
-      } else if (key.name === 'return' || key.name === 'enter' || str === ' ') {
+      } else if (isConfirm) {
         cleanup();
         // Collapse menu into single clean confirmation line
         const linesToErase = totalLines + 2;

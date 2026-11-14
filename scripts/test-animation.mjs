@@ -1,493 +1,348 @@
 #!/usr/bin/env node
 /**
  * ==============================================================================
- * 🍿 LESSWATCH — Impeccable ASCII-Magic-Art & Bubble Tea TUI Prototype
- * Powered by:
- *   - ascii-magic-art (700+ animated ASCII art pieces, progress loaders, spinners)
- *   - Charm / Bubble Tea & Lipgloss Design Philosophy
- *   - Zero-flicker double-buffered alternate screen canvas (30 FPS)
+ * 🍿 LESSWATCH — Distilled Impeccable Installation Experience
+ * Architecture:
+ *   - Zero external dependencies (pure Node.js standard library)
+ *   - Bulletproof raw keypress parser (no escape-drop crashes on cloud terminals)
+ *   - Linear, distraction-free prompt-and-collapse flow (Astro / Vercel style)
+ *   - Smooth single-line orbital progress animation with live sub-task telemetry
+ *   - Minimalist, high-contrast typography
  * ==============================================================================
  */
 
 import readline from 'readline';
 import os from 'os';
 
-// Dynamically import ascii-magic-art pieces
-let progressLoaderDraw = null;
-let progressLoaderMeta = null;
-let spinnerSetDraw = null;
-let spinnerSetMeta = null;
-let waveDividerDraw = null;
-let waveDividerMeta = null;
-let torusDraw = null;
-let torusMeta = null;
-
-try {
-  const pLoader = await import('ascii-magic-art/pieces/progress-loader.js');
-  progressLoaderDraw = pLoader.default();
-  progressLoaderMeta = pLoader.meta;
-} catch {}
-
-try {
-  const sSet = await import('ascii-magic-art/pieces/spinner-set.js');
-  spinnerSetDraw = sSet.default();
-  spinnerSetMeta = sSet.meta;
-} catch {}
-
-try {
-  const wDiv = await import('ascii-magic-art/pieces/wave-divider.js');
-  waveDividerDraw = wDiv.default();
-  waveDividerMeta = wDiv.meta;
-} catch {}
-
-try {
-  const torus = await import('ascii-magic-art/pieces/spinning-torus.js');
-  torusDraw = torus.default();
-  torusMeta = torus.meta;
-} catch {}
-
 // ------------------------------------------------------------------------------
-// Impeccable Palette & ANSI Formatting (Charm / Lipgloss Style)
+// Disciplined Impeccable Palette
 // ------------------------------------------------------------------------------
 const ESC = '\x1b';
 const RESET = `${ESC}[0m`;
 const BOLD = `${ESC}[1m`;
 const DIM = `${ESC}[2m`;
-const ITALIC = `${ESC}[3m`;
 
-// Truecolor Accents
-const PURPLE = `${ESC}[38;2;125;86;244m`;     // Charm Electric Violet (#7D56F4)
-const PINK = `${ESC}[38;2;242;93;148m`;       // Soft Coral Pink (#F25D94)
-const CYAN = `${ESC}[38;2;4;181;117m`;        // Mint Cyan (#04B575)
-const BLUE = `${ESC}[38;2;56;189;248m`;       // Sky Blue (#38BDF8)
-const AMBER = `${ESC}[38;2;245;158;11m`;      // Warm Gold (#F59E0B)
-const WHITE = `${ESC}[38;2;255;255;255m`;     // Pure White
-const ZINC_LIGHT = `${ESC}[38;2;212;212;216m`; // Text Body
-const ZINC_MUTED = `${ESC}[38;2;113;113;122m`; // Secondary Muted
-const ZINC_DARK = `${ESC}[38;2;63;63;70m`;     // Borders & Subtext
+// Subtle, high-contrast tints
+const CYAN = `${ESC}[38;2;34;211;238m`;       // Crisp Cyan
+const PINK = `${ESC}[38;2;244;114;182m`;      // Soft Accent Rose
+const GREEN = `${ESC}[38;2;52;211;153m`;      // Muted Mint Green
+const WHITE = `${ESC}[38;2;255;255;255m`;     // Foreground White
+const ZINC_LIGHT = `${ESC}[38;2;228;228;231m`; // Body Zinc
+const ZINC_MUTED = `${ESC}[38;2;161;161;170m`; // Subtext
+const ZINC_DARK = `${ESC}[38;2;82;82;91m`;     // Borders & Inactive Lines
 
-// Box Drawing Characters (Rounded Lipgloss Borders)
-const BOX = {
-  tl: '╭', tr: '╮', bl: '╰', br: '╯',
-  h: '─', v: '│',
-  arrow: '❯', check: '✔', dot: '●', circle: '○'
-};
+// Cleanup cursor on exit
+function restoreCursor() {
+  process.stdout.write(`${ESC}[?25h`);
+}
+process.on('exit', restoreCursor);
+process.on('SIGINT', () => {
+  restoreCursor();
+  process.stdout.write(`\n\n  ${ZINC_MUTED}Installation aborted.${RESET}\n\n`);
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  restoreCursor();
+  process.exit(143);
+});
+
+// Hide cursor
+process.stdout.write(`${ESC}[?25l`);
+
+// System stats
+const totalMemMB = Math.round(os.totalmem() / (1024 * 1024));
+const cpuCores = os.cpus().length;
 
 // ------------------------------------------------------------------------------
-// Colorize Helper for ascii-magic-art Frames ({text, color} + palette)
+// Distilled Header
 // ------------------------------------------------------------------------------
-function colorizePiece(frame, palette) {
-  if (!frame) return [];
-  if (typeof frame === 'string') return frame.split('\n');
-  const lines = frame.text.split('\n');
-  const cLines = frame.color ? frame.color.split('\n') : null;
+function printHeader() {
+  console.clear();
+  process.stdout.write(`
+  ${BOLD}${WHITE}LESSWATCH${RESET}  ${PINK}🍿${RESET}  ${ZINC_MUTED}v4.2 Impeccable${RESET}
+  ${ZINC_MUTED}Synchronized Streaming & Cloud Desktop Engine${RESET}
+  ${ZINC_DARK}Target: Google Cloud Shell • ${cpuCores} vCPU / ${totalMemMB}MB RAM${RESET}
+  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}\n\n`);
+}
 
-  return lines.map((line, y) => {
-    if (!cLines || !cLines[y] || !palette) return line;
-    const c = cLines[y];
-    let s = '';
-    let currKey = null;
+// ------------------------------------------------------------------------------
+// Bulletproof Interactive Menu (Prompt & Collapse)
+// ------------------------------------------------------------------------------
+async function askStep({ title, options, defaultIndex = 0 }) {
+  return new Promise((resolve) => {
+    let selected = defaultIndex;
+    const count = options.length;
 
-    for (let x = 0; x < line.length; x++) {
-      const k = c[x];
-      if (k !== currKey) {
-        currKey = k;
-        const hex = currKey && palette[currKey];
-        if (hex) {
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          s += `${ESC}[38;2;${r};${g};${b}m`;
-        } else {
-          s += `${ESC}[39m`;
+    const renderOption = (idx) => {
+      const opt = options[idx];
+      const isSelected = idx === selected;
+      let out = '';
+      if (isSelected) {
+        out += `    ${CYAN}${BOLD}●${RESET} ${WHITE}${BOLD}${opt.title}${RESET}\n`;
+        if (opt.desc) {
+          out += `        ${ZINC_MUTED}${opt.desc}${RESET}\n`;
+        }
+      } else {
+        out += `    ${ZINC_DARK}○${RESET} ${ZINC_LIGHT}${opt.title}${RESET}\n`;
+        if (opt.desc) {
+          out += `        ${ZINC_DARK}${opt.desc}${RESET}\n`;
         }
       }
-      s += line[x];
+      return out;
+    };
+
+    let totalLines = 0;
+    options.forEach(opt => {
+      totalLines += opt.desc ? 2 : 1;
+    });
+
+    process.stdout.write(`  ${CYAN}?${RESET} ${WHITE}${BOLD}${title}${RESET}\n`);
+
+    // Render options
+    options.forEach((_, idx) => {
+      process.stdout.write(renderOption(idx));
+    });
+
+    const redraw = () => {
+      process.stdout.write(`${ESC}[${totalLines}A`);
+      options.forEach((_, idx) => {
+        process.stdout.write(`${ESC}[2K${renderOption(idx)}`);
+      });
+    };
+
+    // Configure raw input
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
     }
-    return s + RESET;
-  });
-}
 
-// ------------------------------------------------------------------------------
-// Reactive State Model
-// ------------------------------------------------------------------------------
-const state = {
-  activeTab: 0, // 0: Motion Banner, 1: Bubble Tea Stepper, 2: Magic Loaders, 3: Spinners & Dividers
-  totalTabs: 4,
-  ticks: 0,
-  seconds: 0,
-  paused: false,
-  stepSelected: 0,
-  stepConfirmed: false,
-  stepHistory: [],
-  telemetryLogs: [
-    'Pulling Watch Together / LESSWATCH core microservices...',
-    'Building Node 20 runtime + ffmpeg + aria2c + yt-dlp layer...',
-    'Spawning LiveKit low-latency voice SFU bridge on 7880...',
-    'Allocating Neko Chromium WebRTC TCP multiplex port 52000...',
-    'Negotiating unthrottled TURN relay over TCP 443...',
-    'Requesting Cloudflare Quick Tunnel edge route...',
-    'Live URL assigned: https://lesswatch-demo.trycloudflare.com',
-    'All systems operational. Ready for synchronous room streaming.'
-  ]
-};
-
-// ------------------------------------------------------------------------------
-// LESSWATCH Shimmer Logo & ASCII Cinema Art
-// ------------------------------------------------------------------------------
-const LOGO_LINES = [
-  "██╗     ███████╗███████╗███████╗██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗",
-  "██║     ██╔════╝██╔════╝██╔════╝██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║",
-  "██║     █████╗  ███████╗███████╗██║ █╗ ██║███████║   ██║   ██║     ███████║",
-  "██║     ██╔══╝  ╚════██║╚════██║██║███╗██║██╔══██║   ██║   ██║     ██╔══██║",
-  "███████╗███████╗███████║███████║╚███╔███╔╝██║  ██║   ██║   ╚██████╗██║  ██║",
-  "╚══════╝╚══════╝╚══════╝╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝"
-];
-
-function renderShimmerLogo(tick) {
-  const len = LOGO_LINES[0].length;
-  const sweep = tick % (len + 28);
-  const out = [];
-
-  for (let r = 0; r < LOGO_LINES.length; r++) {
-    const line = LOGO_LINES[r];
-    let row = '';
-    for (let c = 0; c < line.length; c++) {
-      const ch = line[c];
-      if (ch === ' ') {
-        row += ' ';
-        continue;
+    const onKeypress = (str, key) => {
+      // Quit ONLY on Ctrl+C (Never on bare escape or arrow prefixes!)
+      if (key && key.ctrl && key.name === 'c') {
+        restoreCursor();
+        process.stdout.write(`\n\n  ${ZINC_MUTED}Installation aborted.${RESET}\n\n`);
+        process.exit(130);
       }
-      const dist = Math.abs(c - sweep);
-      if (dist === 0) row += `${WHITE}${BOLD}${ch}${RESET}`;
-      else if (dist <= 2) row += `${CYAN}${BOLD}${ch}${RESET}`;
-      else if (dist <= 4) row += `${PINK}${ch}${RESET}`;
-      else if (dist <= 8) row += `${PURPLE}${ch}${RESET}`;
-      else row += `${ZINC_MUTED}${ch}${RESET}`;
-    }
-    out.push(row);
-  }
-  return out;
-}
 
-// Multi-frame filmstrip reels
-const FILMSTRIP = [
-  [" .---.       .---. ", "/ (•) \\=====/ (•) \\", "\\  •  /=====\\  •  /", " '---'       '---' "],
-  [" .---.       .---. ", "/  •  \\=====/  •  \\", "\\ (•) /=====\\ (•) /", " '---'       '---' "],
-  [" .---.       .---. ", "/ •   \\=====/ •   \\", "\\   • /=====\\   • /", " '---'       '---' "],
-  [" .---.       .---. ", "/   • \\=====/   • \\", "\\ •   /=====\\ •   /", " '---'       '---' "]
-];
+      // Hotkey numbers (1-9)
+      if (str && /^[1-9]$/.test(str)) {
+        const num = parseInt(str, 10) - 1;
+        if (num >= 0 && num < count) {
+          selected = num;
+          redraw();
+        }
+        return;
+      }
 
-// Multi-frame popcorn popping
-const POPCORN = [
-  ["     .     ", "   ( 🍿 )  ", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
-  ["   ✦ . *   ", " ✦ ( 🍿 ) ✦", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
-  [" * °  *  ° ", " * ( 🍿 ) *", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
-  ["   * . *   ", " ✦ ( 🍿 ) ✦", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "]
-];
+      // Arrow navigation (handles both key object and raw sequence strings)
+      const isUp = (key && (key.name === 'up' || key.name === 'k')) || str === '\x1b[A';
+      const isDown = (key && (key.name === 'down' || key.name === 'j')) || str === '\x1b[B';
+      const isConfirm = (key && (key.name === 'return' || key.name === 'enter')) || str === '\r' || str === '\n';
 
-// ------------------------------------------------------------------------------
-// Card Drawer (Rounded Lipgloss / Charm Container)
-// ------------------------------------------------------------------------------
-function drawCard(width, title, lines, borderColor = PURPLE) {
-  const innerW = width - 4;
-  const titleStr = title ? ` ${WHITE}${BOLD}${title}${RESET}${borderColor} ` : '';
-  const titleLen = title ? title.length + 2 : 0;
-  const topPad = BOX.h.repeat(2);
-  const remain = Math.max(0, innerW - titleLen - 2);
+      if (isUp) {
+        selected = (selected - 1 + count) % count;
+        redraw();
+      } else if (isDown) {
+        selected = (selected + 1) % count;
+        redraw();
+      } else if (isConfirm) {
+        cleanup();
+        // Collapse menu: erase options and show single confirmed line
+        const linesToErase = totalLines + 1;
+        process.stdout.write(`${ESC}[${linesToErase}A`);
+        for (let i = 0; i < linesToErase; i++) {
+          process.stdout.write(`${ESC}[2K\n`);
+        }
+        process.stdout.write(`${ESC}[${linesToErase}A`);
+        process.stdout.write(`  ${GREEN}✔${RESET} ${ZINC_MUTED}${title}:${RESET} ${WHITE}${BOLD}${options[selected].title}${RESET}\n\n`);
+        resolve(selected);
+      }
+    };
 
-  const top = `${borderColor}${BOX.tl}${topPad}${titleStr}${BOX.h.repeat(remain)}${BOX.tr}${RESET}`;
-  const bot = `${borderColor}${BOX.bl}${BOX.h.repeat(innerW + 2)}${BOX.br}${RESET}`;
+    const cleanup = () => {
+      process.stdin.removeListener('keypress', onKeypress);
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+    };
 
-  const rows = [top];
-  for (const l of lines) {
-    const rawLen = l.replace(/\x1b\[[0-9;]*m/g, '').length;
-    const pad = Math.max(0, innerW - rawLen);
-    rows.push(`${borderColor}${BOX.v}${RESET}  ${l}${' '.repeat(pad)}${borderColor}${BOX.v}${RESET}`);
-  }
-  rows.push(bot);
-  return rows;
-}
-
-// ------------------------------------------------------------------------------
-// View 1: Cinema Motion Canvas
-// ------------------------------------------------------------------------------
-function viewMotion(w) {
-  const shimmer = renderShimmerLogo(state.ticks);
-  const filmFrame = FILMSTRIP[Math.floor(state.ticks / 3) % FILMSTRIP.length];
-  const popFrame = POPCORN[Math.floor(state.ticks / 2) % POPCORN.length];
-
-  const lines = [
-    '',
-    `  ${ZINC_LIGHT}${ITALIC}Cinema Motion Engine${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}Shimmer Sweep Active${RESET}  ${ZINC_DARK}•${RESET}  ${ZINC_MUTED}30 FPS${RESET}`,
-    ''
-  ];
-
-  for (const r of shimmer) {
-    lines.push(`  ${r}`);
-  }
-
-  lines.push('');
-  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
-  lines.push('');
-
-  const rows = Math.max(filmFrame.length, popFrame.length);
-  for (let i = 0; i < rows; i++) {
-    const f = filmFrame[i] || ' '.repeat(20);
-    const p = popFrame[i] || ' '.repeat(12);
-    lines.push(`    ${CYAN}${f}${RESET}       ${PINK}${p}${RESET}     ${ZINC_MUTED}Rendering frame #${state.ticks} (Double-Buffered)${RESET}`);
-  }
-
-  lines.push('');
-  lines.push(`  ${PURPLE}${BOLD}⚡ Motion Features:${RESET} ${ZINC_LIGHT}Continuous RGB sweep • Zero terminal flicker • Microsecond frame timing${RESET}`);
-  lines.push('');
-
-  return drawCard(w, 'CINEMA ASCII-MOTION CANVAS', lines, PURPLE);
-}
-
-// ------------------------------------------------------------------------------
-// View 2: Bubble Tea Stepper (Interactive Lipgloss Menu)
-// ------------------------------------------------------------------------------
-function viewStepper(w) {
-  const options = [
-    { title: '⚡ Google Cloud Shell / Web Sandbox (Recommended)', desc: 'Zero port forwarding, binds cleanly to port 8080 with Web Preview integration.' },
-    { title: '🚀 Dedicated Linux Cloud VM (Ubuntu / Debian / VPS / OCI)', desc: 'Permanent 24/7 background hosting with native direct UDP WebRTC.' },
-    { title: '🔒 Custom Domain with Automatic SSL (Caddy)', desc: 'Production HTTPS with automated Let’s Encrypt certificate auto-renewal.' },
-    { title: '💻 Local Workspace / Docker Desktop', desc: 'Fast local testing on your personal workstation.' }
-  ];
-
-  const lines = [
-    '',
-    `  ${WHITE}${BOLD}Select Deployment Target Infrastructure${RESET}  ${ZINC_MUTED}(Step 1 of 4)${RESET}`,
-    `  ${ZINC_MUTED}Use [↑/↓] or [j/k] to navigate, [Enter] to confirm, [1-4] quick select${RESET}`,
-    ''
-  ];
-
-  options.forEach((opt, idx) => {
-    const isSel = idx === state.stepSelected;
-    if (isSel) {
-      lines.push(`  ${VIOLET}${BOLD}${BOX.arrow} [●] ${WHITE}${BOLD}${opt.title}${RESET}`);
-      lines.push(`      ${PINK}${opt.desc}${RESET}`);
-    } else {
-      lines.push(`    ${ZINC_DARK}[○] ${ZINC_MUTED}${opt.title}${RESET}`);
-      lines.push(`      ${ZINC_DARK}${opt.desc}${RESET}`);
-    }
+    process.stdin.on('keypress', onKeypress);
   });
-
-  lines.push('');
-  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
-  lines.push('');
-
-  if (state.stepConfirmed) {
-    lines.push(`  ${CYAN}${BOLD}${BOX.check} Confirmed:${RESET} ${WHITE}${BOLD}${options[state.stepSelected].title}${RESET}`);
-    lines.push(`    ${ZINC_MUTED}Selection dispatched to environment manager.${RESET}`);
-  } else {
-    lines.push(`  ${AMBER}${BOLD}● Awaiting choice...${RESET} ${ZINC_MUTED}Press [Enter] to lock selection${RESET}`);
-  }
-  lines.push('');
-
-  return drawCard(w, 'BUBBLE TEA INTERACTIVE STEPPER', lines, CYAN);
 }
 
 // ------------------------------------------------------------------------------
-// View 3: ascii-magic-art Progress Loaders
+// Distilled Live Progress Task Runner
 // ------------------------------------------------------------------------------
-function viewLoaders(w) {
-  const lines = [
-    '',
-    `  ${WHITE}${BOLD}Live Multi-Stage Pipeline${RESET}  ${ZINC_MUTED}(Powered by ascii-magic-art/progress-loader)${RESET}`,
-    ''
-  ];
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-  if (progressLoaderDraw) {
-    const pFrame = progressLoaderDraw(state.seconds);
-    const coloredP = colorizePiece(pFrame, progressLoaderMeta.palette);
-    for (const cl of coloredP) {
-      if (cl.trim()) lines.push(`  ${cl}`);
+async function runTask(title, execute) {
+  let frame = 0;
+  const startTime = Date.now();
+  let subdetail = '';
+
+  process.stdout.write(`  ${CYAN}${SPINNER[0]}${RESET} ${ZINC_LIGHT}${title}...${RESET}\n`);
+
+  const timer = setInterval(() => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const spin = SPINNER[frame % SPINNER.length];
+    frame++;
+
+    if (subdetail) {
+      process.stdout.write(`${ESC}[1A${ESC}[2K  ${CYAN}${spin}${RESET} ${ZINC_LIGHT}${title}...${RESET} ${ZINC_MUTED}(${elapsed}s)${RESET}\n`);
+      process.stdout.write(`${ESC}[2K      ${ZINC_MUTED}↳ ${subdetail}${RESET}\n`);
+    } else {
+      process.stdout.write(`${ESC}[1A${ESC}[2K  ${CYAN}${spin}${RESET} ${ZINC_LIGHT}${title}...${RESET} ${ZINC_MUTED}(${elapsed}s)${RESET}\n`);
     }
-  }
+  }, 80);
 
-  lines.push('');
-  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
-  lines.push('');
-
-  const activeIdx = Math.floor((state.seconds * 1.5) % state.telemetryLogs.length);
-  lines.push(`  ${PURPLE}${BOLD}Active Subtask:${RESET} ${ZINC_LIGHT}${state.telemetryLogs[activeIdx]}${RESET}`);
-  lines.push(`  ${ZINC_MUTED}Host Memory: ${GREEN}${Math.round(os.freemem() / 1024 / 1024)}MB free${RESET} ${ZINC_DARK}/ ${Math.round(os.totalmem() / 1024 / 1024)}MB total${RESET}`);
-  lines.push('');
-
-  return drawCard(w, 'ASCII-MAGIC-ART PROGRESS LOADER', lines, BLUE);
-}
-
-// ------------------------------------------------------------------------------
-// View 4: ascii-magic-art Spinners & Wave Dividers
-// ------------------------------------------------------------------------------
-function viewSpinners(w) {
-  const lines = [
-    '',
-    `  ${WHITE}${BOLD}Spinner Matrix & Wave Dividers${RESET}  ${ZINC_MUTED}(ascii-magic-art gallery)${RESET}`,
-    ''
-  ];
-
-  // Animated wave divider
-  if (waveDividerDraw) {
-    const wFrame = waveDividerDraw(state.seconds);
-    const coloredW = colorizePiece(wFrame, waveDividerMeta.palette);
-    for (const wl of coloredW.slice(1, 5)) {
-      lines.push(`  ${wl}`);
-    }
-  }
-
-  lines.push('');
-  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
-
-  // Spinner Set preview
-  if (spinnerSetDraw) {
-    const sFrame = spinnerSetDraw(state.seconds);
-    const coloredS = colorizePiece(sFrame, spinnerSetMeta.palette);
-    for (const sl of coloredS.slice(0, 10)) {
-      lines.push(`  ${sl}`);
-    }
-  }
-
-  lines.push('');
-  return drawCard(w, 'ASCII-MAGIC-ART SPINNERS & WAVES', lines, PINK);
-}
-
-// ------------------------------------------------------------------------------
-// Master Render Loop
-// ------------------------------------------------------------------------------
-function render() {
-  const w = Math.min(process.stdout.columns || 80, 84);
-
-  // Tab navigation bar
-  const tabs = [
-    '1. Cinema Motion',
-    '2. Bubble Stepper',
-    '3. Magic Loader',
-    '4. Spinner Gallery'
-  ];
-
-  const tabPills = tabs.map((t, idx) => {
-    if (idx === state.activeTab) {
-      return `${WHITE}${BOLD}[${t}]${RESET}`;
-    }
-    return `${ZINC_MUTED} ${t} ${RESET}`;
-  }).join('  ');
-
-  const header = `
-${ZINC_DARK}┌─────────────────────────────────────────────────────────────────────────────┐${RESET}
-${ZINC_DARK}│${RESET}  ${BOLD}${WHITE}L E S S W A T C H${RESET}  ${PINK}🍿${RESET}  ${ZINC_MUTED}ASCII-Magic & Bubble Tea Playground${RESET}         ${CYAN}v4.2-LAB${RESET}  ${ZINC_DARK}│${RESET}
-${ZINC_DARK}├─────────────────────────────────────────────────────────────────────────────┤${RESET}
-${ZINC_DARK}│${RESET}  ${tabPills}  ${ZINC_DARK}│${RESET}
-${ZINC_DARK}└─────────────────────────────────────────────────────────────────────────────┘${RESET}`;
-
-  let cardRows = [];
-  if (state.activeTab === 0) cardRows = viewMotion(w);
-  else if (state.activeTab === 1) cardRows = viewStepper(w);
-  else if (state.activeTab === 2) cardRows = viewLoaders(w);
-  else if (state.activeTab === 3) cardRows = viewSpinners(w);
-
-  const footer = `
-  ${ZINC_DARK}Navigation:${RESET} ${WHITE}[Tab / ← / → / 1-4]${RESET} Switch Views  ${ZINC_DARK}•${RESET} ${WHITE}[Space]${RESET} Pause  ${ZINC_DARK}•${RESET} ${WHITE}[r]${RESET} Reset  ${ZINC_DARK}•${RESET} ${WHITE}[q]${RESET} Exit
-`;
-
-  // Atomic write to prevent tearing
-  process.stdout.write(`${ESC}[H${header}\n${cardRows.join('\n')}\n${footer}`);
-}
-
-// ------------------------------------------------------------------------------
-// Input Handling & Application Lifecycle
-// ------------------------------------------------------------------------------
-function main() {
-  // Alternate screen buffer so terminal scrollback stays 100% clean
-  process.stdout.write(`${ESC}[?1049h${ESC}[H${ESC}[2J${ESC}[?25l`);
-
-  const exitApp = () => {
-    process.stdout.write(`${ESC}[?1049l${ESC}[?25h`);
-    process.exit(0);
+  const updateSub = (msg) => {
+    if (msg) subdetail = msg.slice(0, 60);
   };
 
-  process.on('SIGINT', exitApp);
-  process.on('SIGTERM', exitApp);
-  process.on('exit', () => process.stdout.write(`${ESC}[?1049l${ESC}[?25h`));
+  try {
+    const result = await execute(updateSub);
+    clearInterval(timer);
 
-  readline.emitKeypressEvents(process.stdin);
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
+    const dur = ((Date.now() - startTime) / 1000).toFixed(1);
+    if (subdetail) {
+      process.stdout.write(`${ESC}[1A${ESC}[2K${ESC}[1A`);
+    } else {
+      process.stdout.write(`${ESC}[1A`);
+    }
+    process.stdout.write(`${ESC}[2K  ${GREEN}✔${RESET} ${ZINC_LIGHT}${title}${RESET} ${ZINC_MUTED}(${dur}s)${RESET}\n`);
+    return result;
+  } catch (err) {
+    clearInterval(timer);
+    process.stdout.write(`\n  ${PINK}✖${RESET} ${WHITE}${title} failed:${RESET} ${err.message}\n`);
+    throw err;
   }
-
-  process.stdin.on('keypress', (str, key) => {
-    if (!key && !str) return;
-
-    // Quit ONLY on 'q' or 'Q' or Ctrl+C (NEVER quit on Tab or bare Escape!)
-    if ((key && key.name === 'q') || str === 'q' || str === 'Q' || (key && key.ctrl && key.name === 'c')) {
-      exitApp();
-      return;
-    }
-
-    // Tab key switching (Rock-solid: checks str === '\t', key.name === 'tab', and shift+tab)
-    if (str === '\t' || (key && key.name === 'tab')) {
-      if (key && key.shift) {
-        state.activeTab = (state.activeTab - 1 + state.totalTabs) % state.totalTabs;
-      } else {
-        state.activeTab = (state.activeTab + 1) % state.totalTabs;
-      }
-      return;
-    }
-
-    // Direct number keys (1, 2, 3, 4)
-    if (str === '1') { state.activeTab = 0; return; }
-    if (str === '2') { state.activeTab = 1; return; }
-    if (str === '3') { state.activeTab = 2; return; }
-    if (str === '4') { state.activeTab = 3; return; }
-
-    // Arrow keys Left & Right for tab switching
-    if (key && (key.name === 'left' || key.name === 'h')) {
-      state.activeTab = (state.activeTab - 1 + state.totalTabs) % state.totalTabs;
-      return;
-    }
-    if (key && (key.name === 'right' || key.name === 'l')) {
-      state.activeTab = (state.activeTab + 1) % state.totalTabs;
-      return;
-    }
-
-    // Pause toggle
-    if (str === ' ') {
-      state.paused = !state.paused;
-      return;
-    }
-
-    // Reset simulation
-    if (str === 'r' || str === 'R') {
-      state.ticks = 0;
-      state.seconds = 0;
-      state.stepConfirmed = false;
-      return;
-    }
-
-    // Stepper navigation when on Tab 1
-    if (state.activeTab === 1 && key) {
-      if (key.name === 'up' || key.name === 'k') {
-        state.stepSelected = (state.stepSelected - 1 + 4) % 4;
-        state.stepConfirmed = false;
-      } else if (key.name === 'down' || key.name === 'j') {
-        state.stepSelected = (state.stepSelected + 1) % 4;
-        state.stepConfirmed = false;
-      } else if (key.name === 'return' || key.name === 'enter') {
-        state.stepConfirmed = true;
-      }
-    }
-  });
-
-  // 30 FPS Render Clock
-  setInterval(() => {
-    if (!state.paused) {
-      state.ticks++;
-      state.seconds += 0.033;
-    }
-    render();
-  }, 33);
 }
 
-main();
+// ------------------------------------------------------------------------------
+// Main Distilled Flow
+// ------------------------------------------------------------------------------
+async function main() {
+  printHeader();
+
+  // 1. Target Infrastructure
+  const platform = await askStep({
+    title: 'Select deployment target',
+    defaultIndex: 0,
+    options: [
+      {
+        title: '⚡ Google Cloud Shell / Web Sandbox (Recommended)',
+        desc: 'Optimized for sandbox CGNAT, binds to port 8080 with Web Preview integration.'
+      },
+      {
+        title: '🚀 Dedicated Linux Cloud VM (Ubuntu / Debian / VPS / OCI)',
+        desc: 'Permanent 24/7 background hosting with native direct UDP WebRTC.'
+      },
+      {
+        title: '💻 Local Workspace / Docker Desktop',
+        desc: 'Local testing on your PC workstation.'
+      }
+    ]
+  });
+
+  // 2. Public Access Method
+  const access = await askStep({
+    title: 'Select public sharing method',
+    defaultIndex: 0,
+    options: [
+      {
+        title: '🌐 Instant Cloudflare Quick Tunnel (Free Public HTTPS)',
+        desc: 'Zero port forwarding, shareable URL generated in seconds.'
+      },
+      {
+        title: '🔒 Custom Domain with Automatic SSL (Caddy)',
+        desc: 'Production HTTPS using your own domain with Let’s Encrypt auto-renewal.'
+      },
+      {
+        title: '📡 Direct IP & Port',
+        desc: 'Direct connection without external tunnel.'
+      }
+    ]
+  });
+
+  // 3. Virtual Shared Browser Mode
+  const neko = await askStep({
+    title: 'Shared Chromium browser (Neko)',
+    defaultIndex: 0,
+    options: [
+      {
+        title: '🎮 On-Demand Mode (Recommended)',
+        desc: 'Sleeps when idle. Boots in 1s when room activates Neko. Saves ~600MB RAM.'
+      },
+      {
+        title: '🚀 Always-On Mode',
+        desc: 'Instantly warm and ready at all times (~600MB RAM usage).'
+      },
+      {
+        title: '🚫 Disabled',
+        desc: 'Disables virtual browser for low-resource environments.'
+      }
+    ]
+  });
+
+  process.stdout.write(`  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}\n\n`);
+
+  // Simulated Execution Steps (Exact mirror of deployment)
+  await runTask('Verifying Docker engine & memory specs', async (update) => {
+    update('Pinging Docker daemon...');
+    await new Promise(r => setTimeout(r, 400));
+    update('Verified 2 vCPU / 16GB RAM.');
+    await new Promise(r => setTimeout(r, 200));
+  });
+
+  await runTask('Configuring network firewall ports', async (update) => {
+    update('Opening 8080/tcp, 7880:7881, and WebRTC UDP/TCP ranges...');
+    await new Promise(r => setTimeout(r, 300));
+  });
+
+  await runTask('Generating cryptographic secrets & .env parameters', async (update) => {
+    update('Writing AES vault keys and TURN relay configuration...');
+    await new Promise(r => setTimeout(r, 350));
+  });
+
+  await runTask('Compiling & launching LESSWATCH core services', async (update) => {
+    update('Step 2/7: RUN apt-get install -y ffmpeg aria2...');
+    await new Promise(r => setTimeout(r, 600));
+    update('Step 4/7: RUN npm ci --omit=dev [watch-together]');
+    await new Promise(r => setTimeout(r, 700));
+    update('Starting livekit & watch-together containers...');
+    await new Promise(r => setTimeout(r, 500));
+  });
+
+  await runTask('Connecting Cloudflare Quick Tunnel', async (update) => {
+    update('Requesting edge ingress tunnel...');
+    await new Promise(r => setTimeout(r, 500));
+    update('Registered edge route at nearest Cloudflare PoP...');
+    await new Promise(r => setTimeout(r, 400));
+  });
+
+  // Final Distilled Summary
+  process.stdout.write(`
+  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
+  ${BOLD}${WHITE}LESSWATCH is live & streaming${RESET}
+  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
+
+    ${CYAN}${BOLD}Public URL:${RESET}     ${WHITE}${BOLD}https://lesswatch-demo.trycloudflare.com${RESET}
+    ${ZINC_MUTED}Web Preview:${RESET}    ${PINK}http://localhost:8080${RESET}
+    ${ZINC_MUTED}Credentials:${RESET}    ${WHITE}admin / admin${RESET}
+
+    ${ZINC_MUTED}Components:${RESET}
+    ${ZINC_DARK}•${RESET} Virtual Browser:   ${GREEN}Ready (On-Demand • 540p@20 tunnel-optimized)${RESET}
+    ${ZINC_DARK}•${RESET} Media Downloader:  ${GREEN}Operational (aria2c + yt-dlp)${RESET}
+
+  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
+  ${ZINC_MUTED}Management:${RESET}  ${CYAN}docker compose ps${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}docker compose logs -f${RESET}\n\n`);
+
+  restoreCursor();
+  process.exit(0);
+}
+
+main().catch(err => {
+  restoreCursor();
+  process.stdout.write(`\n  ${PINK}Error:${RESET} ${err.message}\n\n`);
+  process.exit(1);
+});
