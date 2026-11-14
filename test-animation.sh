@@ -54,5 +54,5 @@ if [ -z "$NODE_BIN" ]; then
 fi
 
 export PATH="$(dirname "$NODE_BIN"):$PATH"
-exec "$NODE_BIN" scripts/test-animation.mjs "$@"
+exec "$NODE_BIN" scripts/lesswatch-install-v2.mjs "$@"
 

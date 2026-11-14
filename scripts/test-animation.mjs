@@ -96,7 +96,7 @@ function renderStickyNavbar(statusTags = []) {
   const innerW = width - 2;
 
   const titleLine = `  ${BOLD}${WHITE}LESSWATCH${RESET} ${PINK}🍿${RESET} ${ZINC_MUTED}v4.2 • Cloud Desktop & Synchronized Streaming Engine${RESET}`;
-  
+
   let subtitle = `Target: Cloud Shell • ${cpuCores} vCPU • ${totalMemGB}GB RAM`;
   if (statusTags.length > 0) {
     subtitle = statusTags.join(` ${ZINC_DARK}•${RESET} `);
@@ -268,7 +268,7 @@ async function runInstallationPipeline(stages, statusTags = []) {
     });
 
     out += `\n  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}${ESC}[K\n`;
-    
+
     // Live Telemetry Line (Current Docker/Shell Action)
     const shortTelem = fit(activeTelemetry, 68);
     out += `  ${PINK}⚡ Telemetry:${RESET} ${WHITE}${shortTelem}${RESET}${ESC}[K\n`;
