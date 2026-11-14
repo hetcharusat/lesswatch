@@ -263,16 +263,14 @@ select_menu() {
 # 3. OPENING CYBER BANNER & DETECTION
 # ------------------------------------------------------------------------------
 clear 2>/dev/null || true
-echo -e "${PINK}${BOLD}"
+echo -e "${CYAN}${BOLD}"
 cat << "EOF"
- ██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗   ████████╗ ██████╗ 
- ██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║   ╚══██╔══╝██╔════╝ 
- ██║ █╗ ██║███████║   ██║   ██║     ███████║█████╗██║   ██║  ███╗
- ██║███╗██║██╔══██║   ██║   ██║     ██╔══██║╚════╝██║   ██║   ██║
- ╚███╔███╔╝██║  ██║   ██║   ╚██████╗██║  ██║      ██║   ╚██████╔╝
-  ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝      ╚═╝    ╚═════╝ 
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  🍿  L E S S W A T C H                                      v4.2 Production │
+│  Minimalist Synchronized Streaming & Cloud Desktop Engine                   │
+└─────────────────────────────────────────────────────────────────────────────┘
 EOF
-echo -e "${CYAN}${BOLD}    🍿 Universal Cloud & VM Orchestrator | Impeccable Edition v4.0${RESET}"
+echo -e "${RESET}"
 echo -e "${GRAY}    Sub-second synced rooms • Shared Chromium • Native Torrent/URL Downloader${RESET}\n"
 
 # Environment auto-detection

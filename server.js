@@ -375,7 +375,7 @@ app.use('/neko', async (req, res, next) => {
             <div style="background: #0f172a; padding: 12px 14px; border-radius: 10px; font-family: monospace; font-size: 13px; color: #38bdf8; margin: 0 0 18px; user-select: all; border: 1px solid rgba(56,189,248,0.2);">
               docker compose --profile neko up --no-start neko
             </div>
-            <p style="color: #64748b; font-size: 12px; margin: 0;">Once provisioned, Watch Together automatically starts and stops Neko on-demand to save memory.</p>
+            <p style="color: #64748b; font-size: 12px; margin: 0;">Once provisioned, LESSWATCH automatically starts and stops Neko on-demand to save memory.</p>
           </div>
         </body>
         </html>
@@ -536,7 +536,7 @@ function saveJSON(filePath, data, mode = null) {
 function createDefaultConfig(overrides = {}) {
   return {
     setupCompleted: false,
-    instanceName: 'Watch Together',
+    instanceName: 'LESSWATCH',
     allowPublicSignup: false,
     quickLoginEnabled: true,
     quickLoginMode: 'autofill', // 'passwordless' | 'autofill'
@@ -720,7 +720,7 @@ function sanitizeUser(u) {
 function getPublicConfig() {
   return {
     setupCompleted: !!appConfig.setupCompleted,
-    instanceName: appConfig.instanceName || 'Watch Together',
+    instanceName: appConfig.instanceName || 'LESSWATCH',
     allowPublicSignup: !!appConfig.allowPublicSignup,
     quickLoginEnabled: !!appConfig.quickLoginEnabled,
     quickLoginMode: appConfig.quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
@@ -826,7 +826,7 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     uptime: Math.floor(process.uptime()),
     setupCompleted: !!appConfig.setupCompleted,
-    instanceName: appConfig.instanceName || 'Watch Together'
+    instanceName: appConfig.instanceName || 'LESSWATCH'
   });
 });
 
@@ -1217,7 +1217,7 @@ app.post('/api/setup/complete', (req, res) => {
 
   Object.assign(appConfig, {
     setupCompleted: true,
-    instanceName: (instanceName && String(instanceName).trim()) || 'Watch Together',
+    instanceName: (instanceName && String(instanceName).trim()) || 'LESSWATCH',
     allowPublicSignup: !!allowPublicSignup,
     quickLoginEnabled: quickLoginEnabled !== false,
     quickLoginMode: quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
@@ -4963,7 +4963,7 @@ setInterval(() => {
 }, 2000);
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🍿 Watch Together Media Hub running on http://0.0.0.0:${PORT}`);
+  console.log(`🍿 LESSWATCH Media Hub running on http://0.0.0.0:${PORT}`);
   // Ensure Neko container isn't left consuming CPU/RAM on startup if no users are in a Neko room
   setTimeout(() => {
     stopNekoIfIdle().catch(() => { });

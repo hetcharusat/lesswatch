@@ -26,7 +26,7 @@ export default function App() {
   const [bootLoading, setBootLoading] = useState(true);
   const [appConfig, setAppConfig] = useState({
     setupCompleted: true,
-    instanceName: 'Watch Together',
+    instanceName: 'LESSWATCH',
     allowPublicSignup: false,
     quickLoginEnabled: true,
     quickLoginMode: 'autofill',
@@ -260,7 +260,7 @@ export default function App() {
   if (bootLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090f', color: '#f9a8d4', fontWeight: 600 }}>
-        Loading Watch Together...
+        Loading LESSWATCH...
       </div>
     );
   }
