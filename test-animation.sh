@@ -55,3 +55,4 @@ fi
 
 export PATH="$(dirname "$NODE_BIN"):$PATH"
 exec "$NODE_BIN" scripts/test-animation.mjs "$@"
+

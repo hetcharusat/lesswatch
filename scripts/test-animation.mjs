@@ -1,20 +1,53 @@
 #!/usr/bin/env node
 /**
  * ==============================================================================
- * 🍿 LESSWATCH — Impeccable ASCII-Motion & Bubble Tea TUI Prototype
- * Demonstrates:
- *   1. Multi-Frame ASCII Motion (Filmstrip / Retro Projector / Shimmer Wave)
- *   2. Charm/Bubble Tea Inspired Lipgloss Layouts (Rounded Cards, Smooth Gradients)
- *   3. Interactive Model-Update-View Architecture (Tabs, Stepper, Live Telemetry)
- *   4. Zero-Flicker Double-Buffered Alternate Screen Canvas
+ * 🍿 LESSWATCH — Impeccable ASCII-Magic-Art & Bubble Tea TUI Prototype
+ * Powered by:
+ *   - ascii-magic-art (700+ animated ASCII art pieces, progress loaders, spinners)
+ *   - Charm / Bubble Tea & Lipgloss Design Philosophy
+ *   - Zero-flicker double-buffered alternate screen canvas (30 FPS)
  * ==============================================================================
  */
 
 import readline from 'readline';
 import os from 'os';
 
+// Dynamically import ascii-magic-art pieces
+let progressLoaderDraw = null;
+let progressLoaderMeta = null;
+let spinnerSetDraw = null;
+let spinnerSetMeta = null;
+let waveDividerDraw = null;
+let waveDividerMeta = null;
+let torusDraw = null;
+let torusMeta = null;
+
+try {
+  const pLoader = await import('ascii-magic-art/pieces/progress-loader.js');
+  progressLoaderDraw = pLoader.default();
+  progressLoaderMeta = pLoader.meta;
+} catch {}
+
+try {
+  const sSet = await import('ascii-magic-art/pieces/spinner-set.js');
+  spinnerSetDraw = sSet.default();
+  spinnerSetMeta = sSet.meta;
+} catch {}
+
+try {
+  const wDiv = await import('ascii-magic-art/pieces/wave-divider.js');
+  waveDividerDraw = wDiv.default();
+  waveDividerMeta = wDiv.meta;
+} catch {}
+
+try {
+  const torus = await import('ascii-magic-art/pieces/spinning-torus.js');
+  torusDraw = torus.default();
+  torusMeta = torus.meta;
+} catch {}
+
 // ------------------------------------------------------------------------------
-// ANSI Styling & Palette (Charm/Bubble Tea & Impeccable Standard)
+// Impeccable Palette & ANSI Formatting (Charm / Lipgloss Style)
 // ------------------------------------------------------------------------------
 const ESC = '\x1b';
 const RESET = `${ESC}[0m`;
@@ -22,136 +55,86 @@ const BOLD = `${ESC}[1m`;
 const DIM = `${ESC}[2m`;
 const ITALIC = `${ESC}[3m`;
 
-// Color palette
-const PURPLE = `${ESC}[38;2;125;86;244m`;     // Charm Violet (#7D56F4)
+// Truecolor Accents
+const PURPLE = `${ESC}[38;2;125;86;244m`;     // Charm Electric Violet (#7D56F4)
 const PINK = `${ESC}[38;2;242;93;148m`;       // Soft Coral Pink (#F25D94)
 const CYAN = `${ESC}[38;2;4;181;117m`;        // Mint Cyan (#04B575)
 const BLUE = `${ESC}[38;2;56;189;248m`;       // Sky Blue (#38BDF8)
 const AMBER = `${ESC}[38;2;245;158;11m`;      // Warm Gold (#F59E0B)
-const WHITE = `${ESC}[38;2;255;255;255m`;     // Bright White
-const ZINC_LIGHT = `${ESC}[38;2;212;212;216m`; // Foreground Body
+const WHITE = `${ESC}[38;2;255;255;255m`;     // Pure White
+const ZINC_LIGHT = `${ESC}[38;2;212;212;216m`; // Text Body
 const ZINC_MUTED = `${ESC}[38;2;113;113;122m`; // Secondary Muted
-const ZINC_DARK = `${ESC}[38;2;63;63;70m`;     // Borders & Inactive
-const BG_DARK = `${ESC}[48;2;24;24;27m`;      // Card Surface
-const BG_PURPLE = `${ESC}[48;2;125;86;244m`;  // Accent Pill
+const ZINC_DARK = `${ESC}[38;2;63;63;70m`;     // Borders & Subtext
 
-// Box drawing glyphs (Charm / Lipgloss Rounded Style)
+// Box Drawing Characters (Rounded Lipgloss Borders)
 const BOX = {
   tl: '╭', tr: '╮', bl: '╰', br: '╯',
   h: '─', v: '│',
-  t_down: '┬', t_up: '┴', t_right: '├', t_left: '┤',
-  dot: '●', circle: '○', arrow: '❯', check: '✔', spark: '✦'
+  arrow: '❯', check: '✔', dot: '●', circle: '○'
 };
 
 // ------------------------------------------------------------------------------
-// State Machine (Model-Update-View)
+// Colorize Helper for ascii-magic-art Frames ({text, color} + palette)
+// ------------------------------------------------------------------------------
+function colorizePiece(frame, palette) {
+  if (!frame) return [];
+  if (typeof frame === 'string') return frame.split('\n');
+  const lines = frame.text.split('\n');
+  const cLines = frame.color ? frame.color.split('\n') : null;
+
+  return lines.map((line, y) => {
+    if (!cLines || !cLines[y] || !palette) return line;
+    const c = cLines[y];
+    let s = '';
+    let currKey = null;
+
+    for (let x = 0; x < line.length; x++) {
+      const k = c[x];
+      if (k !== currKey) {
+        currKey = k;
+        const hex = currKey && palette[currKey];
+        if (hex) {
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          s += `${ESC}[38;2;${r};${g};${b}m`;
+        } else {
+          s += `${ESC}[39m`;
+        }
+      }
+      s += line[x];
+    }
+    return s + RESET;
+  });
+}
+
+// ------------------------------------------------------------------------------
+// Reactive State Model
 // ------------------------------------------------------------------------------
 const state = {
-  activeTab: 0, // 0: Motion Canvas, 1: Bubble Tea Stepper, 2: Live Build Telemetry
+  activeTab: 0, // 0: Motion Banner, 1: Bubble Tea Stepper, 2: Magic Loaders, 3: Spinners & Dividers
+  totalTabs: 4,
   ticks: 0,
+  seconds: 0,
   paused: false,
   stepSelected: 0,
   stepConfirmed: false,
-  simProgress: 0,
-  simStage: 0,
-  simLogs: [
-    'Initializing sandbox virtual container environment...',
-    'Allocating shared memory segment (shm_size: 2gb)...',
-    'Binding WebRTC TCP multiplexer on port 52000...',
-    'Generating 256-bit cryptographic AES authentication tokens...',
-    'Spawning LiveKit multi-user audio SFU on 7880:7881...',
-    'Pre-warming Chromium hardware-accelerated pipeline...',
-    'Connecting Cloudflare Quick Tunnel edge ingress...',
-    'Route registered: https://lesswatch-demo.trycloudflare.com',
-    'System operational. Zero latency synchronization ready.'
+  stepHistory: [],
+  telemetryLogs: [
+    'Pulling Watch Together / LESSWATCH core microservices...',
+    'Building Node 20 runtime + ffmpeg + aria2c + yt-dlp layer...',
+    'Spawning LiveKit low-latency voice SFU bridge on 7880...',
+    'Allocating Neko Chromium WebRTC TCP multiplex port 52000...',
+    'Negotiating unthrottled TURN relay over TCP 443...',
+    'Requesting Cloudflare Quick Tunnel edge route...',
+    'Live URL assigned: https://lesswatch-demo.trycloudflare.com',
+    'All systems operational. Ready for synchronous room streaming.'
   ]
 };
 
 // ------------------------------------------------------------------------------
-// Multi-Frame ASCII Motion Art
+// LESSWATCH Shimmer Logo & ASCII Cinema Art
 // ------------------------------------------------------------------------------
-
-// 1. Filmstrip Rollers (4 animation frames)
-const FILMSTRIP_FRAMES = [
-  [
-    "  .---.       .---.       .---.  ",
-    " / (•) \\=====/ (•) \\=====/ (•) \\ ",
-    " \\  •  /=====\\  •  /=====\\  •  / ",
-    "  '---'       '---'       '---'  "
-  ],
-  [
-    "  .---.       .---.       .---.  ",
-    " /  •  \\=====/  •  \\=====/  •  \\ ",
-    " \\ (•) /=====\\ (•) /=====\\ (•) / ",
-    "  '---'       '---'       '---'  "
-  ],
-  [
-    "  .---.       .---.       .---.  ",
-    " / •   \\=====/ •   \\=====/ •   \\ ",
-    " \\   • /=====\\   • /=====\\   • / ",
-    "  '---'       '---'       '---'  "
-  ],
-  [
-    "  .---.       .---.       .---.  ",
-    " /   • \\=====/   • \\=====/   • \\ ",
-    " \\ •   /=====\\ •   /=====\\ •   / ",
-    "  '---'       '---'       '---'  "
-  ]
-];
-
-// 2. Popping Popcorn Kernels (6 animation frames)
-const POPCORN_FRAMES = [
-  [
-    "         .           ",
-    "       ( 🍿 )        ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ],
-  [
-    "       *   .   *     ",
-    "     ✦ ( 🍿 ) ✦      ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ],
-  [
-    "     °   *   °   *   ",
-    "    *  ( 🍿 )  *     ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ],
-  [
-    "      .    ✦    .    ",
-    "     ✦ ( 🍿 ) ✦      ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ],
-  [
-    "       *   °   *     ",
-    "       ( 🍿 )        ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ],
-  [
-    "         .           ",
-    "       ( 🍿 )        ",
-    "     .─-════-─.      ",
-    "     │█ █ █ █ │      ",
-    "     │█ █ █ █ │      ",
-    "     ╰────────╯      "
-  ]
-];
-
-// 3. Iconic LESSWATCH Logo
 const LOGO_LINES = [
   "██╗     ███████╗███████╗███████╗██╗    ██╗ █████╗ ████████╗ ██████╗██╗  ██╗",
   "██║     ██╔════╝██╔════╝██╔════╝██║    ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║",
@@ -161,132 +144,128 @@ const LOGO_LINES = [
   "╚══════╝╚══════╝╚══════╝╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝"
 ];
 
-// ------------------------------------------------------------------------------
-// Shimmer Wave & Color Interpolation Engine
-// ------------------------------------------------------------------------------
-
-// Generates a traveling light wave across the ASCII characters
 function renderShimmerLogo(tick) {
   const len = LOGO_LINES[0].length;
-  const sweepPos = tick % (len + 24);
+  const sweep = tick % (len + 28);
   const out = [];
 
   for (let r = 0; r < LOGO_LINES.length; r++) {
     const line = LOGO_LINES[r];
-    let rowStr = '';
+    let row = '';
     for (let c = 0; c < line.length; c++) {
       const ch = line[c];
       if (ch === ' ') {
-        rowStr += ' ';
+        row += ' ';
         continue;
       }
-      const dist = Math.abs(c - sweepPos);
-      if (dist === 0) {
-        // Core of the light beam (blinding white)
-        rowStr += `${WHITE}${BOLD}${ch}${RESET}`;
-      } else if (dist === 1 || dist === 2) {
-        // Intense Cyan / Violet corona
-        rowStr += `${CYAN}${BOLD}${ch}${RESET}`;
-      } else if (dist === 3 || dist === 4) {
-        // Soft Coral Pink
-        rowStr += `${PINK}${ch}${RESET}`;
-      } else if (dist < 8) {
-        // Deep Violet
-        rowStr += `${PURPLE}${ch}${RESET}`;
-      } else {
-        // Ambient background glow
-        rowStr += `${ZINC_MUTED}${ch}${RESET}`;
-      }
+      const dist = Math.abs(c - sweep);
+      if (dist === 0) row += `${WHITE}${BOLD}${ch}${RESET}`;
+      else if (dist <= 2) row += `${CYAN}${BOLD}${ch}${RESET}`;
+      else if (dist <= 4) row += `${PINK}${ch}${RESET}`;
+      else if (dist <= 8) row += `${PURPLE}${ch}${RESET}`;
+      else row += `${ZINC_MUTED}${ch}${RESET}`;
     }
-    out.push(rowStr);
+    out.push(row);
   }
   return out;
 }
 
-// ------------------------------------------------------------------------------
-// Card Box Renderer (Charm / Lipgloss Style)
-// ------------------------------------------------------------------------------
-function drawCard(width, title, contentLines, borderColor = PURPLE) {
-  const innerW = width - 4;
-  const topPad = BOX.h.repeat(2);
-  const titleStr = title ? ` ${WHITE}${BOLD}${title}${RESET}${borderColor} ` : '';
-  const titleVisibleLen = title ? title.length + 2 : 0;
-  const topRemain = Math.max(0, innerW - titleVisibleLen - 2);
-  const topBorder = `${borderColor}${BOX.tl}${topPad}${titleStr}${BOX.h.repeat(topRemain)}${BOX.tr}${RESET}`;
-  const bottomBorder = `${borderColor}${BOX.bl}${BOX.h.repeat(innerW + 2)}${BOX.br}${RESET}`;
+// Multi-frame filmstrip reels
+const FILMSTRIP = [
+  [" .---.       .---. ", "/ (•) \\=====/ (•) \\", "\\  •  /=====\\  •  /", " '---'       '---' "],
+  [" .---.       .---. ", "/  •  \\=====/  •  \\", "\\ (•) /=====\\ (•) /", " '---'       '---' "],
+  [" .---.       .---. ", "/ •   \\=====/ •   \\", "\\   • /=====\\   • /", " '---'       '---' "],
+  [" .---.       .---. ", "/   • \\=====/   • \\", "\\ •   /=====\\ •   /", " '---'       '---' "]
+];
 
-  const rows = [topBorder];
-  for (const line of contentLines) {
-    const cleanLen = line.replace(/\x1b\[[0-9;]*m/g, '').length;
-    const padding = Math.max(0, innerW - cleanLen);
-    rows.push(`${borderColor}${BOX.v}${RESET}  ${line}${' '.repeat(padding)}${borderColor}${BOX.v}${RESET}`);
+// Multi-frame popcorn popping
+const POPCORN = [
+  ["     .     ", "   ( 🍿 )  ", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
+  ["   ✦ . *   ", " ✦ ( 🍿 ) ✦", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
+  [" * °  *  ° ", " * ( 🍿 ) *", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "],
+  ["   * . *   ", " ✦ ( 🍿 ) ✦", "  .─-══-─. ", "  │█ █ █ │ ", "  ╰──────╯ "]
+];
+
+// ------------------------------------------------------------------------------
+// Card Drawer (Rounded Lipgloss / Charm Container)
+// ------------------------------------------------------------------------------
+function drawCard(width, title, lines, borderColor = PURPLE) {
+  const innerW = width - 4;
+  const titleStr = title ? ` ${WHITE}${BOLD}${title}${RESET}${borderColor} ` : '';
+  const titleLen = title ? title.length + 2 : 0;
+  const topPad = BOX.h.repeat(2);
+  const remain = Math.max(0, innerW - titleLen - 2);
+
+  const top = `${borderColor}${BOX.tl}${topPad}${titleStr}${BOX.h.repeat(remain)}${BOX.tr}${RESET}`;
+  const bot = `${borderColor}${BOX.bl}${BOX.h.repeat(innerW + 2)}${BOX.br}${RESET}`;
+
+  const rows = [top];
+  for (const l of lines) {
+    const rawLen = l.replace(/\x1b\[[0-9;]*m/g, '').length;
+    const pad = Math.max(0, innerW - rawLen);
+    rows.push(`${borderColor}${BOX.v}${RESET}  ${l}${' '.repeat(pad)}${borderColor}${BOX.v}${RESET}`);
   }
-  rows.push(bottomBorder);
+  rows.push(bot);
   return rows;
 }
 
 // ------------------------------------------------------------------------------
-// View Renderers
+// View 1: Cinema Motion Canvas
 // ------------------------------------------------------------------------------
-
-// TAB 1: ASCII Motion Showcase
-function renderMotionView(w) {
-  const logoRendered = renderShimmerLogo(state.ticks);
-  const filmIdx = Math.floor(state.ticks / 3) % FILMSTRIP_FRAMES.length;
-  const popIdx = Math.floor(state.ticks / 2) % POPCORN_FRAMES.length;
-
-  const film = FILMSTRIP_FRAMES[filmIdx];
-  const pop = POPCORN_FRAMES[popIdx];
+function viewMotion(w) {
+  const shimmer = renderShimmerLogo(state.ticks);
+  const filmFrame = FILMSTRIP[Math.floor(state.ticks / 3) % FILMSTRIP.length];
+  const popFrame = POPCORN[Math.floor(state.ticks / 2) % POPCORN.length];
 
   const lines = [
     '',
-    `  ${ZINC_LIGHT}${ITALIC}Live 30 FPS Keyframed ASCII-Motion Canvas${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}Shimmer Sweep: active${RESET}`,
+    `  ${ZINC_LIGHT}${ITALIC}Cinema Motion Engine${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}Shimmer Sweep Active${RESET}  ${ZINC_DARK}•${RESET}  ${ZINC_MUTED}30 FPS${RESET}`,
     ''
   ];
 
-  // Add logo centered
-  for (const row of logoRendered) {
-    lines.push(`  ${row}`);
+  for (const r of shimmer) {
+    lines.push(`  ${r}`);
   }
 
   lines.push('');
   lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
   lines.push('');
 
-  // Side-by-side animated elements
-  const compositeRows = Math.max(film.length, pop.length);
-  for (let i = 0; i < compositeRows; i++) {
-    const fLine = film[i] || ' '.repeat(35);
-    const pLine = pop[i] || ' '.repeat(20);
-    lines.push(`    ${CYAN}${fLine}${RESET}        ${PINK}${pLine}${RESET}    ${ZINC_MUTED}Frame: ${state.ticks} | FPS: 30${RESET}`);
+  const rows = Math.max(filmFrame.length, popFrame.length);
+  for (let i = 0; i < rows; i++) {
+    const f = filmFrame[i] || ' '.repeat(20);
+    const p = popFrame[i] || ' '.repeat(12);
+    lines.push(`    ${CYAN}${f}${RESET}       ${PINK}${p}${RESET}     ${ZINC_MUTED}Rendering frame #${state.ticks} (Double-Buffered)${RESET}`);
   }
 
   lines.push('');
-  lines.push(`  ${PURPLE}${BOLD}⚡ Motion Features:${RESET} ${ZINC_LIGHT}Double-buffered ANSI canvas • Continuous color interpolation • Zero flicker${RESET}`);
+  lines.push(`  ${PURPLE}${BOLD}⚡ Motion Features:${RESET} ${ZINC_LIGHT}Continuous RGB sweep • Zero terminal flicker • Microsecond frame timing${RESET}`);
   lines.push('');
 
-  return drawCard(w, 'ASCII-MOTION PLAYGROUND', lines, PURPLE);
+  return drawCard(w, 'CINEMA ASCII-MOTION CANVAS', lines, PURPLE);
 }
 
-// TAB 2: Bubble Tea Stepper (Charm Style)
-function renderStepperView(w) {
+// ------------------------------------------------------------------------------
+// View 2: Bubble Tea Stepper (Interactive Lipgloss Menu)
+// ------------------------------------------------------------------------------
+function viewStepper(w) {
   const options = [
-    { title: '⚡ Google Cloud Shell / Ephemeral Sandbox', desc: 'Auto-configures port 8080 & Web Preview integration.' },
-    { title: '🚀 Dedicated Linux Cloud VM (Ubuntu / Debian)', desc: 'Full 24/7 background hosting with direct UDP WebRTC.' },
-    { title: '🔒 Custom Domain with Automatic SSL (Caddy)', desc: 'Production HTTPS with automated Let’s Encrypt SSL.' },
+    { title: '⚡ Google Cloud Shell / Web Sandbox (Recommended)', desc: 'Zero port forwarding, binds cleanly to port 8080 with Web Preview integration.' },
+    { title: '🚀 Dedicated Linux Cloud VM (Ubuntu / Debian / VPS / OCI)', desc: 'Permanent 24/7 background hosting with native direct UDP WebRTC.' },
+    { title: '🔒 Custom Domain with Automatic SSL (Caddy)', desc: 'Production HTTPS with automated Let’s Encrypt certificate auto-renewal.' },
     { title: '💻 Local Workspace / Docker Desktop', desc: 'Fast local testing on your personal workstation.' }
   ];
 
   const lines = [
     '',
-    `  ${WHITE}${BOLD}Select Target Infrastructure${RESET}  ${ZINC_MUTED}(Interactive Lipgloss Menu)${RESET}`,
-    `  ${ZINC_DARK}Use ↑/↓ or j/k to navigate, [Enter] to confirm, [1-4] quick select${RESET}`,
+    `  ${WHITE}${BOLD}Select Deployment Target Infrastructure${RESET}  ${ZINC_MUTED}(Step 1 of 4)${RESET}`,
+    `  ${ZINC_MUTED}Use [↑/↓] or [j/k] to navigate, [Enter] to confirm, [1-4] quick select${RESET}`,
     ''
   ];
 
   options.forEach((opt, idx) => {
-    const isSelected = idx === state.stepSelected;
-    if (isSelected) {
+    const isSel = idx === state.stepSelected;
+    if (isSel) {
       lines.push(`  ${VIOLET}${BOLD}${BOX.arrow} [●] ${WHITE}${BOLD}${opt.title}${RESET}`);
       lines.push(`      ${PINK}${opt.desc}${RESET}`);
     } else {
@@ -300,50 +279,79 @@ function renderStepperView(w) {
   lines.push('');
 
   if (state.stepConfirmed) {
-    lines.push(`  ${CYAN}${BOLD}${BOX.check} Confirmed:${RESET} ${WHITE}${BOLD}${options[state.stepSelected].title}${RESET} ${ZINC_MUTED}(Saved to state model)${RESET}`);
+    lines.push(`  ${CYAN}${BOLD}${BOX.check} Confirmed:${RESET} ${WHITE}${BOLD}${options[state.stepSelected].title}${RESET}`);
+    lines.push(`    ${ZINC_MUTED}Selection dispatched to environment manager.${RESET}`);
   } else {
-    lines.push(`  ${AMBER}${BOLD}● Awaiting selection...${RESET} ${ZINC_MUTED}Press [Enter] to lock choice${RESET}`);
+    lines.push(`  ${AMBER}${BOLD}● Awaiting choice...${RESET} ${ZINC_MUTED}Press [Enter] to lock selection${RESET}`);
   }
   lines.push('');
 
   return drawCard(w, 'BUBBLE TEA INTERACTIVE STEPPER', lines, CYAN);
 }
 
-// TAB 3: Live Telemetry & Progress
-function renderTelemetryView(w) {
-  // Update simulated progress
-  if (!state.paused && state.simProgress < 100) {
-    state.simProgress = Math.min(100, state.simProgress + 0.6);
-    state.simStage = Math.floor((state.simProgress / 100) * state.simLogs.length);
-  }
-
-  // Draw progress bar
-  const barWidth = 42;
-  const filled = Math.round((state.simProgress / 100) * barWidth);
-  const empty = barWidth - filled;
-  const barStr = `${PINK}${'█'.repeat(filled)}${ZINC_DARK}${'░'.repeat(empty)}${RESET}`;
-  const pctStr = `${WHITE}${BOLD}${state.simProgress.toFixed(0)}%${RESET}`;
-
-  const spinFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  const spinner = spinFrames[state.ticks % spinFrames.length];
-
+// ------------------------------------------------------------------------------
+// View 3: ascii-magic-art Progress Loaders
+// ------------------------------------------------------------------------------
+function viewLoaders(w) {
   const lines = [
     '',
-    `  ${CYAN}${spinner}${RESET} ${WHITE}${BOLD}Compiling & Launching LESSWATCH Engine${RESET}  ${ZINC_MUTED}(${state.simProgress.toFixed(1)}%)${RESET}`,
-    `  ${barStr}  ${pctStr}`,
-    '',
-    `  ${PURPLE}${BOLD}Active Subtask:${RESET} ${ZINC_LIGHT}${state.simLogs[Math.min(state.simStage, state.simLogs.length - 1)]}${RESET}`,
-    '',
-    `  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`,
-    `  ${WHITE}${BOLD}System Telemetry:${RESET}`,
-    `    ${ZINC_MUTED}• Host Memory:${RESET}     ${GREEN}${Math.round(os.freemem() / 1024 / 1024)}MB Free${RESET} ${ZINC_DARK}/ ${Math.round(os.totalmem() / 1024 / 1024)}MB Total${RESET}`,
-    `    ${ZINC_MUTED}• WebRTC Mux:${RESET}      ${CYAN}Port 52000 (TCP/UDP Unified)${RESET}`,
-    `    ${ZINC_MUTED}• Edge Ingress:${RESET}    ${PINK}Cloudflare Quick Tunnel (Sub-second synced)${RESET}`,
-    `    ${ZINC_MUTED}• Frame Budget:${RESET}    ${GREEN}33.3ms (Solid 30.0 FPS)${RESET}`,
+    `  ${WHITE}${BOLD}Live Multi-Stage Pipeline${RESET}  ${ZINC_MUTED}(Powered by ascii-magic-art/progress-loader)${RESET}`,
     ''
   ];
 
-  return drawCard(w, 'BUBBLE TEA LIVE TELEMETRY', lines, PINK);
+  if (progressLoaderDraw) {
+    const pFrame = progressLoaderDraw(state.seconds);
+    const coloredP = colorizePiece(pFrame, progressLoaderMeta.palette);
+    for (const cl of coloredP) {
+      if (cl.trim()) lines.push(`  ${cl}`);
+    }
+  }
+
+  lines.push('');
+  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
+  lines.push('');
+
+  const activeIdx = Math.floor((state.seconds * 1.5) % state.telemetryLogs.length);
+  lines.push(`  ${PURPLE}${BOLD}Active Subtask:${RESET} ${ZINC_LIGHT}${state.telemetryLogs[activeIdx]}${RESET}`);
+  lines.push(`  ${ZINC_MUTED}Host Memory: ${GREEN}${Math.round(os.freemem() / 1024 / 1024)}MB free${RESET} ${ZINC_DARK}/ ${Math.round(os.totalmem() / 1024 / 1024)}MB total${RESET}`);
+  lines.push('');
+
+  return drawCard(w, 'ASCII-MAGIC-ART PROGRESS LOADER', lines, BLUE);
+}
+
+// ------------------------------------------------------------------------------
+// View 4: ascii-magic-art Spinners & Wave Dividers
+// ------------------------------------------------------------------------------
+function viewSpinners(w) {
+  const lines = [
+    '',
+    `  ${WHITE}${BOLD}Spinner Matrix & Wave Dividers${RESET}  ${ZINC_MUTED}(ascii-magic-art gallery)${RESET}`,
+    ''
+  ];
+
+  // Animated wave divider
+  if (waveDividerDraw) {
+    const wFrame = waveDividerDraw(state.seconds);
+    const coloredW = colorizePiece(wFrame, waveDividerMeta.palette);
+    for (const wl of coloredW.slice(1, 5)) {
+      lines.push(`  ${wl}`);
+    }
+  }
+
+  lines.push('');
+  lines.push(`  ${ZINC_DARK}─────────────────────────────────────────────────────────────────────────────${RESET}`);
+
+  // Spinner Set preview
+  if (spinnerSetDraw) {
+    const sFrame = spinnerSetDraw(state.seconds);
+    const coloredS = colorizePiece(sFrame, spinnerSetMeta.palette);
+    for (const sl of coloredS.slice(0, 10)) {
+      lines.push(`  ${sl}`);
+    }
+  }
+
+  lines.push('');
+  return drawCard(w, 'ASCII-MAGIC-ART SPINNERS & WAVES', lines, PINK);
 }
 
 // ------------------------------------------------------------------------------
@@ -352,43 +360,50 @@ function renderTelemetryView(w) {
 function render() {
   const w = Math.min(process.stdout.columns || 80, 84);
 
-  // Tab Header Bar
-  const tab0 = state.activeTab === 0 ? `${WHITE}${BOLD}[1] ASCII-Motion Canvas${RESET}` : `${ZINC_MUTED} 1  ASCII-Motion Canvas${RESET}`;
-  const tab1 = state.activeTab === 1 ? `${WHITE}${BOLD}[2] Bubble Tea Stepper${RESET}` : `${ZINC_MUTED} 2  Bubble Tea Stepper${RESET}`;
-  const tab2 = state.activeTab === 2 ? `${WHITE}${BOLD}[3] Live Telemetry${RESET}` : `${ZINC_MUTED} 3  Live Telemetry${RESET}`;
+  // Tab navigation bar
+  const tabs = [
+    '1. Cinema Motion',
+    '2. Bubble Stepper',
+    '3. Magic Loader',
+    '4. Spinner Gallery'
+  ];
+
+  const tabPills = tabs.map((t, idx) => {
+    if (idx === state.activeTab) {
+      return `${WHITE}${BOLD}[${t}]${RESET}`;
+    }
+    return `${ZINC_MUTED} ${t} ${RESET}`;
+  }).join('  ');
 
   const header = `
 ${ZINC_DARK}┌─────────────────────────────────────────────────────────────────────────────┐${RESET}
-${ZINC_DARK}│${RESET}  ${BOLD}${WHITE}L E S S W A T C H${RESET}  ${PINK}🍿${RESET}  ${ZINC_MUTED}Impeccable Motion & Bubble Tea Lab${RESET}          ${CYAN}v4.2-LAB${RESET}  ${ZINC_DARK}│${RESET}
+${ZINC_DARK}│${RESET}  ${BOLD}${WHITE}L E S S W A T C H${RESET}  ${PINK}🍿${RESET}  ${ZINC_MUTED}ASCII-Magic & Bubble Tea Playground${RESET}         ${CYAN}v4.2-LAB${RESET}  ${ZINC_DARK}│${RESET}
 ${ZINC_DARK}├─────────────────────────────────────────────────────────────────────────────┤${RESET}
-${ZINC_DARK}│${RESET}  ${tab0}   ${tab1}   ${tab2}  ${ZINC_DARK}│${RESET}
+${ZINC_DARK}│${RESET}  ${tabPills}  ${ZINC_DARK}│${RESET}
 ${ZINC_DARK}└─────────────────────────────────────────────────────────────────────────────┘${RESET}`;
 
-  // Footer Controls
+  let cardRows = [];
+  if (state.activeTab === 0) cardRows = viewMotion(w);
+  else if (state.activeTab === 1) cardRows = viewStepper(w);
+  else if (state.activeTab === 2) cardRows = viewLoaders(w);
+  else if (state.activeTab === 3) cardRows = viewSpinners(w);
+
   const footer = `
-  ${ZINC_DARK}Controls:${RESET} ${WHITE}[Tab / 1-3]${RESET} Switch Views  ${ZINC_DARK}•${RESET} ${WHITE}[Space]${RESET} Pause Motion  ${ZINC_DARK}•${RESET} ${WHITE}[r]${RESET} Reset  ${ZINC_DARK}•${RESET} ${WHITE}[q / Esc]${RESET} Exit
+  ${ZINC_DARK}Navigation:${RESET} ${WHITE}[Tab / ← / → / 1-4]${RESET} Switch Views  ${ZINC_DARK}•${RESET} ${WHITE}[Space]${RESET} Pause  ${ZINC_DARK}•${RESET} ${WHITE}[r]${RESET} Reset  ${ZINC_DARK}•${RESET} ${WHITE}[q]${RESET} Exit
 `;
 
-  let cardRows = [];
-  if (state.activeTab === 0) cardRows = renderMotionView(w);
-  else if (state.activeTab === 1) cardRows = renderStepperView(w);
-  else if (state.activeTab === 2) cardRows = renderTelemetryView(w);
-
-  // Buffer output to single atomic write to eliminate flicker entirely
-  const fullFrame = `${ESC}[H${header}\n${cardRows.join('\n')}\n${footer}`;
-  process.stdout.write(fullFrame);
+  // Atomic write to prevent tearing
+  process.stdout.write(`${ESC}[H${header}\n${cardRows.join('\n')}\n${footer}`);
 }
 
 // ------------------------------------------------------------------------------
-// Initialization & Input Loop
+// Input Handling & Application Lifecycle
 // ------------------------------------------------------------------------------
 function main() {
-  // Enter Alternate Screen Buffer (Leaves main terminal scrollback 100% pristine!)
+  // Alternate screen buffer so terminal scrollback stays 100% clean
   process.stdout.write(`${ESC}[?1049h${ESC}[H${ESC}[2J${ESC}[?25l`);
 
-  // Exit cleanup
   const exitApp = () => {
-    // Leave alternate screen buffer & restore cursor
     process.stdout.write(`${ESC}[?1049l${ESC}[?25h`);
     process.exit(0);
   };
@@ -397,32 +412,62 @@ function main() {
   process.on('SIGTERM', exitApp);
   process.on('exit', () => process.stdout.write(`${ESC}[?1049l${ESC}[?25h`));
 
-  // Keyboard Navigation
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
   }
 
   process.stdin.on('keypress', (str, key) => {
-    if (!key) return;
+    if (!key && !str) return;
 
-    if (key.name === 'q' || (key.ctrl && key.name === 'c') || key.name === 'escape') {
+    // Quit ONLY on 'q' or 'Q' or Ctrl+C (NEVER quit on Tab or bare Escape!)
+    if ((key && key.name === 'q') || str === 'q' || str === 'Q' || (key && key.ctrl && key.name === 'c')) {
       exitApp();
-    } else if (key.name === 'tab') {
-      state.activeTab = (state.activeTab + 1) % 3;
-    } else if (str === '1') {
-      state.activeTab = 0;
-    } else if (str === '2') {
-      state.activeTab = 1;
-    } else if (str === '3') {
-      state.activeTab = 2;
-    } else if (str === ' ') {
+      return;
+    }
+
+    // Tab key switching (Rock-solid: checks str === '\t', key.name === 'tab', and shift+tab)
+    if (str === '\t' || (key && key.name === 'tab')) {
+      if (key && key.shift) {
+        state.activeTab = (state.activeTab - 1 + state.totalTabs) % state.totalTabs;
+      } else {
+        state.activeTab = (state.activeTab + 1) % state.totalTabs;
+      }
+      return;
+    }
+
+    // Direct number keys (1, 2, 3, 4)
+    if (str === '1') { state.activeTab = 0; return; }
+    if (str === '2') { state.activeTab = 1; return; }
+    if (str === '3') { state.activeTab = 2; return; }
+    if (str === '4') { state.activeTab = 3; return; }
+
+    // Arrow keys Left & Right for tab switching
+    if (key && (key.name === 'left' || key.name === 'h')) {
+      state.activeTab = (state.activeTab - 1 + state.totalTabs) % state.totalTabs;
+      return;
+    }
+    if (key && (key.name === 'right' || key.name === 'l')) {
+      state.activeTab = (state.activeTab + 1) % state.totalTabs;
+      return;
+    }
+
+    // Pause toggle
+    if (str === ' ') {
       state.paused = !state.paused;
-    } else if (str === 'r' || str === 'R') {
+      return;
+    }
+
+    // Reset simulation
+    if (str === 'r' || str === 'R') {
       state.ticks = 0;
-      state.simProgress = 0;
+      state.seconds = 0;
       state.stepConfirmed = false;
-    } else if (state.activeTab === 1) {
+      return;
+    }
+
+    // Stepper navigation when on Tab 1
+    if (state.activeTab === 1 && key) {
       if (key.name === 'up' || key.name === 'k') {
         state.stepSelected = (state.stepSelected - 1 + 4) % 4;
         state.stepConfirmed = false;
@@ -439,6 +484,7 @@ function main() {
   setInterval(() => {
     if (!state.paused) {
       state.ticks++;
+      state.seconds += 0.033;
     }
     render();
   }, 33);
