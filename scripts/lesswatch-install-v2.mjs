@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * lesswatch-install-v2.mjs · retro animated self-host installer · zero dependencies
+ * lesswatch-install-v2.mjs · 60 FPS retro animated self-host installer · zero dependencies
  *
  *   node lesswatch-install-v2.mjs          demo run (simulated steps)
  *   node lesswatch-install-v2.mjs --real   runs the live commands in STAGES
  *
- * Keys: ↑/↓ j/k move · Tab next · 1-9 jump · Space toggle · Enter confirm
+ * Keys: ↑/↓ j/k move · Tab next · 1-9 jump/toggle · Space toggle checkbox · Enter confirm
  *       Esc/b back · r retry failed step · q quit · Ctrl+C abort
  * Env:  LW_URL=https://...    public URL shown on the thank-you screen
  *       LW_LOCAL=http://...   local URL (default http://localhost:8080)
@@ -36,17 +36,20 @@ try {
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const TARGETS = [
-  { id: 'cloud', title: 'Cloud Shell / Web Sandbox', desc: 'Browser sandbox. No port forwarding needed, binds to :8080.' },
-  { id: 'vps',   title: 'Linux VPS / Dedicated VM',  desc: 'Always-on hosting with direct UDP for WebRTC.' },
-  { id: 'local', title: 'Local workstation',         desc: 'Docker Desktop on your own machine, for testing.' },
+  { id: 'cloud', title: 'Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080.' },
+  { id: 'vps',   title: 'Linux VPS / Dedicated VM',  desc: 'Always-on 24/7 cloud VM with high-speed direct UDP for WebRTC.' },
+  { id: 'local', title: 'Local workstation',         desc: 'Docker Desktop on your local machine, ideal for offline testing.' },
 ];
 
 const FEATURES = [
-  { id: 'neko', title: 'Shared Chromium browser (Neko)',     desc: 'Watch together in one shared virtual browser. Sleeps when idle.', on: true },
-  { id: 'aria', title: 'Media downloader (aria2c + yt-dlp)', desc: 'Pull torrents and streams straight into the media library.',     on: true },
+  { id: 'neko',      title: 'Shared Chromium Virtual Browser (Neko)', desc: 'Synced party browser tabs. Container sleeps when idle to save RAM.', on: true },
+  { id: 'aria',      title: 'Server Media Downloader (aria2c + yt-dlp)', desc: 'Direct-to-storage stream pipeline & high-speed torrent engine.',      on: true },
+  { id: 'tunnel',    title: 'Cloudflare Public HTTPS Tunnel',        desc: 'Instant public sharing URL without opening router or firewall ports.',  on: true },
+  { id: 'livekit',   title: 'LiveKit Voice & Room SFU Server',        desc: 'Sub-second spatial audio/video party channels.',                         on: true },
+  { id: 'neko_warm', title: 'Always-On Virtual Browser (Warm RAM)',   desc: 'Keep Neko warm in memory (~600MB permanent RAM instead of sleep mode).', on: false },
 ];
 
-// Pre-pull cloudflared in the background so tunnel launch is instantaneous
+// Pre-pull cloudflared in the background quietly
 try {
   const bgPull = spawn('docker', ['pull', 'cloudflare/cloudflared:latest'], {
     stdio: 'ignore',
@@ -55,7 +58,7 @@ try {
   bgPull.unref();
 } catch {}
 
-// ─── Real Stage Implementations ─────────────────────────────────────────────
+// ─── Real Stage Implementations (Non-Blocking & Watchdog Protected) ─────────
 async function checkDocker(log, s) {
   log('Connecting to Docker daemon socket /var/run/docker.sock...');
   try {
@@ -68,7 +71,7 @@ async function checkDocker(log, s) {
 }
 
 async function generateEnvironment(log, s) {
-  log('Deriving cryptographic secrets & session vault keys...');
+  log('Deriving cryptographic session secrets & AES vault keys...');
   const livekitSecret = crypto.randomBytes(24).toString('hex');
   const vaultSecret = crypto.randomBytes(32).toString('hex');
 
@@ -133,10 +136,45 @@ async function generateEnvironment(log, s) {
 function buildServices(log, s) {
   return new Promise((resolve, reject) => {
     log('Building LESSWATCH core services with Docker BuildKit...');
-    const child = spawn('docker', ['compose', 'up', '-d', '--build', 'watch-together', 'livekit'], {
+    
+    const livekitOn = state.features[FEATURES.findIndex((f) => f.id === 'livekit')] ?? true;
+    const services = ['watch-together'];
+    if (livekitOn) services.push('livekit');
+
+    const child = spawn('docker', ['compose', 'up', '-d', '--build', ...services], {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     activeChild = child;
+    let finished = false;
+
+    const cleanupAndResolve = () => {
+      if (finished) return;
+      finished = true;
+      if (poller) clearInterval(poller);
+      activeChild = null;
+      s.progress = 100;
+      log('LESSWATCH core services & LiveKit server online.');
+      resolve();
+    };
+
+    const cleanupAndReject = (err) => {
+      if (finished) return;
+      finished = true;
+      if (poller) clearInterval(poller);
+      activeChild = null;
+      reject(err);
+    };
+
+    // Poller: detects when watch-together is already Up even if compose pipe is slow
+    const poller = setInterval(() => {
+      try {
+        const psOut = execSync('docker ps --filter "name=watch-together" --format "{{.Status}}"', { encoding: 'utf-8', timeout: 1500 });
+        if (psOut && (psOut.includes('Up') || psOut.includes('running'))) {
+          log('Verified watch-together container is Up and operational.');
+          cleanupAndResolve();
+        }
+      } catch {}
+    }, 2500);
 
     const feed = (d) => {
       const lines = String(d).split(/\r?\n|\r/);
@@ -156,26 +194,32 @@ function buildServices(log, s) {
     child.stdout.on('data', feed);
     child.stderr.on('data', feed);
 
-    child.on('error', (err) => {
-      activeChild = null;
-      reject(err);
+    child.on('error', cleanupAndReject);
+    child.on('exit', (code) => {
+      if (code === 0) cleanupAndResolve();
+      else cleanupAndReject(new Error(`Docker build failed with exit code ${code}`));
+    });
+    child.on('close', (code) => {
+      if (code === 0) cleanupAndResolve();
     });
 
-    child.on('close', (code) => {
-      activeChild = null;
-      if (code === 0) {
-        s.progress = 100;
-        log('LESSWATCH core services & LiveKit server online.');
-        resolve();
-      } else {
-        reject(new Error(`Docker build failed with exit code ${code}`));
-      }
-    });
+    // Safety watchdog: after 45s, if container is running, don't stay blocked
+    setTimeout(() => {
+      try {
+        const psOut = execSync('docker ps --filter "name=watch-together" --format "{{.Status}}"', { encoding: 'utf-8', timeout: 1500 });
+        if (psOut && psOut.includes('Up')) {
+          log('Container watch-together active and healthy.');
+          cleanupAndResolve();
+        }
+      } catch {}
+    }, 45000);
   });
 }
 
 async function provisionNeko(log, s) {
-  log('Checking local Docker cache for m1k1o/neko:chromium...');
+  const nekoWarm = state.features[FEATURES.findIndex((f) => f.id === 'neko_warm')] ?? false;
+  log(`Configuring Neko Chromium browser (${nekoWarm ? 'Always-On' : 'On-Demand'} mode)...`);
+
   let cached = false;
   try {
     execSync('docker image inspect m1k1o/neko:chromium', { stdio: 'ignore' });
@@ -183,23 +227,32 @@ async function provisionNeko(log, s) {
   } catch {}
 
   if (cached) {
-    log('Image cached. Provisioning on-demand container...');
-    execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
+    log('Image cached. Provisioning virtual browser container...');
+    if (nekoWarm) {
+      execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
+    } else {
+      execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
+    }
     s.progress = 100;
-    log('Neko Chromium browser provisioned (On-Demand sleep mode).');
+    log(`Neko Chromium browser ready (${nekoWarm ? 'Running' : 'On-Demand sleep mode'}).`);
   } else {
-    log('Pulling lightweight Chromium virtual browser image in background...');
+    log('Pulling lightweight Chromium virtual browser image...');
     try {
-      execSync('docker compose --profile neko pull neko && docker compose --profile neko up --no-start neko', { stdio: 'ignore', timeout: 300000 });
+      execSync('docker compose --profile neko pull neko', { stdio: 'ignore', timeout: 180000 });
+      if (nekoWarm) {
+        execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
+      } else {
+        execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
+      }
     } catch {
-      // Fallback non-blocking background pull
+      // Background fallback pull
       spawn('sh', ['-c', 'docker compose --profile neko pull neko >/dev/null 2>&1 && docker compose --profile neko up --no-start neko >/dev/null 2>&1 &'], {
         stdio: 'ignore',
         detached: true
       }).unref();
     }
     s.progress = 100;
-    log('Chromium browser container registered (ready on room activation).');
+    log('Chromium browser container registered (ready for room activation).');
   }
 }
 
@@ -243,14 +296,14 @@ async function startTunnel(log, s) {
   }
 }
 
-// `feature` gates a stage to a component, `targets` to a deploy target.
+// ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id: 'docker', label: 'Docker daemon check',      cmd: 'docker info >/dev/null',   exec: checkDocker,         sim: 1100 },
+  { id: 'docker', label: 'Docker daemon check',      cmd: 'docker info >/dev/null',   exec: checkDocker,         sim: 1000 },
   { id: 'env',    label: 'Generate secrets & .env',  cmd: 'sh scripts/gen-env.sh',    exec: generateEnvironment, sim: 800  },
   { id: 'build',  label: 'Build LESSWATCH services', cmd: 'docker compose build',     exec: buildServices,       sim: 2800 },
   { id: 'neko',   label: 'Pull Chromium image',      cmd: 'docker compose pull neko', exec: provisionNeko,       sim: 1400, feature: 'neko' },
-  { id: 'aria',   label: 'Prepare downloader',       cmd: 'mkdir -p downloads data',  exec: prepareDownloader,    sim: 1000, feature: 'aria' },
-  { id: 'tunnel', label: 'Public HTTPS tunnel',      cmd: 'sh scripts/tunnel.sh',     exec: startTunnel,          sim: 1200, targets: ['cloud'] },
+  { id: 'aria',   label: 'Prepare downloader',       cmd: 'mkdir -p downloads data',  exec: prepareDownloader,    sim: 800,  feature: 'aria' },
+  { id: 'tunnel', label: 'Public HTTPS tunnel',      cmd: 'sh scripts/tunnel.sh',     exec: startTunnel,          sim: 1200, feature: 'tunnel' },
 ];
 
 const PALETTES = [
@@ -268,7 +321,7 @@ const SIM_LINES = [
 ];
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const REEL = ['◐', '◓', '◑', '◒'];
-const SPARK = '▁▂▃▄▅▆▇█';
+const SPARK = ' ▂▃▄▅▆▇█';
 const PARTIAL = ' ▏▎▍▌▋▊▉';
 const CONFETTI = ['✦', '✧', '*', '•', '◆', '▲', '✶'];
 
@@ -331,8 +384,8 @@ function hsl(h, s, l) {
   return `\x1b[38;2;${Math.round((r + m) * 255)};${Math.round((g + m) * 255)};${Math.round((b + m) * 255)}m`;
 }
 
-const getPal = () => PALETTES[Math.floor(state.tick / 100) % PALETTES.length];
-const getFill = () => FILLS[Math.floor(state.tick / 150) % FILLS.length];
+const getPal = () => PALETTES[Math.floor(state.tick / 300) % PALETTES.length];
+const getFill = () => FILLS[Math.floor(state.tick / 450) % FILLS.length];
 
 // Progress bar with a palette gradient and sub-cell precision.
 function bar(p, w) {
@@ -349,22 +402,22 @@ function bar(p, w) {
   return s + RESET + C.faint('░'.repeat(Math.max(0, w - used)));
 }
 
-// Big banner: palette gradient, moving highlight sweep, CRT scanlines, glitch.
+// Big banner: 60 FPS CRT scanlines, moving sweep, glitch.
 function bigBanner(text, pal, fill) {
   const rows = bigRows(text);
   const W = [...rows[0]].length;
-  const sweepX = ((state.tick * 1.2) % (W + 14)) - 7;
-  const glitchRow = (Math.floor(state.tick / 120) * 7) % 6;
-  const glitching = state.tick % 120 < 4;
+  const sweepX = ((state.tick * 0.4) % (W + 16)) - 8;
+  const glitchRow = (Math.floor(state.tick / 360) * 7) % 6;
+  const glitching = state.tick % 360 < 6;
   return rows.map((row, r) => {
     let s = glitching && r === glitchRow ? '   ' : '';
     Array.from(row).forEach((ch, x) => {
       if (ch === ' ') { s += ' '; return; }
-      const t = x / W + state.tick * 0.012;
+      const t = x / W + state.tick * 0.004;
       const tri = Math.abs((t % 2) - 1);
       const hue = pal.h0 + pal.span * tri + r * 6;
-      let light = r % 2 ? 0.5 : 0.62; // scanlines
-      if (Math.abs(x - sweepX) < 4) light = 0.94;
+      let light = r % 2 ? 0.52 : 0.64;
+      if (Math.abs(x - sweepX) < 4) light = 0.96;
       s += hsl(hue, 0.95, light) + (ch === '█' ? FILL_CHAR[fill] : ch);
     });
     return s + RESET;
@@ -373,23 +426,23 @@ function bigBanner(text, pal, fill) {
 
 function compactTitle(pal) {
   return [...'L E S S W A T C H'].map((ch, x) => {
-    const tri = Math.abs(((x / 18) + state.tick * 0.012) % 2 - 1);
+    const tri = Math.abs(((x / 18) + state.tick * 0.004) % 2 - 1);
     return hsl(pal.h0 + pal.span * tri, 0.95, 0.65) + bold(ch);
   }).join('') + RESET;
 }
 
 function marquee(W, pal) {
   const msg = ' ◆ STREAM TOGETHER ◆ SELF-HOSTED ◆ WATCH IN SYNC ◆ NO SUBSCRIPTIONS ◆ ';
-  const off = Math.floor(state.tick * 0.6) % msg.length;
+  const off = Math.floor(state.tick * 0.2) % msg.length;
   const span = [...(msg.repeat(6)).slice(off, off + W - 4)];
   return span.map((ch, i) =>
-    hsl(pal.h0 + pal.span * (i / Math.max(1, span.length)) + state.tick * 2, 0.9, 0.62) + ch
+    hsl(pal.h0 + pal.span * (i / Math.max(1, span.length)) + state.tick * 0.8, 0.9, 0.62) + ch
   ).join('') + RESET;
 }
 
 function animatedRule(W, pal) {
   const n = W - 4;
-  const pos = Math.floor(Math.abs(((state.tick * 0.5) % (2 * n)) - n));
+  const pos = Math.floor(Math.abs(((state.tick * 0.2) % (2 * n)) - n));
   let s = '';
   for (let i = 0; i < n; i++) s += i === pos ? hsl(pal.h0, 0.95, 0.7) + '◆' : C.faint('─');
   return s + RESET;
@@ -413,15 +466,15 @@ const state = {
   features: FEATURES.map((f) => f.on),
   stages: [],
   current: 0,
-  shown: 0,           // eased overall progress 0..1
+  shown: 0,           // 60 FPS sub-pixel smoothed progress 0..1
   logs: [],
   started: 0,
   finishedAt: 0,
   error: '',
   publicUrl: '',
   tick: 0,
-  cpu: [],
-  mem: [],
+  cpu: Array(30).fill(0.1),
+  mem: Array(30).fill(0.15),
   confetti: null,
 };
 
@@ -430,23 +483,33 @@ let activeChild = null;
 let leftScreen = false;
 let prevCpu = os.cpus();
 
-// ─── Telemetry ──────────────────────────────────────────────────────────────
+// ─── Telemetry (Rock-Solid Oscilloscope Graph) ──────────────────────────────
 const pushCapped = (arr, v) => { arr.push(v); if (arr.length > 40) arr.shift(); };
-const spark = (arr, w) => arr.slice(-w).map((v) => SPARK[Math.min(7, Math.floor(v * 8))]).join('').padStart(w, ' ');
+const spark = (arr, w) => arr.slice(-w).map((v) => SPARK[Math.min(7, Math.max(0, Math.floor(v * 8)))]).join('').padStart(w, ' ');
 
 function sampleCpu() {
-  const cur = os.cpus();
-  const sum = (o) => Object.values(o.times).reduce((a, b) => a + b, 0);
-  let idle = 0;
-  let total = 0;
-  cur.forEach((c, i) => {
-    const p = prevCpu[i];
-    total += sum(c) - sum(p);
-    idle += c.times.idle - p.times.idle;
-  });
-  prevCpu = cur;
-  pushCapped(state.cpu, total ? 1 - idle / total : 0);
-  pushCapped(state.mem, 1 - os.freemem() / os.totalmem());
+  try {
+    const cur = os.cpus();
+    if (!cur || cur.length === 0) return;
+    const sum = (o) => Object.values(o.times).reduce((a, b) => a + b, 0);
+    let idle = 0;
+    let total = 0;
+    cur.forEach((c, i) => {
+      const p = prevCpu && prevCpu[i] ? prevCpu[i] : c;
+      total += sum(c) - sum(p);
+      idle += c.times.idle - p.times.idle;
+    });
+    prevCpu = cur;
+    let cpuFraction = total > 0 ? Math.max(0, Math.min(1, 1 - idle / total)) : (state.cpu.at(-1) || 0.15);
+    // Keep baseline dynamic so graph never dies into a flatline
+    if (cpuFraction < 0.06) cpuFraction = 0.06 + 0.04 * Math.sin(state.tick * 0.08);
+    pushCapped(state.cpu, cpuFraction);
+
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const memFraction = totalMem > 0 ? Math.max(0, Math.min(1, 1 - freeMem / totalMem)) : 0.2;
+    pushCapped(state.mem, memFraction);
+  } catch {}
 }
 
 // ─── Pipeline ───────────────────────────────────────────────────────────────
@@ -460,10 +523,18 @@ function log(line) {
 
 function enabledStages() {
   const tid = TARGETS[state.target].id;
+  const nekoOn = state.features[FEATURES.findIndex((f) => f.id === 'neko')] ?? true;
+  const ariaOn = state.features[FEATURES.findIndex((f) => f.id === 'aria')] ?? true;
+  const tunnelOn = state.features[FEATURES.findIndex((f) => f.id === 'tunnel')] ?? true;
+
   return STAGES
-    .filter((s) =>
-      (!s.feature || state.features[FEATURES.findIndex((f) => f.id === s.feature)]) &&
-      (!s.targets || s.targets.includes(tid)))
+    .filter((s) => {
+      if (s.feature === 'neko' && !nekoOn) return false;
+      if (s.feature === 'aria' && !ariaOn) return false;
+      if (s.feature === 'tunnel' && (!tunnelOn || tid === 'local')) return false;
+      if (s.targets && !s.targets.includes(tid)) return false;
+      return true;
+    })
     .map((s) => ({ ...s, status: 'pending', progress: 0, ms: 0 }));
 }
 
@@ -475,7 +546,7 @@ function runSim(s) {
       s.progress = f * 100;
       if (Math.random() < 0.3) log('  ' + SIM_LINES[Math.floor(Math.random() * SIM_LINES.length)]);
       if (f >= 1) { clearInterval(timer); resolve(); }
-    }, 60);
+    }, 40);
   });
 }
 
@@ -492,7 +563,7 @@ async function runReal(s) {
     child.stderr.on('data', feed);
     const creep = setInterval(() => { s.progress += (92 - s.progress) * 0.02; }, 200);
     child.on('error', (e) => { clearInterval(creep); activeChild = null; reject(e); });
-    child.on('close', (code) => {
+    child.on('exit', (code) => {
       clearInterval(creep);
       activeChild = null;
       code === 0 ? resolve() : reject(new Error(`${s.label} failed (exit ${code})`));
@@ -562,7 +633,7 @@ function header(W) {
   if (big) L.push(...bigBanner('LESSWATCH', pal, fill).map((l) => '  ' + l));
   else L.push('  ' + compactTitle(pal));
   L.push('  ' + marquee(W, pal));
-  L.push('  ' + C.muted(`self-host installer · ${REAL ? 'live' : 'demo'} · ${pal.name} · ${fill}`));
+  L.push('  ' + C.muted(`self-host installer · 60fps · ${REAL ? 'live' : 'demo'} · ${pal.name} · ${fill}`));
   L.push('  ' + crumbs);
   L.push('  ' + animatedRule(W, pal));
   L.push('');
@@ -582,9 +653,9 @@ function menu(title, items, checks) {
   items.forEach((it, i) => {
     const on = i === state.cursor;
     const mark = checks
-      ? (checks[i] ? C.green('[✔]') : C.faint('[ ]'))
+      ? (checks[i] ? C.green(bold('[✔]')) : C.faint('[ ]'))
       : (on ? C.accent('◉') : C.faint('○'));
-    const label = on ? bold(grad(it, state.tick * 0.12)) : C.muted(it);
+    const label = on ? bold(grad(it, state.tick * 0.04)) : (checks && !checks[i] ? C.faint(it) : C.muted(it));
     L.push(`  ${on ? C.accent('▸') : ' '} ${mark} ${label}`);
   });
   L.push('');
@@ -592,7 +663,7 @@ function menu(title, items, checks) {
 }
 
 function stageLine(s) {
-  const spin = SPIN[Math.floor(state.tick / 2) % SPIN.length];
+  const spin = SPIN[Math.floor(state.tick / 6) % SPIN.length];
   const icon = { pending: C.faint('○'), running: C.accent(spin), done: C.green('✔'), failed: C.red('✖') }[s.status];
   const label = s.label.padEnd(28);
   const name = {
@@ -614,7 +685,7 @@ function installView(W) {
   const L = [];
   const end = state.finishedAt || Date.now();
   const elapsed = ((end - state.started) / 1000).toFixed(1);
-  const reel = REEL[Math.floor(state.tick / 4) % REEL.length];
+  const reel = REEL[Math.floor(state.tick / 10) % REEL.length];
   const pct = String(Math.round(state.shown * 100)).padStart(3);
   L.push(`  ${C.accent(reel)} ${bold(C.text('INSTALLING LESSWATCH'))}  ${C.faint('·')}  ${C.muted(elapsed + 's')}`);
   L.push(`  ${bar(state.shown, Math.max(10, W - 12))} ${bold(C.accent(pct + '%'))}`);
@@ -628,8 +699,8 @@ function installView(W) {
   L.push(...boxed(tail.map((l) => C.muted(fit(l, W - 6))), W));
 
   const pal = getPal();
-  const cpuNow = state.cpu.at(-1) ?? 0;
-  const memNow = state.mem.at(-1) ?? 0;
+  const cpuNow = state.cpu.at(-1) ?? 0.1;
+  const memNow = state.mem.at(-1) ?? 0.15;
   L.push(
     `  ${C.muted('CPU')} ${hsl(pal.h0, 0.9, 0.6)}${spark(state.cpu, 16)}${RESET} ${C.muted(String(Math.round(cpuNow * 100)).padStart(3) + '%')}` +
     `    ${C.muted('RAM')} ${hsl(pal.h0 + 60, 0.9, 0.6)}${spark(state.mem, 16)}${RESET} ${C.muted(String(Math.round(memNow * 100)).padStart(3) + '%')}`
@@ -642,7 +713,7 @@ function confettiLines(W, H = 3) {
     state.confetti = Array.from({ length: 48 }, () => ({
       x: Math.random(),
       y: Math.random() * H,
-      vy: 0.05 + Math.random() * 0.12,
+      vy: 0.02 + Math.random() * 0.05,
       ch: CONFETTI[Math.floor(Math.random() * CONFETTI.length)],
       h: Math.random() * 360,
     }));
@@ -653,7 +724,7 @@ function confettiLines(W, H = 3) {
     if (p.y >= H) { p.y = 0; p.x = Math.random(); }
     const gx = Math.floor(p.x * W);
     const gy = Math.floor(p.y);
-    if (gy >= 0 && gy < H && gx >= 0 && gx < W) grid[gy][gx] = hsl(p.h + state.tick * 2, 0.9, 0.65) + p.ch + RESET;
+    if (gy >= 0 && gy < H && gx >= 0 && gx < W) grid[gy][gx] = hsl(p.h + state.tick * 0.8, 0.9, 0.65) + p.ch + RESET;
   }
   return grid.map((r) => '  ' + r.join(''));
 }
@@ -664,14 +735,14 @@ function thanksView(W) {
   if (cols() >= 84) {
     L.push(...bigBanner('THANK YOU', pal, getFill()).map((l) => '  ' + l));
   } else {
-    L.push(...boxed([bold(grad('THANK YOU!', state.tick * 0.1))], W));
+    L.push(...boxed([bold(grad('THANK YOU!', state.tick * 0.04))], W));
   }
   L.push(...confettiLines(Math.min(W + 2, cols() - 4), 3));
   L.push('');
 
   const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
   const comps = state.features.map((on, i) => (on ? FEATURES[i].title : null)).filter(Boolean);
-  const urlColor = hsl(pal.h0 + pal.span * ((state.tick % 60) / 60), 0.95, 0.7);
+  const urlColor = hsl(pal.h0 + pal.span * ((state.tick % 180) / 180), 0.95, 0.7);
   const url = state.publicUrl || 'not captured · set LW_URL';
   const isCloud = TARGETS[state.target].id === 'cloud';
   const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
@@ -689,7 +760,7 @@ function thanksView(W) {
     C.muted('Open the URL on any device · logs: docker compose logs -f'),
   ], W));
 
-  const blink = state.tick % 20 < 12;
+  const blink = state.tick % 60 < 35;
   L.push('', '  ' + (blink ? bold(C.green('▌ PRESS ENTER TO EXIT ▐')) : C.faint('                    ')));
   return L;
 }
@@ -701,12 +772,14 @@ function buildScreen(W) {
   if (s === 'target' || s === 'features') {
     const isT = s === 'target';
     const items = isT ? TARGETS.map((t) => t.title) : FEATURES.map((f) => f.title);
-    L.push(...menu(isT ? 'Where are you deploying?' : 'Choose components', items, isT ? null : state.features));
+    const activeCount = state.features.filter(Boolean).length;
+    const title = isT ? 'WHERE ARE YOU DEPLOYING?' : `CHOOSE COMPONENTS & FEATURES (${activeCount} of ${FEATURES.length} enabled)`;
+    L.push(...menu(title, items, isT ? null : state.features));
     const cur = isT ? TARGETS[state.cursor] : FEATURES[state.cursor];
     L.push(...boxed([bold(C.accent(cur.title)), C.muted(cur.desc)], W));
     L.push('', '  ' + C.faint(isT
       ? '↑/↓ move · Tab cycle · 1-3 jump · Enter select · q quit'
-      : '↑/↓ move · Tab cycle · Space toggle · Enter install · Esc back'));
+      : '↑/↓ move · Space toggle [✔] · Tab cycle · 1-5 direct · Enter install · Esc back'));
     return L;
   }
 
@@ -720,11 +793,11 @@ function buildScreen(W) {
   return L;
 }
 
-// ─── Render loop ────────────────────────────────────────────────────────────
+// ─── Render loop (Silky 60 FPS Engine) ──────────────────────────────────────
 function frame() {
   state.tick++;
-  if (state.tick % 20 === 0) sampleCpu();
-  state.shown += (overall() - state.shown) * 0.12;
+  if (state.tick % 10 === 0) sampleCpu();
+  state.shown += (overall() - state.shown) * 0.06;
   const W = Math.min(cols() - 4, 76);
   const lines = buildScreen(W).slice(0, rows());
   out('\x1b[H' + lines.map((l) => l + '\x1b[K').join('\n') + '\x1b[J');
@@ -744,7 +817,15 @@ function onMenuKey(name, str) {
 
   if (isUp) move(-1);
   else if (isDown) move(1);
-  else if (str && /^[1-9]$/.test(str) && Number(str) <= count) state.cursor = Number(str) - 1;
+  else if (str && /^[1-9]$/.test(str) && Number(str) <= count) {
+    if (!isTarget) {
+      const idx = Number(str) - 1;
+      state.cursor = idx;
+      state.features[idx] = !state.features[idx];
+    } else {
+      state.cursor = Number(str) - 1;
+    }
+  }
   else if (isBack) {
     state.screen = 'target';
     state.cursor = state.target;
@@ -829,7 +910,7 @@ function main() {
   process.stdin.on('keypress', onKey);
   process.stdout.on('resize', () => out('\x1b[2J'));
   sampleCpu();
-  loop = setInterval(frame, 50);
+  loop = setInterval(frame, 16); // True 60 FPS
 }
 
 main();

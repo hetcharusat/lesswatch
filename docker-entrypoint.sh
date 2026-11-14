@@ -48,8 +48,8 @@ if [ -n "$PUID" ] && [ "$PUID" != "0" ]; then
     fi
   fi
 
-  chown -R "$PUID:$PGID" "$DATA_DIR"
-  chown -R "$PUID:$PGID" "$DOWNLOADS_DIR" 2>/dev/null || true
+  # Non-recursive chown of mount roots (prevents long freezes on network/NFS mounts like Cloud Shell)
+  chown "$PUID:$PGID" "$DATA_DIR" "$DOWNLOADS_DIR" 2>/dev/null || true
 
   if [ -n "$USER_NAME" ]; then
     exec gosu "$USER_NAME" "$@"
