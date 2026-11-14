@@ -307,6 +307,7 @@ async function main() {
     ]
   });
   const enableTunnel = accessChoice === 0;
+  const isBehindTunnel = enableTunnel || isCloudShell;
 
   // Step 4: Virtual Browser (Neko Chromium)
   const nekoChoice = await askMenu({
@@ -403,7 +404,6 @@ async function main() {
     setEnvVar('NEKO_PASSWORD', 'admin');
     setEnvVar('NEKO_ADMIN_PASSWORD', 'admin');
     // Cloud Shell / Tunnel deployments: lower resolution & bitrate to reduce CPU + TURN bandwidth
-    const isBehindTunnel = enableTunnel || isCloudShell;
     if (isBehindTunnel) {
       setEnvVar('NEKO_SCREEN', '960x540@20');
       setEnvVar('NEKO_DESKTOP_SCREEN', '960x540@20');
