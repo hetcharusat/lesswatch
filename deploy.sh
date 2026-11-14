@@ -42,6 +42,14 @@ fi
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME")
 
+# Locate node even if sudo wiped PATH (e.g. NVM in Cloud Shell or user home)
+if ! command -v node >/dev/null 2>&1; then
+  FOUND_NODE=$(find "$ACTUAL_HOME/.nvm/versions/node" -name node -type f -perm -u+x 2>/dev/null | tail -n 1 || true)
+  if [ -n "$FOUND_NODE" ] && [ -x "$FOUND_NODE" ]; then
+    export PATH="$(dirname "$FOUND_NODE"):$PATH"
+  fi
+fi
+
 # Pre-pull cloudflared in the background so tunnel launch is instantaneous
 ( docker pull cloudflare/cloudflared:latest >/dev/null 2>&1 & ) 2>/dev/null || true
 
