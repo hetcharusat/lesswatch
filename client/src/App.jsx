@@ -259,8 +259,11 @@ export default function App() {
 
   if (bootLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090f', color: '#f9a8d4', fontWeight: 600 }}>
-        Loading LESSWATCH...
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#09090f', color: '#f9a8d4' }}>
+        <ascii-art piece="progress-loader" look="ascii" style={{ maxWidth: '420px', width: '90%' }}></ascii-art>
+        <div style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.5px' }}>
+          Initializing LESSWATCH 🍿
+        </div>
       </div>
     );
   }

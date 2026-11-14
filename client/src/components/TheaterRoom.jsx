@@ -5901,8 +5901,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   </div>
                 </div>
                 {!isNekoReady ? (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#0e0813' }}>
-                    <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '4px solid rgba(244,114,182,0.2)', borderTopColor: '#f472b6', animation: 'spin 0.8s linear infinite' }} />
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', background: '#0e0813', padding: '1rem', overflow: 'hidden' }}>
+                    <ascii-art piece="boot-sequence" style={{ maxWidth: '640px', width: '90%', maxHeight: '220px', overflow: 'hidden', display: 'block' }}></ascii-art>
                     <div style={{ color: '#f472b6', fontWeight: 800, fontSize: '1.05rem', letterSpacing: '0.3px' }}>{nekoStatusMsg}</div>
                     <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Warming up Chromium engine & WebRTC audio/video feeds</div>
                   </div>

@@ -1,126 +1,164 @@
 #!/usr/bin/env node
 /**
  * ==============================================================================
- * 🍿 LESSWATCH — Distilled Impeccable Installation Experience
+ * 🍿 LESSWATCH — Impeccable Sticky Header & Progress-Loader Installation Engine
  * Architecture:
- *   - Zero external dependencies (pure Node.js standard library)
- *   - Bulletproof raw keypress parser (no escape-drop crashes on cloud terminals)
- *   - Linear, distraction-free prompt-and-collapse flow (Astro / Vercel style)
- *   - Smooth single-line orbital progress animation with live sub-task telemetry
- *   - Minimalist, high-contrast typography
+ *   - Alternate Screen Buffer (\x1b[?1049h): Sticky header NEVER scrolls away
+ *   - ASCII Magic Inspired "progress-loader" terminal engine
+ *   - Rock-solid raw key listener: Arrows, Tab, Numbers, Enter (Ctrl+C to abort)
+ *   - Live system telemetry: CPU, RAM, Duration & Docker command output
+ *   - Zero external runtime dependencies (Pure Node.js standard library)
  * ==============================================================================
  */
 
 import readline from 'readline';
 import os from 'os';
 
-// ------------------------------------------------------------------------------
-// Disciplined Impeccable Palette
-// ------------------------------------------------------------------------------
 const ESC = '\x1b';
 const RESET = `${ESC}[0m`;
 const BOLD = `${ESC}[1m`;
 const DIM = `${ESC}[2m`;
 
-// Subtle, high-contrast tints
-const CYAN = `${ESC}[38;2;34;211;238m`;       // Crisp Cyan
-const PINK = `${ESC}[38;2;244;114;182m`;      // Soft Accent Rose
-const GREEN = `${ESC}[38;2;52;211;153m`;      // Muted Mint Green
-const WHITE = `${ESC}[38;2;255;255;255m`;     // Foreground White
-const ZINC_LIGHT = `${ESC}[38;2;228;228;231m`; // Body Zinc
-const ZINC_MUTED = `${ESC}[38;2;161;161;170m`; // Subtext
-const ZINC_DARK = `${ESC}[38;2;82;82;91m`;     // Borders & Inactive Lines
+// Impeccable high-contrast color palette
+const CYAN = `${ESC}[38;2;34;211;238m`;       // #22d3ee
+const PINK = `${ESC}[38;2;244;114;182m`;      // #f472b6
+const GREEN = `${ESC}[38;2;52;211;153m`;      // #34d399
+const AMBER = `${ESC}[38;2;251;191;36m`;      // #fbbf24
+const WHITE = `${ESC}[38;2;255;255;255m`;     // #ffffff
+const ZINC_LIGHT = `${ESC}[38;2;228;228;231m`; // #e4e4e7
+const ZINC_MUTED = `${ESC}[38;2;161;161;170m`; // #a1a1aa
+const ZINC_DARK = `${ESC}[38;2;82;82;91m`;     // #52525b
 
-// Cleanup cursor on exit
-function restoreCursor() {
-  process.stdout.write(`${ESC}[?25h`);
+// Terminal dimensions
+function getTermSize() {
+  return {
+    cols: Math.max(process.stdout.columns || 80, 60),
+    rows: Math.max(process.stdout.rows || 24, 20)
+  };
 }
-process.on('exit', restoreCursor);
+
+// Cleanup screen & cursor on exit
+let inAltScreen = false;
+function restoreTerminal() {
+  if (inAltScreen) {
+    process.stdout.write(`${ESC}[?1049l${ESC}[?25h`);
+    inAltScreen = false;
+  } else {
+    process.stdout.write(`${ESC}[?25h`);
+  }
+}
+
+process.on('exit', restoreTerminal);
 process.on('SIGINT', () => {
-  restoreCursor();
-  process.stdout.write(`\n\n  ${ZINC_MUTED}Installation aborted.${RESET}\n\n`);
+  restoreTerminal();
+  process.stdout.write(`\n\n  ${AMBER}Installation aborted by user.${RESET}\n\n`);
   process.exit(130);
 });
 process.on('SIGTERM', () => {
-  restoreCursor();
+  restoreTerminal();
   process.exit(143);
 });
 
-// Hide cursor
-process.stdout.write(`${ESC}[?25l`);
+// Enter Alternate Screen Buffer (Sticky Viewport)
+function enterAltScreen() {
+  if (process.stdout.isTTY) {
+    process.stdout.write(`${ESC}[?1049h${ESC}[H${ESC}[?25l`);
+    inAltScreen = true;
+  } else {
+    process.stdout.write(`${ESC}[?25l`);
+  }
+}
 
-// System stats
+// System Hardware Telemetry
 const totalMemMB = Math.round(os.totalmem() / (1024 * 1024));
+const totalMemGB = (totalMemMB / 1024).toFixed(1);
 const cpuCores = os.cpus().length;
 
-// ------------------------------------------------------------------------------
-// Distilled Header
-// ------------------------------------------------------------------------------
-function printHeader() {
-  console.clear();
-  process.stdout.write(`
-  ${BOLD}${WHITE}LESSWATCH${RESET}  ${PINK}🍿${RESET}  ${ZINC_MUTED}v4.2 Impeccable${RESET}
-  ${ZINC_MUTED}Synchronized Streaming & Cloud Desktop Engine${RESET}
-  ${ZINC_DARK}Target: Google Cloud Shell • ${cpuCores} vCPU / ${totalMemMB}MB RAM${RESET}
-  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}\n\n`);
+function getMemUsedMB() {
+  const freeMB = Math.round(os.freemem() / (1024 * 1024));
+  return Math.max(totalMemMB - freeMB, 400);
+}
+
+// Truncate helper
+function fit(str, maxLen) {
+  if (!str) return '';
+  const clean = str.replace(/\x1b\[[0-9;]*m/g, '');
+  if (clean.length <= maxLen) return str;
+  return clean.slice(0, maxLen - 1) + '…';
 }
 
 // ------------------------------------------------------------------------------
-// Bulletproof Interactive Menu (Prompt & Collapse)
+// STICKY NAVBAR HEADER (Permanently at Rows 1-5, Never Scrolls)
 // ------------------------------------------------------------------------------
-async function askStep({ title, options, defaultIndex = 0 }) {
+function renderStickyNavbar(statusTags = []) {
+  const { cols } = getTermSize();
+  const width = Math.min(cols - 4, 76);
+  const innerW = width - 2;
+
+  const titleLine = `  ${BOLD}${WHITE}LESSWATCH${RESET} ${PINK}🍿${RESET} ${ZINC_MUTED}v4.2 • Cloud Desktop & Synchronized Streaming Engine${RESET}`;
+  
+  let subtitle = `Target: Cloud Shell • ${cpuCores} vCPU • ${totalMemGB}GB RAM`;
+  if (statusTags.length > 0) {
+    subtitle = statusTags.join(` ${ZINC_DARK}•${RESET} `);
+  }
+
+  const borderTop = `  ${ZINC_DARK}┌${'─'.repeat(innerW)}┐${RESET}`;
+  const borderBot = `  ${ZINC_DARK}└${'─'.repeat(innerW)}┘${RESET}`;
+  const line1 = `  ${ZINC_DARK}│${RESET}  ${titleLine}${' '.repeat(Math.max(0, innerW - 55))}  ${ZINC_DARK}│${RESET}`;
+  const line2 = `  ${ZINC_DARK}│${RESET}  ${ZINC_MUTED}${fit(subtitle, innerW - 4)}${RESET}${' '.repeat(Math.max(0, innerW - subtitle.length - 4))}  ${ZINC_DARK}│${RESET}`;
+
+  return `${borderTop}\n${line1}\n${line2}\n${borderBot}\n`;
+}
+
+// ------------------------------------------------------------------------------
+// ROCK-SOLID INTERACTIVE MENU (Sticky Viewport, Tab/Arrows, No Scroll)
+// ------------------------------------------------------------------------------
+async function askInteractiveOption({ title, options, defaultIndex = 0, statusTags = [] }) {
+  if (!process.stdin.isTTY) {
+    return defaultIndex;
+  }
   return new Promise((resolve) => {
     let selected = defaultIndex;
     const count = options.length;
 
-    const renderOption = (idx) => {
-      const opt = options[idx];
-      const isSelected = idx === selected;
-      let out = '';
-      if (isSelected) {
-        out += `    ${CYAN}${BOLD}●${RESET} ${WHITE}${BOLD}${opt.title}${RESET}\n`;
-        if (opt.desc) {
-          out += `        ${ZINC_MUTED}${opt.desc}${RESET}\n`;
+    const renderScreen = () => {
+      let out = `${ESC}[H`; // Move cursor to top-left (Row 1, Col 1)
+      out += renderStickyNavbar(statusTags);
+      out += `\n  ${CYAN}?${RESET} ${WHITE}${BOLD}${title}${RESET}\n\n`;
+
+      options.forEach((opt, idx) => {
+        const isSel = idx === selected;
+        if (isSel) {
+          out += `    ${CYAN}${BOLD}●${RESET} ${WHITE}${BOLD}${opt.title}${RESET}${ESC}[K\n`;
+          if (opt.desc) {
+            out += `        ${ZINC_LIGHT}${opt.desc}${RESET}${ESC}[K\n`;
+          }
+        } else {
+          out += `    ${ZINC_DARK}○${RESET} ${ZINC_MUTED}${opt.title}${RESET}${ESC}[K\n`;
+          if (opt.desc) {
+            out += `        ${ZINC_DARK}${opt.desc}${RESET}${ESC}[K\n`;
+          }
         }
-      } else {
-        out += `    ${ZINC_DARK}○${RESET} ${ZINC_LIGHT}${opt.title}${RESET}\n`;
-        if (opt.desc) {
-          out += `        ${ZINC_DARK}${opt.desc}${RESET}\n`;
-        }
-      }
-      return out;
-    };
-
-    let totalLines = 0;
-    options.forEach(opt => {
-      totalLines += opt.desc ? 2 : 1;
-    });
-
-    process.stdout.write(`  ${CYAN}?${RESET} ${WHITE}${BOLD}${title}${RESET}\n`);
-
-    // Render options
-    options.forEach((_, idx) => {
-      process.stdout.write(renderOption(idx));
-    });
-
-    const redraw = () => {
-      process.stdout.write(`${ESC}[${totalLines}A`);
-      options.forEach((_, idx) => {
-        process.stdout.write(`${ESC}[2K${renderOption(idx)}`);
       });
+
+      out += `\n  ${ZINC_DARK}Use [↑/↓] or [Tab] to navigate • [1-${count}] Direct • [Enter] Confirm${RESET}${ESC}[K\n`;
+      out += `${ESC}[J`; // Clear any leftover rows below
+      process.stdout.write(out);
     };
 
-    // Configure raw input
+    renderScreen();
+
+    // Raw key listener
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
     }
 
-    const onKeypress = (str, key) => {
-      // Quit ONLY on Ctrl+C (Never on bare escape or arrow prefixes!)
+    const onKey = (str, key) => {
+      // ONLY Ctrl+C quits
       if (key && key.ctrl && key.name === 'c') {
-        restoreCursor();
-        process.stdout.write(`\n\n  ${ZINC_MUTED}Installation aborted.${RESET}\n\n`);
+        restoreTerminal();
+        process.stdout.write(`\n\n  ${AMBER}Installation aborted.${RESET}\n\n`);
         process.exit(130);
       }
 
@@ -129,109 +167,172 @@ async function askStep({ title, options, defaultIndex = 0 }) {
         const num = parseInt(str, 10) - 1;
         if (num >= 0 && num < count) {
           selected = num;
-          redraw();
+          renderScreen();
         }
         return;
       }
 
-      // Arrow navigation (handles both key object and raw sequence strings)
+      // Tab key navigation (cycles forward)
+      const isTab = (key && key.name === 'tab') || str === '\t';
+      if (isTab) {
+        selected = (selected + 1) % count;
+        renderScreen();
+        return;
+      }
+
+      // Arrow keys (handles both key object and raw escape strings)
       const isUp = (key && (key.name === 'up' || key.name === 'k')) || str === '\x1b[A';
       const isDown = (key && (key.name === 'down' || key.name === 'j')) || str === '\x1b[B';
-      const isConfirm = (key && (key.name === 'return' || key.name === 'enter')) || str === '\r' || str === '\n';
+      const isConfirm = (key && (key.name === 'return' || key.name === 'enter')) || str === '\r' || str === '\n' || str === ' ';
 
       if (isUp) {
         selected = (selected - 1 + count) % count;
-        redraw();
+        renderScreen();
       } else if (isDown) {
         selected = (selected + 1) % count;
-        redraw();
+        renderScreen();
       } else if (isConfirm) {
-        cleanup();
-        // Collapse menu: erase options and show single confirmed line
-        const linesToErase = totalLines + 1;
-        process.stdout.write(`${ESC}[${linesToErase}A`);
-        for (let i = 0; i < linesToErase; i++) {
-          process.stdout.write(`${ESC}[2K\n`);
-        }
-        process.stdout.write(`${ESC}[${linesToErase}A`);
-        process.stdout.write(`  ${GREEN}✔${RESET} ${ZINC_MUTED}${title}:${RESET} ${WHITE}${BOLD}${options[selected].title}${RESET}\n\n`);
+        process.stdin.removeListener('keypress', onKey);
         resolve(selected);
       }
     };
 
-    const cleanup = () => {
-      process.stdin.removeListener('keypress', onKeypress);
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
-    };
-
-    process.stdin.on('keypress', onKeypress);
+    process.stdin.on('keypress', onKey);
   });
 }
 
 // ------------------------------------------------------------------------------
-// Distilled Live Progress Task Runner
+// ANIMATED PROGRESS-LOADER ENGINE (ASCII Magic Inspired, Live System Stats)
 // ------------------------------------------------------------------------------
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-async function runTask(title, execute) {
+async function runInstallationPipeline(stages, statusTags = []) {
+  let activeIndex = 0;
+  let activeTelemetry = 'Starting orchestration pipeline...';
   let frame = 0;
   const startTime = Date.now();
-  let subdetail = '';
 
-  process.stdout.write(`  ${CYAN}${SPINNER[0]}${RESET} ${ZINC_LIGHT}${title}...${RESET}\n`);
+  // Each stage: { id, label, progress (0-100), status: 'pending'|'running'|'done'|'failed' }
+  const stageStates = stages.map((s, idx) => ({
+    id: s.id,
+    label: s.label,
+    progress: 0,
+    status: idx === 0 ? 'running' : 'pending',
+    duration: 0
+  }));
 
-  const timer = setInterval(() => {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    const spin = SPINNER[frame % SPINNER.length];
+  const BAR_WIDTH = 26;
+
+  const renderFrame = () => {
+    const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+    const spinChar = SPINNER[frame % SPINNER.length];
     frame++;
 
-    if (subdetail) {
-      process.stdout.write(`${ESC}[1A${ESC}[2K  ${CYAN}${spin}${RESET} ${ZINC_LIGHT}${title}...${RESET} ${ZINC_MUTED}(${elapsed}s)${RESET}\n`);
-      process.stdout.write(`${ESC}[2K      ${ZINC_MUTED}↳ ${subdetail}${RESET}\n`);
-    } else {
-      process.stdout.write(`${ESC}[1A${ESC}[2K  ${CYAN}${spin}${RESET} ${ZINC_LIGHT}${title}...${RESET} ${ZINC_MUTED}(${elapsed}s)${RESET}\n`);
-    }
-  }, 80);
+    let out = `${ESC}[H`; // Sticky reset to top
+    out += renderStickyNavbar(statusTags);
+    out += `\n  ${BOLD}${WHITE}Installing LESSWATCH Infrastructure${RESET}\n\n`;
 
-  const updateSub = (msg) => {
-    if (msg) subdetail = msg.slice(0, 60);
+    // Render "progress-loader" stacked bars
+    stageStates.forEach((stage, idx) => {
+      const isCurrent = idx === activeIndex;
+      const isDone = stage.status === 'done';
+      const isPending = stage.status === 'pending';
+
+      // Indicator
+      let icon = `${ZINC_DARK}○${RESET}`;
+      let tagColor = ZINC_MUTED;
+      let barFilledColor = CYAN;
+
+      if (isDone) {
+        icon = `${GREEN}✔${RESET}`;
+        tagColor = GREEN;
+        barFilledColor = GREEN;
+      } else if (isCurrent) {
+        icon = `${CYAN}${spinChar}${RESET}`;
+        tagColor = WHITE;
+        barFilledColor = CYAN;
+      }
+
+      // Bar fill calculation
+      const pct = Math.min(100, Math.max(0, Math.round(stage.progress)));
+      const filledLen = Math.round((pct / 100) * BAR_WIDTH);
+      const emptyLen = BAR_WIDTH - filledLen;
+
+      const barStr = `${barFilledColor}${'█'.repeat(filledLen)}${RESET}${ZINC_DARK}${'░'.repeat(emptyLen)}${RESET}`;
+      const pctStr = `${String(pct).padStart(3)}%`;
+
+      const stageTag = stage.id.padEnd(8);
+      const durationStr = isDone ? `(${stage.duration}s)` : (isCurrent ? `(${elapsedSec}s)` : '');
+
+      out += `    ${icon} ${tagColor}${stageTag}${RESET}  ${barStr}  ${tagColor}${pctStr}${RESET}  ${stage.label} ${ZINC_MUTED}${durationStr}${RESET}${ESC}[K\n`;
+    });
+
+    out += `\n  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}${ESC}[K\n`;
+    
+    // Live Telemetry Line (Current Docker/Shell Action)
+    const shortTelem = fit(activeTelemetry, 68);
+    out += `  ${PINK}⚡ Telemetry:${RESET} ${WHITE}${shortTelem}${RESET}${ESC}[K\n`;
+
+    // Live System Resources
+    const usedMB = getMemUsedMB();
+    const usedGB = (usedMB / 1024).toFixed(1);
+    out += `  ${CYAN}📊 Live Stats:${RESET} ${ZINC_MUTED}CPU: ${cpuCores} vCPU • RAM: ${usedGB}GB / ${totalMemGB}GB • Time: ${elapsedSec}s${RESET}${ESC}[K\n`;
+    out += `${ESC}[J`;
+
+    process.stdout.write(out);
   };
 
-  try {
-    const result = await execute(updateSub);
-    clearInterval(timer);
+  const timer = setInterval(renderFrame, 80);
 
-    const dur = ((Date.now() - startTime) / 1000).toFixed(1);
-    if (subdetail) {
-      process.stdout.write(`${ESC}[1A${ESC}[2K${ESC}[1A`);
-    } else {
-      process.stdout.write(`${ESC}[1A`);
+  // Execute stages sequentially
+  for (let i = 0; i < stages.length; i++) {
+    activeIndex = i;
+    stageStates[i].status = 'running';
+    const stageStart = Date.now();
+
+    const updateStage = ({ progress, telemetry }) => {
+      if (typeof progress === 'number') stageStates[i].progress = progress;
+      if (telemetry) activeTelemetry = telemetry;
+    };
+
+    try {
+      await stages[i].action(updateStage);
+      stageStates[i].progress = 100;
+      stageStates[i].status = 'done';
+      stageStates[i].duration = ((Date.now() - stageStart) / 1000).toFixed(1);
+    } catch (err) {
+      clearInterval(timer);
+      stageStates[i].status = 'failed';
+      renderFrame();
+      throw err;
     }
-    process.stdout.write(`${ESC}[2K  ${GREEN}✔${RESET} ${ZINC_LIGHT}${title}${RESET} ${ZINC_MUTED}(${dur}s)${RESET}\n`);
-    return result;
-  } catch (err) {
-    clearInterval(timer);
-    process.stdout.write(`\n  ${PINK}✖${RESET} ${WHITE}${title} failed:${RESET} ${err.message}\n`);
-    throw err;
   }
+
+  clearInterval(timer);
+  renderFrame();
+  await new Promise(r => setTimeout(r, 600)); // Brief pause on completion
 }
 
 // ------------------------------------------------------------------------------
-// Main Distilled Flow
+// MAIN TEST FLOW
 // ------------------------------------------------------------------------------
 async function main() {
-  printHeader();
+  enterAltScreen();
 
-  // 1. Target Infrastructure
-  const platform = await askStep({
-    title: 'Select deployment target',
+  const statusTags = [
+    `Target: ${CYAN}Cloud Shell${RESET}`,
+    `RAM: ${WHITE}${totalMemGB}GB${RESET}`
+  ];
+
+  // Step 1: Target Platform
+  const targetIdx = await askInteractiveOption({
+    title: 'Select Deployment Target',
     defaultIndex: 0,
+    statusTags,
     options: [
       {
         title: '⚡ Google Cloud Shell / Web Sandbox (Recommended)',
-        desc: 'Optimized for sandbox CGNAT, binds to port 8080 with Web Preview integration.'
+        desc: 'Optimized for browser sandbox, zero port forwarding, binds to 8080.'
       },
       {
         title: '🚀 Dedicated Linux Cloud VM (Ubuntu / Debian / VPS / OCI)',
@@ -244,30 +345,13 @@ async function main() {
     ]
   });
 
-  // 2. Public Access Method
-  const access = await askStep({
-    title: 'Select public sharing method',
-    defaultIndex: 0,
-    options: [
-      {
-        title: '🌐 Instant Cloudflare Quick Tunnel (Free Public HTTPS)',
-        desc: 'Zero port forwarding, shareable URL generated in seconds.'
-      },
-      {
-        title: '🔒 Custom Domain with Automatic SSL (Caddy)',
-        desc: 'Production HTTPS using your own domain with Let’s Encrypt auto-renewal.'
-      },
-      {
-        title: '📡 Direct IP & Port',
-        desc: 'Direct connection without external tunnel.'
-      }
-    ]
-  });
+  statusTags[0] = `Target: ${CYAN}${targetIdx === 0 ? 'Cloud Shell' : (targetIdx === 1 ? 'Linux VPS' : 'Local')}${RESET}`;
 
-  // 3. Virtual Shared Browser Mode
-  const neko = await askStep({
-    title: 'Shared Chromium browser (Neko)',
+  // Step 2: Shared Virtual Browser Mode
+  const nekoIdx = await askInteractiveOption({
+    title: 'Shared Chromium Virtual Browser (Neko)',
     defaultIndex: 0,
+    statusTags,
     options: [
       {
         title: '🎮 On-Demand Mode (Recommended)',
@@ -275,56 +359,109 @@ async function main() {
       },
       {
         title: '🚀 Always-On Mode',
-        desc: 'Instantly warm and ready at all times (~600MB RAM usage).'
+        desc: 'Instantly warm and ready at all times (~600MB permanent RAM usage).'
       },
       {
         title: '🚫 Disabled',
-        desc: 'Disables virtual browser for low-resource environments.'
+        desc: 'Disables virtual browser for low-resource environments (<1GB RAM).'
       }
     ]
   });
 
-  process.stdout.write(`  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}\n\n`);
+  statusTags.push(`Neko: ${CYAN}${nekoIdx === 0 ? 'On-Demand' : (nekoIdx === 1 ? 'Always-On' : 'Off')}${RESET}`);
 
-  // Simulated Execution Steps (Exact mirror of deployment)
-  await runTask('Verifying Docker engine & memory specs', async (update) => {
-    update('Pinging Docker daemon...');
-    await new Promise(r => setTimeout(r, 400));
-    update('Verified 2 vCPU / 16GB RAM.');
-    await new Promise(r => setTimeout(r, 200));
+  // Step 3: Server Media Downloader
+  const ariaIdx = await askInteractiveOption({
+    title: 'Server Torrent & Media Downloader (aria2c + yt-dlp)',
+    defaultIndex: 0,
+    statusTags,
+    options: [
+      {
+        title: '⚡ Enabled (Full BitTorrent & Stream Downloader)',
+        desc: 'Aria2 background daemon with DHT + yt-dlp stream pipeline directly into Media Library.'
+      },
+      {
+        title: '🚫 Disabled',
+        desc: 'Disable background downloader engine.'
+      }
+    ]
   });
 
-  await runTask('Configuring network firewall ports', async (update) => {
-    update('Opening 8080/tcp, 7880:7881, and WebRTC UDP/TCP ranges...');
-    await new Promise(r => setTimeout(r, 300));
-  });
+  statusTags.push(`Downloader: ${CYAN}${ariaIdx === 0 ? 'Enabled' : 'Disabled'}${RESET}`);
 
-  await runTask('Generating cryptographic secrets & .env parameters', async (update) => {
-    update('Writing AES vault keys and TURN relay configuration...');
-    await new Promise(r => setTimeout(r, 350));
-  });
+  // ----------------------------------------------------------------------------
+  // Execution: 5-Stage Animated Progress Pipeline
+  // ----------------------------------------------------------------------------
+  const stages = [
+    {
+      id: 'docker',
+      label: 'Docker Daemon & Resource Check',
+      action: async (update) => {
+        update({ progress: 20, telemetry: 'Connecting to Docker daemon socket /var/run/docker.sock' });
+        await new Promise(r => setTimeout(r, 400));
+        update({ progress: 65, telemetry: `Verified ${cpuCores} vCPU and ${totalMemGB}GB RAM allocation.` });
+        await new Promise(r => setTimeout(r, 400));
+        update({ progress: 100, telemetry: 'Docker engine check passed.' });
+      }
+    },
+    {
+      id: 'network',
+      label: 'Network Ports & Cryptographic Secrets',
+      action: async (update) => {
+        update({ progress: 30, telemetry: 'Opening firewall ports (8080/tcp, 7880:7881, 52000)...' });
+        await new Promise(r => setTimeout(r, 400));
+        update({ progress: 75, telemetry: 'Writing .env secrets & generating AES session keys...' });
+        await new Promise(r => setTimeout(r, 400));
+        update({ progress: 100, telemetry: 'Network & security parameters generated.' });
+      }
+    },
+    {
+      id: 'services',
+      label: 'LESSWATCH Core Services (Node + Vite)',
+      action: async (update) => {
+        update({ progress: 15, telemetry: 'Building Docker container layer: ffmpeg aria2c...' });
+        await new Promise(r => setTimeout(r, 600));
+        update({ progress: 45, telemetry: 'Step 4/7: RUN npm ci --omit=dev [watch-together]' });
+        await new Promise(r => setTimeout(r, 700));
+        update({ progress: 80, telemetry: 'Vite production build bundled in 407ms.' });
+        await new Promise(r => setTimeout(r, 500));
+        update({ progress: 100, telemetry: 'LiveKit server & LESSWATCH services online.' });
+      }
+    },
+    {
+      id: 'browser',
+      label: 'Chromium Virtual Browser Container',
+      action: async (update) => {
+        update({ progress: 30, telemetry: 'Pulling m1k1o/neko:chromium lightweight image...' });
+        await new Promise(r => setTimeout(r, 600));
+        update({ progress: 70, telemetry: 'Configuring TCP-mux port 52000 and OpenRelay TURN...' });
+        await new Promise(r => setTimeout(r, 500));
+        update({ progress: 100, telemetry: 'Neko browser configured (On-Demand sleep mode).' });
+      }
+    },
+    {
+      id: 'ingress',
+      label: 'Cloudflare Edge Quick Tunnel',
+      action: async (update) => {
+        update({ progress: 25, telemetry: 'Connecting to Cloudflare edge edge network...' });
+        await new Promise(r => setTimeout(r, 500));
+        update({ progress: 85, telemetry: 'Routing public HTTPS tunnel to localhost:8080...' });
+        await new Promise(r => setTimeout(r, 600));
+        update({ progress: 100, telemetry: 'Edge tunnel established: https://lesswatch-demo.trycloudflare.com' });
+      }
+    }
+  ];
 
-  await runTask('Compiling & launching LESSWATCH core services', async (update) => {
-    update('Step 2/7: RUN apt-get install -y ffmpeg aria2...');
-    await new Promise(r => setTimeout(r, 600));
-    update('Step 4/7: RUN npm ci --omit=dev [watch-together]');
-    await new Promise(r => setTimeout(r, 700));
-    update('Starting livekit & watch-together containers...');
-    await new Promise(r => setTimeout(r, 500));
-  });
+  await runInstallationPipeline(stages, statusTags);
 
-  await runTask('Connecting Cloudflare Quick Tunnel', async (update) => {
-    update('Requesting edge ingress tunnel...');
-    await new Promise(r => setTimeout(r, 500));
-    update('Registered edge route at nearest Cloudflare PoP...');
-    await new Promise(r => setTimeout(r, 400));
-  });
+  // Restore normal terminal screen before printing permanent summary
+  restoreTerminal();
 
-  // Final Distilled Summary
+  // Final Summary Output in permanent scrollback
   process.stdout.write(`
-  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
-  ${BOLD}${WHITE}LESSWATCH is live & streaming${RESET}
-  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
+  ${ZINC_DARK}┌────────────────────────────────────────────────────────────────────────┐${RESET}
+  ${ZINC_DARK}│${RESET}  ${BOLD}${WHITE}LESSWATCH is Live & Streaming${RESET}  ${PINK}🍿${RESET}${' '.repeat(41)}${ZINC_DARK}│${RESET}
+  ${ZINC_DARK}└────────────────────────────────────────────────────────────────────────┘${RESET}
 
     ${CYAN}${BOLD}Public URL:${RESET}     ${WHITE}${BOLD}https://lesswatch-demo.trycloudflare.com${RESET}
     ${ZINC_MUTED}Web Preview:${RESET}    ${PINK}http://localhost:8080${RESET}
@@ -334,15 +471,14 @@ async function main() {
     ${ZINC_DARK}•${RESET} Virtual Browser:   ${GREEN}Ready (On-Demand • 540p@20 tunnel-optimized)${RESET}
     ${ZINC_DARK}•${RESET} Media Downloader:  ${GREEN}Operational (aria2c + yt-dlp)${RESET}
 
-  ${ZINC_DARK}───────────────────────────────────────────────────────────────────${RESET}
-  ${ZINC_MUTED}Management:${RESET}  ${CYAN}docker compose ps${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}docker compose logs -f${RESET}\n\n`);
+  ${ZINC_DARK}────────────────────────────────────────────────────────────────────────${RESET}
+  ${ZINC_MUTED}Manage:${RESET}  ${CYAN}docker compose ps${RESET}  ${ZINC_DARK}•${RESET}  ${CYAN}docker compose logs -f${RESET}\n\n`);
 
-  restoreCursor();
   process.exit(0);
 }
 
 main().catch(err => {
-  restoreCursor();
-  process.stdout.write(`\n  ${PINK}Error:${RESET} ${err.message}\n\n`);
+  restoreTerminal();
+  process.stdout.write(`\n  ${PINK}Fatal Error:${RESET} ${err.message}\n\n`);
   process.exit(1);
 });

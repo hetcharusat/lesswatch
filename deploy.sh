@@ -41,6 +41,7 @@ fi
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "$PWD")"
 
 NODE_BIN=""
 if command -v node >/dev/null 2>&1; then
@@ -87,7 +88,9 @@ fi
 # If Node.js is available, hand off directly to next-gen Animated TUI CLI
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
   export PATH="$(dirname "$NODE_BIN"):$PATH"
-  if [ -f "scripts/deploy-tui.mjs" ]; then
+  if [ -f "$SCRIPT_DIR/scripts/deploy-tui.mjs" ]; then
+    exec "$NODE_BIN" "$SCRIPT_DIR/scripts/deploy-tui.mjs" "$@"
+  elif [ -f "scripts/deploy-tui.mjs" ]; then
     exec "$NODE_BIN" scripts/deploy-tui.mjs "$@"
   fi
 fi
@@ -95,8 +98,12 @@ fi
 # Attempt quick install of nodejs on Debian/Ubuntu to unlock modern Animated TUI
 if command -v apt-get >/dev/null 2>&1; then
   ( apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq nodejs >/dev/null 2>&1 ) || true
-  if command -v node >/dev/null 2>&1 && [ -f "scripts/deploy-tui.mjs" ]; then
-    exec node scripts/deploy-tui.mjs "$@"
+  if command -v node >/dev/null 2>&1; then
+    if [ -f "$SCRIPT_DIR/scripts/deploy-tui.mjs" ]; then
+      exec node "$SCRIPT_DIR/scripts/deploy-tui.mjs" "$@"
+    elif [ -f "scripts/deploy-tui.mjs" ]; then
+      exec node scripts/deploy-tui.mjs "$@"
+    fi
   fi
 fi
 
@@ -229,7 +236,7 @@ select_menu() {
 
     if [[ "$key" == $'\x1b' ]]; then
       local rest=""
-      IFS= read -rsn2 -t 0.2 rest 2>/dev/null || true
+      IFS= read -rsn2 -t 0.5 rest 2>/dev/null || true
       key+="$rest"
     fi
 
@@ -238,7 +245,7 @@ select_menu() {
         current=$(( (current - 1 + count) % count ))
         redraw
         ;;
-      $'\x1b[B'|[jJ]) # Down
+      $'\x1b[B'|[jJ]|$'\t') # Down or Tab
         current=$(( (current + 1) % count ))
         redraw
         ;;
@@ -248,8 +255,11 @@ select_menu() {
           break
         fi
         ;;
-      ""|$'\n'|$'\r'|" ") # Enter or Space
+      $'\n'|$'\r'|" ") # Enter or Space
         break
+        ;;
+      *)
+        # Ignore any unrecognized control character without exiting
         ;;
     esac
   done
