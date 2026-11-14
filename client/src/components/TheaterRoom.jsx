@@ -5913,7 +5913,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     key={nekoIframeKey}
                     src={`/neko/?usr=${encodeURIComponent(currentProfile?.username || currentProfile?.name || 'Viewer')}&pwd=admin&embed=1`}
                     title="Shared Virtual Browser (Neko)"
-                    allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write;"
+                    allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write; display-capture;"
                     style={{
                       width: '100%',
                       height: isTheaterFullscreen ? '100%' : 'calc(100% - 42px)',

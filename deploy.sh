@@ -453,11 +453,22 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
       echo \"CADDY_DOMAIN=${CUSTOM_DOMAIN}\" >> .env
     fi
   fi
-  if [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
+  IS_TUNNEL_OR_CLOUDSHELL=false
+  if [ \"$PLATFORM_CHOICE\" -eq 1 ] || [ \"$ENABLE_TUNNEL\" = true ] || [ \"$IS_CLOUDSHELL\" = true ]; then
+    IS_TUNNEL_OR_CLOUDSHELL=true
+  fi
+
+  if [ \"$IS_TUNNEL_OR_CLOUDSHELL\" = false ] && [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
     if grep -q '^NEKO_NAT1TO1=' .env 2>/dev/null; then
       sed -i \"s/^NEKO_NAT1TO1=.*/NEKO_NAT1TO1=${PUBLIC_IP}/\" .env
     else
       echo \"NEKO_NAT1TO1=${PUBLIC_IP}\" >> .env
+    fi
+  else
+    if grep -q '^NEKO_NAT1TO1=' .env 2>/dev/null; then
+      sed -i \"s/^NEKO_NAT1TO1=.*/NEKO_NAT1TO1=/\" .env
+    else
+      echo \"NEKO_NAT1TO1=\" >> .env
     fi
   fi
   if grep -q '^NEKO_PASSWORD=' .env 2>/dev/null; then
@@ -470,9 +481,9 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
   else
     echo \"NEKO_ADMIN_PASSWORD=admin\" >> .env
   fi
-  DEFAULT_ICESERVERS='[{\"urls\":[\"stun:stun.l.google.com:19302\"]},{\"urls\":[\"turn:openrelay.metered.ca:443?transport=tcp\",\"turn:openrelay.metered.ca:80\",\"turn:openrelay.metered.ca:443\"],\"username\":\"openrelayproject\",\"credential\":\"openrelayproject\"}]'
+  DEFAULT_ICESERVERS='[{\"urls\":[\"stun:stun.l.google.com:19302\",\"stun:stun1.l.google.com:19302\",\"stun:stun2.l.google.com:19302\"]},{\"urls\":[\"turn:openrelay.metered.ca:443?transport=tcp\",\"turn:openrelay.metered.ca:80\",\"turn:openrelay.metered.ca:443\"],\"username\":\"openrelayproject\",\"credential\":\"openrelayproject\"}]'
   ICE_MODE=0
-  if [ \"$PLATFORM_CHOICE\" -eq 1 ] && [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
+  if [ \"$PLATFORM_CHOICE\" -eq 0 ] && [ \"$IS_TUNNEL_OR_CLOUDSHELL\" = false ] && [ -n \"$PUBLIC_IP\" ] && [ \"$PUBLIC_IP\" != \"127.0.0.1\" ]; then
     ICE_MODE=1
   fi
   if grep -q '^NEKO_ICELITE=' .env 2>/dev/null; then
@@ -485,15 +496,34 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
   else
     echo \"NEKO_WEBRTC_ICELITE=\${ICE_MODE}\" >> .env
   fi
-  if grep -q '^NEKO_SCREEN=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_SCREEN=.*/NEKO_SCREEN=1280x720@30/\" .env
+  if [ \"$IS_TUNNEL_OR_CLOUDSHELL\" = true ]; then
+    SCREEN_RES=\"960x540@20\"
+    VIDEO_BR=\"1500\"
+    MAX_FPS=\"20\"
   else
-    echo \"NEKO_SCREEN=1280x720@30\" >> .env
+    SCREEN_RES=\"1280x720@30\"
+    VIDEO_BR=\"3072\"
+    MAX_FPS=\"30\"
+  fi
+  if grep -q '^NEKO_SCREEN=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_SCREEN=.*/NEKO_SCREEN=\${SCREEN_RES}/\" .env
+  else
+    echo \"NEKO_SCREEN=\${SCREEN_RES}\" >> .env
+  fi
+  if grep -q '^NEKO_DESKTOP_SCREEN=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_DESKTOP_SCREEN=.*/NEKO_DESKTOP_SCREEN=\${SCREEN_RES}/\" .env
+  else
+    echo \"NEKO_DESKTOP_SCREEN=\${SCREEN_RES}\" >> .env
   fi
   if grep -q '^NEKO_VIDEO_BITRATE=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_VIDEO_BITRATE=.*/NEKO_VIDEO_BITRATE=3072/\" .env
+    sed -i \"s/^NEKO_VIDEO_BITRATE=.*/NEKO_VIDEO_BITRATE=\${VIDEO_BR}/\" .env
   else
-    echo \"NEKO_VIDEO_BITRATE=3072\" >> .env
+    echo \"NEKO_VIDEO_BITRATE=\${VIDEO_BR}\" >> .env
+  fi
+  if grep -q '^NEKO_MAX_FPS=' .env 2>/dev/null; then
+    sed -i \"s/^NEKO_MAX_FPS=.*/NEKO_MAX_FPS=\${MAX_FPS}/\" .env
+  else
+    echo \"NEKO_MAX_FPS=\${MAX_FPS}\" >> .env
   fi
   if grep -q '^NEKO_WEBRTC_ICESERVERS_FRONTEND=' .env 2>/dev/null; then
     sed -i \"s|^NEKO_WEBRTC_ICESERVERS_FRONTEND=.*|NEKO_WEBRTC_ICESERVERS_FRONTEND='\${DEFAULT_ICESERVERS}'|\" .env

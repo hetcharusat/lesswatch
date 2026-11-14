@@ -402,13 +402,23 @@ async function main() {
     setEnvVar('VAULT_SECRET', vaultSecret);
     setEnvVar('NEKO_PASSWORD', 'admin');
     setEnvVar('NEKO_ADMIN_PASSWORD', 'admin');
-    setEnvVar('NEKO_SCREEN', '1280x720@30');
-    setEnvVar('NEKO_DESKTOP_SCREEN', '1280x720@30');
-    setEnvVar('NEKO_VIDEO_BITRATE', '3072');
-    setEnvVar('NEKO_MAX_FPS', '30');
+    // Cloud Shell / Tunnel deployments: lower resolution & bitrate to reduce CPU + TURN bandwidth
+    const isBehindTunnel = enableTunnel || isCloudShell;
+    if (isBehindTunnel) {
+      setEnvVar('NEKO_SCREEN', '960x540@20');
+      setEnvVar('NEKO_DESKTOP_SCREEN', '960x540@20');
+      setEnvVar('NEKO_VIDEO_BITRATE', '1500');
+      setEnvVar('NEKO_MAX_FPS', '20');
+    } else {
+      setEnvVar('NEKO_SCREEN', '1280x720@30');
+      setEnvVar('NEKO_DESKTOP_SCREEN', '1280x720@30');
+      setEnvVar('NEKO_VIDEO_BITRATE', '3072');
+      setEnvVar('NEKO_MAX_FPS', '30');
+    }
 
-    // Platform-adaptive ICE
-    const iceMode = (platformChoice === 0 && publicIP !== '127.0.0.1') ? '1' : '0';
+    // Platform-adaptive ICE: ICE Lite only on VPS with public IP (NOT behind tunnel/CGNAT)
+    // ICE Lite MUST be false for TURN relay to work behind Cloudflare tunnels
+    const iceMode = (platformChoice === 0 && publicIP !== '127.0.0.1' && !isBehindTunnel) ? '1' : '0';
     setEnvVar('NEKO_ICELITE', iceMode);
     setEnvVar('NEKO_WEBRTC_ICELITE', iceMode);
 
@@ -416,7 +426,7 @@ async function main() {
   });
 
   // 4. Build & Launch Docker Services (Fast single-stage build)
-  await runTask('Building & launching Watch Together services', async () => {
+  await runTask('Compiling & launching Watch Together services', async () => {
     // If always-on Neko was selected, include neko profile
     const profiles = [];
     if (nekoMode === 'always') profiles.push('--profile', 'neko');
@@ -424,6 +434,44 @@ async function main() {
     const args = ['compose', ...profiles, 'up', '-d', '--build', 'watch-together', 'livekit'];
     execSync(`docker ${args.join(' ')}`, { stdio: 'ignore' });
   });
+
+  // 4b. Provision Neko container (fast cache check + background pre-warm for on-demand)
+  if (enableNeko) {
+    let imageCached = false;
+    try {
+      execSync('docker image inspect m1k1o/neko:chromium', { stdio: 'ignore' });
+      imageCached = true;
+    } catch {}
+
+    if (imageCached) {
+      await runTask('Provisioning Neko Chromium browser container', async () => {
+        if (nekoMode === 'ondemand') {
+          execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
+        } else if (nekoMode === 'always') {
+          execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
+        }
+      });
+    } else if (nekoMode === 'always') {
+      await runTask('Downloading & launching Neko Chromium browser image', async () => {
+        try {
+          execSync('docker compose --profile neko pull neko', { stdio: 'ignore', timeout: 600000 });
+        } catch {
+          execSync('docker pull m1k1o/neko:chromium', { stdio: 'ignore', timeout: 600000 });
+        }
+        execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
+      });
+    } else {
+      // On-demand mode: Dispatch in background so deployment finishes in seconds!
+      try {
+        const bgNeko = spawn('sh', ['-c', 'docker compose --profile neko pull neko >/dev/null 2>&1 && docker compose --profile neko up --no-start neko >/dev/null 2>&1'], {
+          stdio: 'ignore',
+          detached: true
+        });
+        bgNeko.unref();
+      } catch {}
+      process.stdout.write(`  ${GREEN}✔${RESET} Neko Chromium browser image pre-warming dispatched in background (${PURPLE}non-blocking${RESET})\n`);
+    }
+  }
 
   // 5. Cloudflare Quick Tunnel (Instant launch via pre-pulled image)
   let tunnelUrl = '';
@@ -469,7 +517,7 @@ ${GREEN}${BOLD}=================================================================
   ${CYAN}${BOLD}🌐 Public HTTPS Link:${RESET}     ${WHITE}${BOLD}${primaryUrl}${RESET}
   ${GRAY}🚀 Web Preview / Local:${RESET}  ${ROSE}${previewUrl}${RESET}
   ${GRAY}👤 Admin Credentials:${RESET}   ${GRAY}Username:${RESET} ${WHITE}admin${RESET}  ${GRAY}Password:${RESET} ${WHITE}admin${RESET}
-  ${GRAY}🎬 Neko Virtual Browser:${RESET} ${enableNeko ? `${GREEN}Ready (${nekoMode} mode, 720p@30 smooth)${RESET}` : `${AMBER}Disabled${RESET}`}
+  ${GRAY}🎬 Neko Virtual Browser:${RESET} ${enableNeko ? `${GREEN}Ready (${nekoMode} mode, ${isBehindTunnel ? '540p@20 tunnel-optimized' : '720p@30 smooth'})${RESET}` : `${AMBER}Disabled${RESET}`}
   ${GRAY}⚡ Torrent Downloader:${RESET}   ${enableDownloader ? `${GREEN}Operational (aria2c + yt-dlp)${RESET}` : `${AMBER}Disabled${RESET}`}
 
 ${DARK_GRAY}─────────────────────────────────────────────────────────────────────────────${RESET}
