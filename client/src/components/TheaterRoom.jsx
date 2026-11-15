@@ -4237,7 +4237,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
         {renderFloatingChat && (
           <form onSubmit={handleSendChat} className={`wfb-p3 wfb-v1 ${isFloatingChatClosing ? 'is-closing' : ''}`}>
-                <UserAvatar user={currentProfile} size={24} showBorder={true} />
+                <div className="wfb-avatar-wrap" title={currentProfile?.name || 'You'}>
+                  <UserAvatar user={currentProfile} size={24} showBorder={false} />
+                </div>
                 <button
                   type="button"
                   className={`wfb-gif-pill ${showFloatingGiphy ? 'active' : ''}`}
@@ -4246,7 +4248,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 >
                   GIF
                 </button>
-                <div className="wfb-emoji-rack" title="Top 3 side-chat reactions">
+                <div className="wfb-emoji-rack" title="Quick reaction emojis">
                   {quickBubbleEmojis.map((em) => (
                     <button key={em} type="button" className="wfb-emoji-chip" onClick={() => handleFloatingEmojiTap(em)} title={`React ${em}`}>
                       {em}
@@ -4279,10 +4281,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     className={`wfb-send ${chatInputText.trim() ? 'ready' : ''}`}
                     title={chatInputText.trim() ? 'Send (Enter)' : 'Close (Enter)'}
                   >
-                    <Send size={13} />
+                    <Send size={14} />
                   </button>
                   <button type="button" className="wfb-close" onClick={closeFloatingBubbleChat} title="Close (Esc)">
-                    <X size={13} />
+                    <X size={13} strokeWidth={2.4} />
+                    <span className="wfb-sparkle">✦</span>
                   </button>
                 </div>
               </form>
