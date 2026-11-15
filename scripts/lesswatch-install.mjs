@@ -101,18 +101,30 @@ function defaultPort() {
 }
 
 const MODULES = [
-  { id: 'neko',      icon: '◈', tag: 'RECOMMENDED',  title: 'Shared Chromium Virtual Browser (Neko)',
-    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.',          on: true  },
-  { id: 'aria',      icon: '▸', tag: 'CORE ENGINE',  title: 'Server Media Downloader (aria2c + yt-dlp)',
-    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.',     on: true  },
-  { id: 'tunnel',    icon: '◉', tag: 'ZERO CONFIG',  title: 'Cloudflare Public HTTPS Quick Tunnel',
-    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.',            on: true  },
-  { id: 'livekit',   icon: '◎', tag: 'SPATIAL AUDIO', title: 'LiveKit Voice & Room SFU Server',
-    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.',        on: true  },
-  { id: 'storage',   icon: '▣', tag: 'STORAGE',      title: 'Media Library & Streaming Transcoder',
-    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.',                   on: true  },
-  { id: 'neko_warm', icon: '◇', tag: 'OPTIONAL',     title: 'Always-On Browser Mode (Pre-warmed in RAM)',
-    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).',        on: false },
+  {
+    id: 'neko', icon: '◈', tag: 'RECOMMENDED', title: 'Shared Chromium Virtual Browser (Neko)',
+    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.', on: true
+  },
+  {
+    id: 'aria', icon: '▸', tag: 'CORE ENGINE', title: 'Server Media Downloader (aria2c + yt-dlp)',
+    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.', on: true
+  },
+  {
+    id: 'tunnel', icon: '◉', tag: 'ZERO CONFIG', title: 'Cloudflare Public HTTPS Quick Tunnel',
+    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.', on: true
+  },
+  {
+    id: 'livekit', icon: '◎', tag: 'SPATIAL AUDIO', title: 'LiveKit Voice & Room SFU Server',
+    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.', on: true
+  },
+  {
+    id: 'storage', icon: '▣', tag: 'STORAGE', title: 'Media Library & Streaming Transcoder',
+    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.', on: true
+  },
+  {
+    id: 'neko_warm', icon: '◇', tag: 'OPTIONAL', title: 'Always-On Browser Mode (Pre-warmed in RAM)',
+    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).', on: false
+  },
 ];
 const SHORT = {
   neko: 'Neko browser', aria: 'Downloader', tunnel: 'HTTPS tunnel',
@@ -122,9 +134,9 @@ const SHORT = {
 // Pre-pull cloudflared in the background quietly
 try {
   const bgPull = spawn('docker', ['pull', 'cloudflare/cloudflared:latest'], { stdio: 'ignore', detached: true });
-  bgPull.on('error', () => {}); // docker missing → don't crash the UI
+  bgPull.on('error', () => { }); // docker missing → don't crash the UI
   bgPull.unref();
-} catch {}
+} catch { }
 
 // ─── Real Stage Implementations (Non-Blocking & Watchdog Protected) ─────────
 async function checkDocker(log, s) {
@@ -204,7 +216,7 @@ async function generateEnvironment(log, s) {
 function buildServices(log, s) {
   return new Promise((resolve, reject) => {
     log('Building LESSWATCH core services with Docker BuildKit...');
-    
+
     const livekitOn = state.modules[3] ?? true;
     const services = ['watch-together'];
     if (livekitOn) services.push('livekit');
@@ -372,7 +384,7 @@ async function startTunnel(log, s) {
   }
 
   log(`Requesting Cloudflare edge quick tunnel for port ${targetPort}...`);
-  try { execSync('docker rm -f wt-tunnel 2>/dev/null', { stdio: 'ignore' }); } catch {}
+  try { execSync('docker rm -f wt-tunnel 2>/dev/null', { stdio: 'ignore' }); } catch { }
 
   execSync(`docker run -d --name wt-tunnel --restart=unless-stopped --network=host cloudflare/cloudflared:latest tunnel --no-autoupdate --url http://127.0.0.1:${targetPort}`, { stdio: 'ignore' });
 
@@ -389,7 +401,7 @@ async function startTunnel(log, s) {
         s.progress = 100;
         return;
       }
-    } catch {}
+    } catch { }
     if (i % 3 === 0) log(`Waiting for Cloudflare edge route assignment (${i + 1}s)...`);
   }
 
@@ -401,12 +413,12 @@ async function startTunnel(log, s) {
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id: 'docker', label: 'Docker daemon check',      cmd: 'docker info >/dev/null',   exec: checkDocker,         sim: 1000 },
-  { id: 'env',    label: 'Generate secrets & .env',  cmd: 'sh scripts/gen-env.sh',    exec: generateEnvironment, sim: 800  },
-  { id: 'build',  label: 'Build LESSWATCH services', cmd: 'docker compose build',     exec: buildServices,       sim: 2800 },
-  { id: 'neko',   label: 'Pull Chromium image',      cmd: 'docker compose pull neko', exec: provisionNeko,       sim: 1400, feature: 'neko' },
-  { id: 'aria',   label: 'Prepare downloader',       cmd: 'mkdir -p downloads data',  exec: prepareDownloader,    sim: 800,  feature: 'aria' },
-  { id: 'tunnel', label: 'Public HTTPS tunnel',      cmd: 'sh scripts/tunnel.sh',     exec: startTunnel,          sim: 1200, feature: 'tunnel' },
+  { id: 'docker', label: 'Docker daemon check', cmd: 'docker info >/dev/null', exec: checkDocker, sim: 1000 },
+  { id: 'env', label: 'Generate secrets & .env', cmd: 'sh scripts/gen-env.sh', exec: generateEnvironment, sim: 800 },
+  { id: 'build', label: 'Build LESSWATCH services', cmd: 'docker compose build', exec: buildServices, sim: 2800 },
+  { id: 'neko', label: 'Pull Chromium image', cmd: 'docker compose pull neko', exec: provisionNeko, sim: 1400, feature: 'neko' },
+  { id: 'aria', label: 'Prepare downloader', cmd: 'mkdir -p downloads data', exec: prepareDownloader, sim: 800, feature: 'aria' },
+  { id: 'tunnel', label: 'Public HTTPS tunnel', cmd: 'sh scripts/tunnel.sh', exec: startTunnel, sim: 1200, feature: 'tunnel' },
 ];
 
 const SIM_LINES = [
@@ -707,7 +719,7 @@ function sample() {
       prevCpu = cur;
       const f = total > 0 ? clamp(1 - idle / total, 0, 1) : state.cpuV;
       state.cpuV += (f - state.cpuV) * 0.6;
-    } catch {}
+    } catch { }
     mem = clamp(1 - os.freemem() / os.totalmem(), 0, 1);
   } else {
     const run = state.screen === 'install' ? state.stages[state.current] : null;
@@ -899,10 +911,14 @@ function markFor(i) {
 }
 
 const menuItems = () => [
-  { label: 'Express install', desc: `auto · ${TARGETS[defaultTarget()].short} :${TARGETS[defaultTarget()].defaultPort} · recommended`,
-    run: () => { state.mode = 'express'; state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; state.modules = MODULES.map((m) => m.on); go('review'); } },
-  { label: 'Custom install', desc: 'choose target, port & modules',
-    run: () => { state.mode = 'custom'; if (!state.targetTouched) state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; go('target'); } },
+  {
+    label: 'Express install', desc: `auto · ${TARGETS[defaultTarget()].short} :${TARGETS[defaultTarget()].defaultPort} · recommended`,
+    run: () => { state.mode = 'express'; state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; state.modules = MODULES.map((m) => m.on); go('review'); }
+  },
+  {
+    label: 'Custom install', desc: 'choose target, port & modules',
+    run: () => { state.mode = 'custom'; if (!state.targetTouched) state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; go('target'); }
+  },
   { label: 'What\u2019s included', desc: 'see every module', run: () => go('about') },
   { label: 'Quit', desc: 'exit installer', run: () => shutdown(0) },
 ];
@@ -1250,7 +1266,7 @@ const screens = {
   install: {
     renderTop: (inner) => installTop(inner, false),
     renderLogs: (inner, rows) => installLogs(inner, rows, false),
-    key() {}
+    key() { }
   },
 
   failed: {
@@ -1331,9 +1347,9 @@ function installTop(inner, failed = false) {
   const pct = String(Math.round(state.shown * 100)).padStart(3);
   const title = failed ? C.red('✖ ') + BOLD + C.red('INSTALL FAILED')
     : state.pendingDone ? green('✔ ') + BOLD + green('ALL STEPS COMPLETE')
-    : C.accent(spin) + ' ' + BOLD + C.text('INSTALLING LESSWATCH');
+      : C.accent(spin) + ' ' + BOLD + C.text('INSTALLING LESSWATCH');
   const L = [topline(3, inner), '', `${title}  ${dim('·')}  ${C.muted(elapsed + 's')}`,
-    `${bar(state.shown, Math.max(10, inner - 7), !state.pendingDone && !failed)} ${BOLD}${C.accent(pct + '%')}${RESET}`, ''];
+  `${bar(state.shown, Math.max(10, inner - 7), !state.pendingDone && !failed)} ${BOLD}${C.accent(pct + '%')}${RESET}`, ''];
 
   const bw = clamp(inner - 3 - 28 - 1 - 5, 8, 28);
   state.stages.forEach((s) => {
@@ -1448,7 +1464,7 @@ function leaveScreen() {
   if (leftScreen || !isTTY) return;
   leftScreen = true;
   out.write(E + '?25h' + E + '?1049l' + E + '0m');
-  try { inp.setRawMode(false); } catch {}
+  try { inp.setRawMode(false); } catch { }
 }
 function shutdown(code, msg) {
   state.quitting = true;

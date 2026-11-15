@@ -259,11 +259,9 @@ export default function App() {
 
   if (bootLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem', background: '#09090f', color: '#f9a8d4' }}>
-        <ascii-art piece="progress-loader" look="ascii" style={{ maxWidth: '420px', width: '90%' }}></ascii-art>
-        <div style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.5px' }}>
-          Initializing LESSWATCH 🍿
-        </div>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090f' }}>
+        <div style={{ width: '28px', height: '28px', borderRadius: '50%', border: '2.5px solid rgba(244, 114, 182, 0.18)', borderTopColor: '#ec4899', animation: 'lwBootSpin 0.7s linear infinite' }} />
+        <style>{`@keyframes lwBootSpin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
