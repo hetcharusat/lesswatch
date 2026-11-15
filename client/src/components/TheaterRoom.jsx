@@ -288,6 +288,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [isSelfViewHidden, setIsSelfViewHidden] = useState(false);
   const [isCinemaDimmed, setIsCinemaDimmed] = useState(false);
   const [webcamPosition, setWebcamPosition] = useState({ x: 0, y: 0 });
+  const [webcamScale, setWebcamScale] = useState(210);
   const [isWebcamDragging, setIsWebcamDragging] = useState(false);
   const webcamDragStartRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
   const cinemaDimTimeoutRef = useRef(null);
@@ -1221,14 +1222,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }
   }
 
-  // Publishes user's microphone track to the LiveKit SFU room
+  // Publishes user's microphone track to the LiveKit SFU room (or local audio pipeline fallback)
   async function publishLocalMic() {
     try {
       showToast('Connecting microphone...', <Mic size={15} color="var(--pink-primary)" />);
-      const lkRoom = livekitRoomRef.current;
-      if (!lkRoom || lkRoom.state !== 'connected') {
-        await connectVoiceRoom({ publishMic: true });
-        return;
+      
+      // 1. Attempt LiveKit SFU connection in background if not connected
+      if (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected') {
+        try {
+          await connectVoiceRoom({ publishMic: false });
+        } catch { }
       }
 
       const mode = noiseSuppressionModeRef.current || 'rnnoise';
@@ -1247,20 +1250,40 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       } catch (dspErr) {
         console.warn('WebAudio DSP pipeline unavailable, falling back to raw LiveKit mic:', dspErr);
         cleanupLocalAudioPipeline({ closeContext: false });
-        audioTrack = await createLocalAudioTrack({
-          deviceId: selectedAudioInput || undefined,
-          echoCancellation: ecEnabled,
-          noiseSuppression: mode !== 'raw' && mode !== 'bypass',
-          autoGainControl: true,
-        });
+        try {
+          audioTrack = await createLocalAudioTrack({
+            deviceId: selectedAudioInput || undefined,
+            echoCancellation: ecEnabled,
+            noiseSuppression: mode !== 'raw' && mode !== 'bypass',
+            autoGainControl: true,
+          });
+        } catch (rawErr) {
+          console.warn('Native getUserMedia fallback for microphone:', rawErr);
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: selectedAudioInput ? { exact: selectedAudioInput } : undefined,
+              echoCancellation: ecEnabled,
+              noiseSuppression: mode !== 'raw' && mode !== 'bypass'
+            }
+          });
+          audioTrack = new LocalAudioTrack(stream.getAudioTracks()[0]);
+        }
       }
 
       localAudioTrackRef.current = audioTrack;
 
-      await lkRoom.localParticipant.publishTrack(audioTrack, {
-        audioBitrate: studioAudioMode ? 128000 : 64000,
-        dtx: false,
-      });
+      // 2. Publish to LiveKit SFU if connected
+      const lkRoom = livekitRoomRef.current;
+      if (lkRoom && lkRoom.state === 'connected') {
+        try {
+          await lkRoom.localParticipant.publishTrack(audioTrack, {
+            audioBitrate: studioAudioMode ? 128000 : 64000,
+            dtx: false,
+          });
+        } catch (pubErr) {
+          console.warn('LiveKit audio publish failed, continuing with local audio:', pubErr);
+        }
+      }
 
       setupAnalyser(analyserNode || audioTrack.mediaStreamTrack);
 
@@ -1396,27 +1419,50 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     } else {
       setIsCameraStarting(true);
       try {
+        // 1. Attempt to connect LiveKit in background if not already connected
         if (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected') {
-          await publishLocalMic();
+          try {
+            await connectVoiceRoom({ publishMic: false });
+          } catch { }
         }
 
-        const lkRoom = livekitRoomRef.current;
-        if (!lkRoom || lkRoom.state !== 'connected') {
-          throw new Error('Voice & Video room is not connected.');
+        // 2. Capture local webcam video track
+        let vTrack = null;
+        try {
+          vTrack = await createLocalVideoTrack({
+            facingMode: 'user',
+            resolution: VideoPresets.h540,
+            deviceId: selectedVideoInput || undefined,
+          });
+        } catch (trkErr) {
+          console.warn('createLocalVideoTrack failed, trying direct getUserMedia:', trkErr);
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user',
+              width: { ideal: 960 },
+              height: { ideal: 540 },
+              deviceId: selectedVideoInput ? { exact: selectedVideoInput } : undefined
+            }
+          });
+          const rawVideoTrack = stream.getVideoTracks()[0];
+          vTrack = new LocalVideoTrack(rawVideoTrack);
         }
-
-        const vTrack = await createLocalVideoTrack({
-          facingMode: 'user',
-          resolution: VideoPresets.h540,
-        });
 
         localVideoTrackRef.current = vTrack;
         setLocalVideoTrack(vTrack);
 
-        await lkRoom.localParticipant.publishTrack(vTrack, {
-          simulcast: true,
-          videoCodec: 'vp8',
-        });
+        // 3. Publish to LiveKit SFU if connected
+        const lkRoom = livekitRoomRef.current;
+        if (lkRoom && lkRoom.state === 'connected') {
+          try {
+            await lkRoom.localParticipant.publishTrack(vTrack, {
+              simulcast: true,
+              videoCodec: 'vp8',
+            });
+          } catch (pubErr) {
+            console.warn('LiveKit video publish failed, continuing with local preview:', pubErr);
+          }
+        }
 
         setIsCameraEnabled(true);
         socketRef.current?.emit('voice:track_state', { isMuted: isMutedRef.current, hasVideo: true });
@@ -4015,7 +4061,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         onClick={onExpand}
       >
         <video
-          ref={videoRef}
+          ref={(el) => { if (el) { if (track) { try { track.attach(el); } catch {} } } }}
           autoPlay
           playsInline
           muted={isLocal}
@@ -4041,30 +4087,34 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const totalCount = (showLocalCard ? 1 : 0) + remoteVideoTracks.size;
 
     const handleWebcamPointerDown = (e) => {
-      if (e.target.closest('button, video')) return;
+      if (e.target.closest('button, video, input')) return;
+      e.preventDefault();
+      e.stopPropagation();
       setIsWebcamDragging(true);
-      webcamDragStartRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        initialX: webcamPosition.x,
-        initialY: webcamPosition.y,
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const initX = webcamPosition.x;
+      const initY = webcamPosition.y;
+
+      const onPointerMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        setWebcamPosition({
+          x: initX + dx,
+          y: initY + dy,
+        });
       };
-      e.currentTarget.setPointerCapture?.(e.pointerId);
-    };
 
-    const handleWebcamPointerMove = (e) => {
-      if (!isWebcamDragging) return;
-      const dx = e.clientX - webcamDragStartRef.current.startX;
-      const dy = e.clientY - webcamDragStartRef.current.startY;
-      setWebcamPosition({
-        x: webcamDragStartRef.current.initialX + dx,
-        y: webcamDragStartRef.current.initialY + dy,
-      });
-    };
+      const onPointerUp = () => {
+        setIsWebcamDragging(false);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+      };
 
-    const handleWebcamPointerUp = (e) => {
-      setIsWebcamDragging(false);
-      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+      window.addEventListener('pointermove', onPointerMove, { passive: true });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
     };
 
     return (
@@ -4074,25 +4124,38 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           transform: `translate3d(${webcamPosition.x}px, ${webcamPosition.y}px, 0)`
         }}
         onPointerDown={handleWebcamPointerDown}
-        onPointerMove={handleWebcamPointerMove}
-        onPointerUp={handleWebcamPointerUp}
-        onPointerCancel={handleWebcamPointerUp}
         onDoubleClick={() => setWebcamPosition({ x: 0, y: 0 })}
         onClick={(e) => e.stopPropagation()}
         title={isWebcamDragging ? 'Dragging webcam dock' : 'Double click header to reset position'}
       >
-        <div className="wt-webcam-header-bar">
-          <GripHorizontal size={12} className="wt-webcam-grip-icon" />
-          <span className="wt-webcam-header-label">
-            Webcam {totalCount > 0 ? `(${totalCount})` : ''}
+        <div className="wt-webcam-header-bar" onPointerDown={handleWebcamPointerDown} title="Drag anywhere across the screen">
+          <span className="wt-webcam-grip-pill">
+            <GripHorizontal size={12} color="#ff5ea5" />
+            <span>Webcam</span>
           </span>
+
+          {!isWebcamCollapsed && (
+            <div className="wt-slider-wrap" title={`Camera frame width: ${webcamScale}px`}>
+              <input
+                type="range"
+                min="140"
+                max="320"
+                step="10"
+                value={webcamScale}
+                onChange={(e) => setWebcamScale(Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="wt-slider-input"
+              />
+            </div>
+          )}
 
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: 'auto' }}>
             {hasLocalVideo && isSelfViewHidden && (
               <button
                 type="button"
                 className="wt-webcam-unhide-chip"
-                onClick={() => setIsSelfViewHidden(false)}
+                onClick={(e) => { e.stopPropagation(); setIsSelfViewHidden(false); }}
                 title="Show your own camera preview"
               >
                 <Eye size={10} /> <span>Show Me</span>
@@ -4101,8 +4164,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             <button
               type="button"
               className="wt-webcam-ctrl-btn"
-              onClick={() => setIsWebcamCollapsed((prev) => !prev)}
-              title={isWebcamCollapsed ? 'Expand to 16:9 cards' : 'Collapse to micro-reaction orbs'}
+              onClick={(e) => { e.stopPropagation(); setIsWebcamCollapsed((prev) => !prev); }}
+              title={isWebcamCollapsed ? 'Expand to 16:9 cards' : 'Collapse to reaction pills'}
             >
               {isWebcamCollapsed ? <Maximize2 size={11} /> : <Minimize2 size={11} />}
             </button>
@@ -4204,7 +4267,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     style={{ cursor: 'pointer' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
+                      <span className="fc-av"><UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} /></span>
                       <span className="fc-sender" style={{ fontSize: '0.8rem' }}>
                         {m.sender}
                       </span>
@@ -4225,7 +4288,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     title="Click to view full chat history in sidebar"
                     style={{ cursor: 'pointer' }}
                   >
-                    <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
+                    <span className="fc-av"><UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} /></span>
                     <span className="fc-sender">
                       {m.sender}:
                     </span>
@@ -5681,11 +5744,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             <div className="amb-dock-group">
               <button
                 onClick={handleForceSync}
-                className="btn-gold-shimmer amb-sync-cta"
-                title="Snap both users to exact timestamp"
+                className={`btn-gold-shimmer amb-sync-cta ${(syncStatus === 'Buffering...' || Boolean(barrierState)) ? 'is-catching' : (syncStatus === 'In Sync' ? 'is-synced' : 'is-desynced')}`}
+                title={(syncStatus === 'Buffering...' || Boolean(barrierState)) ? "Buffering & catching up..." : (syncStatus === 'In Sync' ? "In Sync • Click to force resync" : "Desynced • Click to snap in sync")}
               >
-                <ClaySparkle size={15} />
-                <span>Sync Both</span>
+                <span className="beacon-cluster">
+                  <span className="beacon-ping" />
+                  <span className="beacon-core" />
+                </span>
+                <ClaySparkle size={14} />
+                <span>{(syncStatus === 'Buffering...' || Boolean(barrierState)) ? "Catching Up" : (syncStatus === 'In Sync' ? "In Sync" : "Sync Both")}</span>
               </button>
               <button
                 onClick={() => setCreateModalOpen(true)}
@@ -5703,108 +5770,74 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               </button>
             </div>
 
-            <div className="amb-dock-group v1-unified-scale" style={{ padding: '5px 8px', gap: '5px', alignItems: 'center' }}>
-              {/* Audio Controls (34px height) */}
-              <div className="amb-voice-dock" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleMicButtonClick(); }}
-                  className="amb-voice-btn"
-                  style={{
-                    height: '34px',
-                    padding: '0 12px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    borderRadius: '9999px',
-                    gap: '6px',
-                    background: !isVoiceConnected
-                      ? undefined
-                      : isLocalSpeaking && !isMuted
-                        ? 'rgba(236, 72, 153, 0.38)'
-                        : isMuted
-                          ? 'rgba(239, 68, 68, 0.26)'
-                          : 'rgba(236, 72, 153, 0.24)',
-                    color: !isVoiceConnected ? '#fff5fa' : (isMuted ? '#fca5a5' : '#ffffff')
-                  }}
-                  title={!isVoiceConnected ? "Turn Mic On (Hold V for Push-to-Talk)" : (isMuted ? "Unmute Mic (Hold V for Push-to-Talk)" : "Mute Mic")}
-                >
-                  {!isVoiceConnected ? (
-                    <>
-                      <Mic size={14} color="#f472b6" />
-                      <span>Mic Off</span>
-                    </>
-                  ) : isMuted ? (
-                    <>
-                      <MicOff size={14} color="#ef4444" />
-                      <span>Muted</span>
-                    </>
-                  ) : (
-                    <>
-                      <Mic size={14} color="#34d399" />
-                      <span>Live</span>
-                    </>
-                  )}
-                </button>
-                <div className="amb-dock-divider" style={{ height: '18px' }} />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowVoiceSettings(p => !p);
-                    setShowCameraSettings(false);
-                  }}
-                  className="amb-voice-btn"
-                  style={{
-                    height: '34px',
-                    padding: '0 8px',
-                    background: showVoiceSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
-                    color: '#fff5fa'
-                  }}
-                  title="Audio Settings"
-                >
-                  <Sliders size={13} color="var(--pink-primary)" />
-                </button>
+            <div className="amb-dock-group v1-unified-scale" style={{ padding: '5px 8px', gap: '6px', alignItems: 'center' }}>
+              {/* HUD Mic Capsule */}
+              <div style={{ position: 'relative', display: 'inline-flex' }}>
+                <div className={`hud-capsule ${isVoiceConnected ? (isMuted ? 'is-muted' : 'is-live') : 'is-off'}`}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleMicButtonClick(); }}
+                    className="hud-action-btn"
+                    title={!isVoiceConnected ? "Turn Mic On (Hold V for Push-to-Talk)" : (isMuted ? "Unmute Mic" : "Mute Mic")}
+                  >
+                    {!isVoiceConnected ? (
+                      <>
+                        <Mic size={14} color="#f472b6" />
+                        <span>Mic Off</span>
+                      </>
+                    ) : isMuted ? (
+                      <>
+                        <MicOff size={14} color="#ef4444" />
+                        <span>Muted</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic size={14} color="#34d399" />
+                        <span>Live</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowVoiceSettings(p => !p);
+                      setShowCameraSettings(false);
+                    }}
+                    className="hud-settings-btn"
+                    title="Audio Settings"
+                  >
+                    <Sliders size={13} color="var(--pink-primary)" />
+                  </button>
+                </div>
                 {renderVoiceSettingsPopover()}
               </div>
 
-              <div className="amb-dock-divider" style={{ height: '20px', margin: '0 3px', background: 'rgba(255, 255, 255, 0.22)' }} />
-
-              {/* Video Controls (34px height) */}
-              <div className="amb-voice-dock" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleCamera(); }}
-                  className="amb-voice-btn"
-                  style={{
-                    height: '34px',
-                    padding: '0 12px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    borderRadius: '9999px',
-                    gap: '6px',
-                    background: isCameraEnabled ? 'rgba(236, 72, 153, 0.38)' : undefined,
-                    color: isCameraEnabled ? '#ffffff' : '#fff5fa'
-                  }}
-                  title={isCameraEnabled ? "Turn Off Camera" : "Turn On Camera"}
-                >
-                  {isCameraEnabled ? <Video size={14} color="#f472b6" /> : <VideoOff size={14} color="#9ca3af" />}
-                  <span>{isCameraEnabled ? 'Cam Live' : 'Cam Off'}</span>
-                </button>
-                <div className="amb-dock-divider" style={{ height: '18px' }} />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowCameraSettings(p => !p);
-                    setShowVoiceSettings(false);
-                  }}
-                  className="amb-voice-btn"
-                  style={{
-                    height: '34px',
-                    padding: '0 8px',
-                    background: showCameraSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
-                    color: '#fff5fa'
-                  }}
-                  title="Camera Controls"
-                >
-                  <Camera size={13} color="var(--pink-primary)" />
-                </button>
+              {/* HUD Camera Capsule */}
+              <div style={{ position: 'relative', display: 'inline-flex' }}>
+                <div className={`hud-capsule ${isCameraEnabled ? 'is-live' : 'is-off'}`}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleCamera(); }}
+                    className="hud-action-btn"
+                    title={isCameraEnabled ? "Turn Off Camera" : "Turn On Camera"}
+                  >
+                    {isCameraEnabled ? <Video size={14} color="#f472b6" /> : <VideoOff size={14} color="#9ca3af" />}
+                    <span>{isCameraEnabled ? 'Cam Live' : 'Cam Off'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowCameraSettings(p => !p);
+                      setShowVoiceSettings(false);
+                    }}
+                    className="hud-settings-btn"
+                    title="Camera Controls"
+                  >
+                    <Camera size={13} color="var(--pink-primary)" />
+                  </button>
+                </div>
                 {renderCameraSettingsPopover()}
               </div>
             </div>

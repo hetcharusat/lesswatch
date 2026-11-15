@@ -20,8 +20,8 @@ try {
   console.warn('⚠️ livekit-server-sdk not found, voice tokens disabled:', e.message);
 }
 
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'watchtogether';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'dev-secret-key-watch-together-local';
 const LIVEKIT_INTERNAL_URL = process.env.LIVEKIT_URL || 'ws://livekit:7880';
 const LIVEKIT_HTTP_TARGET = LIVEKIT_INTERNAL_URL
   .replace(/^wss:\/\//i, 'https://')
@@ -36,7 +36,7 @@ process.on('unhandledRejection', (reason, promise) => {
   console.warn('⚠️ [Server] Unhandled Rejection intercepted:', reason?.message || reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('⚠️ [Server] Uncaught Exception intercepted:', err?.message || err);
+  console.error('⚠️ [Server] Uncaught Exception intercepted:', err?.stack || err?.message || err);
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);

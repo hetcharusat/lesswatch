@@ -1042,22 +1042,117 @@ body {
   flex-shrink: 0;
 }
 
+@keyframes syncBeaconPing {
+  0% { transform: scale(0.95); opacity: 0.85; }
+  60% { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes syncDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.25); opacity: 0.7; }
+}
+
+@keyframes syncAlertFlash {
+  0%, 100% {
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.7), 0 2px 10px rgba(0, 0, 0, 0.4);
+    border-color: rgba(254, 202, 202, 0.85);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(239, 68, 68, 0.98), 0 0 10px rgba(255, 255, 255, 0.8);
+    border-color: #ffffff;
+  }
+}
+
 .theater-deck .amb-sync-cta {
   height: 34px;
-  padding: 0 14px;
+  padding: 0 14px 0 10px;
   border-radius: 9999px;
   font-size: 0.78rem;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transform: none;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #ffffff;
   box-shadow:
     0 2px 12px rgba(236, 72, 153, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.theater-deck .amb-sync-cta.is-synced {
+  background: linear-gradient(135deg, #ff5db0 0%, #ec4899 45%, #f59e0b 85%, #fbbf24 100%);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.theater-deck .amb-sync-cta.is-catching {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #fcd34d 100%);
+  border-color: rgba(254, 240, 138, 0.75);
+  box-shadow: 0 2px 16px rgba(245, 158, 11, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.theater-deck .amb-sync-cta.is-desynced {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #be123c 100%);
+  border-color: rgba(254, 202, 202, 0.9);
+  animation: syncAlertFlash 1.6s ease-in-out infinite;
+}
+
+.theater-deck .amb-sync-cta .beacon-cluster {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.theater-deck .amb-sync-cta .beacon-ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  animation: syncBeaconPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.theater-deck .amb-sync-cta.is-synced .beacon-ping {
+  background: rgba(16, 185, 129, 0.75);
+}
+
+.theater-deck .amb-sync-cta.is-catching .beacon-ping {
+  background: rgba(245, 158, 11, 0.85);
+}
+
+.theater-deck .amb-sync-cta.is-desynced .beacon-ping {
+  background: rgba(239, 68, 68, 0.95);
+}
+
+.theater-deck .amb-sync-cta .beacon-core {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  animation: syncDotPulse 1.8s ease-in-out infinite;
+}
+
+.theater-deck .amb-sync-cta.is-synced .beacon-core {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981, 0 0 2px #ffffff;
+}
+
+.theater-deck .amb-sync-cta.is-catching .beacon-core {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b, 0 0 2px #ffffff;
+}
+
+.theater-deck .amb-sync-cta.is-desynced .beacon-core {
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444, 0 0 3px #ffffff;
 }
 
 .theater-deck .amb-sync-cta:hover {
@@ -1072,6 +1167,77 @@ body {
   box-shadow:
     0 1px 8px rgba(236, 72, 153, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* Sleek Obsidian Studio Cockpit Dual-Capsules (Variant 3) */
+.theater-deck .hud-capsule {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  position: relative;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.theater-deck .hud-capsule:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(244, 114, 182, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.theater-deck .hud-capsule.is-live {
+  background: rgba(236, 72, 153, 0.26);
+  border-color: rgba(244, 114, 182, 0.65);
+  box-shadow: 0 0 16px rgba(236, 72, 153, 0.35);
+}
+
+.theater-deck .hud-capsule.is-muted {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.25);
+}
+
+.theater-deck .hud-action-btn {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 12px;
+  border: none;
+  background: transparent;
+  color: #fff5fa;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 9999px 0 0 9999px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theater-deck .hud-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.theater-deck .hud-settings-btn {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0 9999px 9999px 0;
+  opacity: 0.85;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+}
+
+.theater-deck .hud-settings-btn:hover {
+  opacity: 1;
+  background: rgba(244, 114, 182, 0.26);
 }
 
 .theater-deck .amb-btn-sm {
@@ -1262,11 +1428,11 @@ body {
 
 
 
-/* Floating Overlay Chat — Clean Frosted Liquid Glass Bubbles + PFP Avatars (Spring-Damped Liquid Motion) */
+/* Floating Overlay Chat — Ultra-Crisp Liquid Glass Bubbles + Radiant Neon Rim Avatars */
 @keyframes fcLiquidBubbleIn {
   0% {
     opacity: 0;
-    transform: translate3d(0, 14px, 0) scale(0.96);
+    transform: translate3d(0, 8px, 0) scale(0.97);
   }
   100% {
     opacity: 1;
@@ -1281,18 +1447,18 @@ body {
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -10px, 0) scale(0.96);
+    transform: translate3d(0, -6px, 0) scale(0.97);
   }
 }
 
 @keyframes fcAvPopIn {
   0% {
     opacity: 0;
-    transform: scale(0.70);
+    transform: scale(0.78);
   }
   70% {
     opacity: 1;
-    transform: scale(1.06);
+    transform: scale(1.05);
   }
   100% {
     opacity: 1;
@@ -1329,16 +1495,6 @@ body {
   grid-template-rows: 1fr;
   max-width: 100%;
   opacity: 1;
-  transition:
-    grid-template-rows 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@starting-style {
-  .floating-chat-overlay .fc-row-slot {
-    grid-template-rows: 0fr;
-    opacity: 0;
-  }
 }
 
 .floating-chat-overlay .fc-row-slot.fading {
@@ -1346,15 +1502,15 @@ body {
   opacity: 0;
   pointer-events: none;
   transition:
-    grid-template-rows 320ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
-    opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1) 160ms,
+    opacity 180ms ease;
 }
 
 .floating-chat-overlay .fc-row-slot-inner {
   min-height: 0;
   overflow: visible;
-  padding: 4px 14px 10px 4px;
-  transition: padding-bottom 320ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
+  padding: 4px 14px 6px 4px;
+  transition: padding-bottom 220ms cubic-bezier(0.16, 1, 0.3, 1) 160ms;
 }
 
 .floating-chat-overlay .fc-row-slot:last-child .fc-row-slot-inner {
@@ -1375,19 +1531,18 @@ body {
   position: relative;
   overflow: hidden;
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(6px) saturate(160%);
-  -webkit-backdrop-filter: blur(6px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.12) 100%);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 9999px;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 1px 3px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 16px rgba(255, 255, 255, 0.25);
+    0 8px 24px rgba(0, 0, 0, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.15);
   transform-origin: bottom left;
-  animation: fcLiquidBubbleIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fcLiquidBubbleIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
   margin-bottom: 2px;
 }
@@ -1430,8 +1585,8 @@ body {
 .floating-chat-pill {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 6px 16px 6px 8px;
+  gap: 8px;
+  padding: 5px 16px 5px 6px;
   border-radius: 9999px;
   font-size: 0.92rem;
   line-height: 1.3;
@@ -1447,13 +1602,13 @@ body {
 
 .floating-chat-pill:hover,
 .floating-chat-media-card:hover {
-  background: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.36);
   border-color: rgba(255, 255, 255, 0.65);
   box-shadow:
-    0 10px 32px rgba(0, 0, 0, 0.18),
+    0 10px 30px rgba(0, 0, 0, 0.18),
     0 0 16px rgba(244, 114, 182, 0.22),
     inset 0 1.5px 1px rgba(255, 255, 255, 0.95),
-    inset 0 0 20px 4px rgba(255, 255, 255, 0.22);
+    inset 0 0 20px 4px rgba(255, 255, 255, 0.20);
   transform: translateY(-1px);
 }
 
@@ -1461,7 +1616,7 @@ body {
 .floating-chat-media-card.fading,
 .floating-chat-overlay .fc-row-slot.fading .floating-chat-pill,
 .floating-chat-overlay .fc-row-slot.fading .floating-chat-media-card {
-  animation: fcLiquidBubbleOut 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  animation: fcLiquidBubbleOut 200ms cubic-bezier(0.2, 0, 0.2, 1) forwards !important;
   pointer-events: none;
 }
 
@@ -1472,14 +1627,17 @@ body {
 }
 
 .floating-chat-overlay .fc-av {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  animation: fcAvPopIn 320ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+  padding: 1.5px;
+  background: radial-gradient(circle, rgba(255, 94, 165, 0.5) 0%, transparent 70%);
+  border: 1.5px solid #ff5ea5;
+  box-shadow: 0 0 10px rgba(255, 94, 165, 0.5), 0 2px 5px rgba(0, 0, 0, 0.3);
+  animation: fcAvPopIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .floating-chat-overlay .fc-av .jojo-avatar {
@@ -1488,12 +1646,12 @@ body {
 }
 
 .floating-chat-overlay .fc-sender {
-  color: #f472b6;
-  font-weight: 700;
+  color: #ff5ea5;
+  font-weight: 800;
   font-size: 0.92rem;
   letter-spacing: 0.01em;
   flex-shrink: 0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 0 8px rgba(244, 114, 182, 0.35);
 }
 
 .floating-chat-overlay .fc-text {
@@ -1504,7 +1662,7 @@ body {
   font-weight: 600;
   font-size: 0.92rem;
   line-height: 1.35;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .floating-chat-media-img {
@@ -7508,16 +7666,15 @@ body.in-chit-chat-mode header {
   border-radius: 9999px;
   pointer-events: auto;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(6px) saturate(160%);
-  -webkit-backdrop-filter: blur(6px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.14) 100%);
+  backdrop-filter: blur(10px) saturate(145%);
+  -webkit-backdrop-filter: blur(10px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.36);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.14),
+    0 12px 36px rgba(0, 0, 0, 0.24),
     0 2px 8px rgba(236, 72, 153, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 20px rgba(255, 255, 255, 0.25);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12);
   transform-origin: bottom left;
   animation: wfbMorphIn 300ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   transition: box-shadow 200ms ease, border-color 200ms ease;
@@ -9614,7 +9771,7 @@ body.in-chit-chat-mode header {
   position: absolute;
   top: 18px;
   right: 20px;
-  z-index: 45;
+  z-index: 1005;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -9724,18 +9881,19 @@ body.in-chit-chat-mode header {
 
 .wt-webcam-card {
   position: relative;
-  width: 176px;
-  height: 104px;
+  width: var(--webcam-card-w, 200px);
+  height: calc(var(--webcam-card-w, 200px) * 0.58);
   border-radius: 16px;
   overflow: hidden;
-  background: rgba(18, 10, 26, 0.82);
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(18, 10, 26, 0.65);
+  backdrop-filter: blur(18px) saturate(190%);
+  -webkit-backdrop-filter: blur(18px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
   box-shadow:
-    0 10px 28px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    0 0 16px rgba(244, 114, 182, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
   transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease, border-color 220ms ease, opacity 200ms ease;
 }
 
@@ -9831,27 +9989,31 @@ body.in-chit-chat-mode header {
 
 .wt-webcam-orb {
   position: relative;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
+  width: 98px;
+  height: 72px;
+  border-radius: 22px;
   overflow: hidden;
-  background: rgba(18, 10, 26, 0.85);
-  backdrop-filter: blur(10px);
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  background: rgba(18, 10, 26, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 12px rgba(244, 114, 182, 0.25), inset 0 1px 2px rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease, box-shadow 180ms ease;
+  opacity: 0.75;
+  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .wt-webcam-orb:hover {
-  transform: scale(1.15);
-  border-color: #f472b6;
+  opacity: 1;
+  transform: scale(1.04);
+  border-color: #ff5ea5;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6), 0 0 22px rgba(255, 94, 165, 0.65);
 }
 
 .wt-webcam-orb.is-speaking {
   opacity: 1 !important;
-  border-color: #f472b6 !important;
-  box-shadow: 0 0 0 2px #ec4899, 0 0 16px rgba(236, 72, 153, 0.85);
+  border-color: #ff5ea5 !important;
+  box-shadow: 0 0 0 2px #ec4899, 0 0 20px rgba(236, 72, 153, 0.95);
   animation: wtWebcamSpeakingHalo 1.6s ease-in-out infinite;
 }
 
@@ -9860,19 +10022,21 @@ body.in-chit-chat-mode header {
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: 20px;
 }
 
 .wt-webcam-orb-muted {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 14px;
-  height: 14px;
+  bottom: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: #1f0b18;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 6, 20, 0.85);
+  border: 1px solid rgba(244, 114, 182, 0.4);
   display: grid;
   place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 .a4-btn.is-camera-on {
