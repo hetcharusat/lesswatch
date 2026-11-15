@@ -886,17 +886,21 @@ const screens = {
       const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
       const ind = ' '.repeat(Math.max(2, Math.floor((inner - 44) / 2)));
       const row = (at, k, v, ok) => (state.sa >= at ? `${ind}${ok ? green('✔') : C.accent(spin)} ${C.accent(k.padEnd(12))} ${C.text(v)}` : '');
+      const prompt = Math.floor(state.t * 1.6) % 2 ? BOLD + green('▌ PRESS ANY KEY TO CONTINUE ▐') : dim('  PRESS ANY KEY TO CONTINUE  ');
       return [
         '', ...logo, '',
         center(dim(typed) + (Math.floor(state.t * 3) % 2 ? dim('▌') : ' '), inner), '',
-        row(1.1, 'Environment', envName(), true),
-        row(1.4, 'Public IP', ipReady ? (detectedPublicIP === '127.0.0.1' ? 'none (local only)' : detectedPublicIP) : 'detecting…', ipReady),
-        row(1.7, 'Resources', sysInfo(), true),
+        row(0.6, 'Environment', envName(), true),
+        row(0.9, 'Public IP', ipReady ? (detectedPublicIP === '127.0.0.1' ? 'none (local only)' : detectedPublicIP) : 'detecting…', ipReady),
+        row(1.2, 'Resources', sysInfo(), true),
         '',
-        state.sa > 2.4 ? center(Math.floor(state.t * 1.6) % 2 ? BOLD + green('▌ PRESS ANY KEY ▐') : '', inner) : '',
+        state.sa > 1.5 ? center(prompt, inner) : '',
       ];
     },
-    key() { go('menu'); },
+    key(s, k) {
+      if (s === 'q' || k?.name === 'escape') shutdown(0);
+      else go('menu');
+    },
   },
 
   menu: {
@@ -1189,7 +1193,7 @@ function frame() {
   if (state.t - state.lastSample >= 0.1) { state.lastSample = state.t; sample(); }
   if (state.confetti) for (const p of state.confetti) { p.y += p.vy * dt; if (p.y >= 3) { p.y = 0; p.x = Math.random(); } }
 
-  if (state.screen === 'splash' && state.sa > 3.4 && ipReady) go('menu');
+  // Splash waits for user keypress (no auto-skip)
   if (state.pendingDone && state.screen === 'install') {
     state.doneT += dt;
     if (state.shown > 0.985 && state.doneT > 0.9) { state.pendingDone = false; go('done'); }
