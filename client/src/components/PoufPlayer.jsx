@@ -1612,25 +1612,8 @@ export function PoufPlayer({
           </span>
         </div>
 
-        {/* Top-Right Badges & Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <div
-            className="pouf-glass-card"
-            style={{
-              padding: '3px 9px',
-              borderRadius: '9999px',
-              color: '#fff',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px'
-            }}
-          >
-            <Users size={12} color="#f472b6" />
-            <span>{viewerCount}</span>
-          </div>
-        </div>
+        {/* Top-Right Area (Viewer count removed per user request) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }} />
       </div>
 
       {/* Autoplay Audio Muted Banner - Click to Unmute */}
