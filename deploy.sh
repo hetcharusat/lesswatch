@@ -5,6 +5,31 @@
 # ==============================================================================
 set -euo pipefail
 
+# If piped via curl (stdin is not a tty), reconnect stdin to terminal so interactive arrow keys work
+if [ -t 1 ] && [ ! -t 0 ] && [ -e /dev/tty ]; then
+  exec </dev/tty
+fi
+
+# If running outside repository root, clone repository and invoke deploy.sh from inside it
+if [ ! -f "docker-compose.yml" ] || [ ! -f "server.js" ]; then
+  echo -e "\033[38;2;255;0;122m🍿 Fetching LESSWATCH repository...\033[0m"
+  if ! command -v git >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update -qq && sudo apt-get install -y -qq git
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y -q git
+    elif command -v yum >/dev/null 2>&1; then
+      sudo yum install -y -q git
+    fi
+  fi
+  if [ ! -d "lesswatch" ]; then
+    git clone https://github.com/hetcharusat/lesswatch.git lesswatch
+  fi
+  cd lesswatch
+  chmod +x deploy.sh install.sh 2>/dev/null || true
+  exec sudo ./deploy.sh "$@"
+fi
+
 # ANSI Styling Palette (Cyber Pink & Neon Cyan)
 ESC="\033"
 CYAN="${ESC}[38;2;0;240;255m"
@@ -32,11 +57,15 @@ trap restore_cursor EXIT INT TERM
 mkdir -p ~/.cloudshell 2>/dev/null || true
 touch ~/.cloudshell/no-apt-get-warning 2>/dev/null || true
 
-# Root check
+# Root check: auto-elevate with sudo if running as standard user
 if [ "$EUID" -ne 0 ]; then
-  echo -e "\n${PINK}${BOLD}✖ Permission Denied:${RESET} Please run this installer with sudo:"
-  echo -e "  ${CYAN}${BOLD}sudo ./deploy.sh${RESET}\n"
-  exit 1
+  if command -v sudo >/dev/null 2>&1; then
+    exec sudo -E bash "$0" "$@"
+  else
+    echo -e "\n${PINK}${BOLD}✖ Permission Denied:${RESET} Please run this installer with sudo:"
+    echo -e "  ${CYAN}${BOLD}sudo ./deploy.sh${RESET}\n"
+    exit 1
+  fi
 fi
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
