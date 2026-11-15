@@ -5,8 +5,8 @@
  *   node lesswatch-install-v2.mjs          demo run (simulated steps)
  *   node lesswatch-install-v2.mjs --real   runs the live commands in STAGES
  *
- * Keys: ↑/↓ j/k move · Tab next · 1-9 jump/toggle · Space toggle checkbox · Enter confirm
- *       Esc/b back · r retry failed step · q quit · Ctrl+C abort
+ * Keys: ↑/↓ j/k move · Tab next · Space toggle [✔] · 1-6 direct toggle · a toggle all
+ *       Enter confirm · t change target · r retry · q quit · Ctrl+C abort
  * Env:  LW_URL=https://...    public URL shown on the thank-you screen
  *       LW_LOCAL=http://...   local URL (default http://localhost:8080)
  */
@@ -34,19 +34,62 @@ try {
   detectedPublicIP = execSync("curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'", { encoding: 'utf-8' }).trim() || '127.0.0.1';
 } catch {}
 
-// ─── Config ─────────────────────────────────────────────────────────────────
+// ─── Config & Modules Checklist ─────────────────────────────────────────────
 const TARGETS = [
-  { id: 'cloud', title: 'Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080.' },
-  { id: 'vps',   title: 'Linux VPS / Dedicated VM',  desc: 'Always-on 24/7 cloud VM with high-speed direct UDP for WebRTC.' },
-  { id: 'local', title: 'Local workstation',         desc: 'Docker Desktop on your local machine, ideal for offline testing.' },
+  { id: 'cloud', title: 'Google Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080 with Web Preview.' },
+  { id: 'vps',   title: 'Linux Cloud VM / Dedicated VPS',   desc: 'Always-on 24/7 hosting with direct UDP for WebRTC.' },
+  { id: 'local', title: 'Local Workstation / Docker',       desc: 'Local testing on your PC workstation.' },
 ];
 
-const FEATURES = [
-  { id: 'neko',      title: 'Shared Chromium Virtual Browser (Neko)', desc: 'Synced party browser tabs. Container sleeps when idle to save RAM.', on: true },
-  { id: 'aria',      title: 'Server Media Downloader (aria2c + yt-dlp)', desc: 'Direct-to-storage stream pipeline & high-speed torrent engine.',      on: true },
-  { id: 'tunnel',    title: 'Cloudflare Public HTTPS Tunnel',        desc: 'Instant public sharing URL without opening router or firewall ports.',  on: true },
-  { id: 'livekit',   title: 'LiveKit Voice & Room SFU Server',        desc: 'Sub-second spatial audio/video party channels.',                         on: true },
-  { id: 'neko_warm', title: 'Always-On Virtual Browser (Warm RAM)',   desc: 'Keep Neko warm in memory (~600MB permanent RAM instead of sleep mode).', on: false },
+const MODULES = [
+  {
+    id: 'neko',
+    icon: '🌐',
+    tag: 'RECOMMENDED',
+    title: 'Shared Chromium Virtual Browser (Neko)',
+    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.',
+    on: true
+  },
+  {
+    id: 'aria',
+    icon: '⚡',
+    tag: 'CORE ENGINE',
+    title: 'Server Media Downloader (aria2c + yt-dlp)',
+    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.',
+    on: true
+  },
+  {
+    id: 'tunnel',
+    icon: '🚀',
+    tag: 'ZERO CONFIG',
+    title: 'Cloudflare Public HTTPS Quick Tunnel',
+    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.',
+    on: true
+  },
+  {
+    id: 'livekit',
+    icon: '🎙️',
+    tag: 'SPATIAL AUDIO',
+    title: 'LiveKit Voice & Room SFU Server',
+    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.',
+    on: true
+  },
+  {
+    id: 'storage',
+    icon: '🎬',
+    tag: 'STORAGE',
+    title: 'Media Library & Streaming Transcoder',
+    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.',
+    on: true
+  },
+  {
+    id: 'neko_warm',
+    icon: '💾',
+    tag: 'OPTIONAL',
+    title: 'Always-On Browser Mode (Pre-warmed in RAM)',
+    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).',
+    on: false
+  }
 ];
 
 // Pre-pull cloudflared in the background quietly
@@ -137,7 +180,7 @@ function buildServices(log, s) {
   return new Promise((resolve, reject) => {
     log('Building LESSWATCH core services with Docker BuildKit...');
     
-    const livekitOn = state.features[FEATURES.findIndex((f) => f.id === 'livekit')] ?? true;
+    const livekitOn = state.modules[3] ?? true;
     const services = ['watch-together'];
     if (livekitOn) services.push('livekit');
 
@@ -217,7 +260,15 @@ function buildServices(log, s) {
 }
 
 async function provisionNeko(log, s) {
-  const nekoWarm = state.features[FEATURES.findIndex((f) => f.id === 'neko_warm')] ?? false;
+  const nekoOn = state.modules[0] ?? true;
+  const nekoWarm = state.modules[5] ?? false;
+
+  if (!nekoOn) {
+    s.progress = 100;
+    log('Neko Virtual Browser skipped (disabled in modules menu).');
+    return;
+  }
+
   log(`Configuring Neko Chromium browser (${nekoWarm ? 'Always-On' : 'On-Demand'} mode)...`);
 
   let cached = false;
@@ -257,6 +308,12 @@ async function provisionNeko(log, s) {
 }
 
 async function prepareDownloader(log, s) {
+  const ariaOn = state.modules[1] ?? true;
+  if (!ariaOn) {
+    s.progress = 100;
+    log('Downloader engine skipped (disabled in modules menu).');
+    return;
+  }
   log('Verifying torrent downloader storage pipeline...');
   if (!fs.existsSync('./downloads')) fs.mkdirSync('./downloads', { recursive: true });
   if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
@@ -266,8 +323,17 @@ async function prepareDownloader(log, s) {
 }
 
 async function startTunnel(log, s) {
+  const tunnelOn = state.modules[2] ?? true;
   const isCloud = TARGETS[state.target].id === 'cloud';
   const targetPort = isCloud ? 8080 : 3000;
+
+  if (!tunnelOn) {
+    state.publicUrl = `http://${detectedPublicIP}:${targetPort}`;
+    s.progress = 100;
+    log(`Tunnel skipped. Direct access: ${state.publicUrl}`);
+    return;
+  }
+
   log(`Requesting Cloudflare edge quick tunnel for port ${targetPort}...`);
   try { execSync('docker rm -f wt-tunnel 2>/dev/null', { stdio: 'ignore' }); } catch {}
 
@@ -373,7 +439,6 @@ const fit = (s, n) => {
   return t.length > n ? t.slice(0, Math.max(0, n - 1)).join('') + '…' : t.join('');
 };
 
-// HSL → 24-bit ANSI foreground. h in degrees.
 function hsl(h, s, l) {
   h = ((h % 360) + 360) % 360;
   const c = (1 - Math.abs(2 * l - 1)) * s;
@@ -387,7 +452,6 @@ function hsl(h, s, l) {
 const getPal = () => PALETTES[Math.floor(state.tick / 300) % PALETTES.length];
 const getFill = () => FILLS[Math.floor(state.tick / 450) % FILLS.length];
 
-// Progress bar with a palette gradient and sub-cell precision.
 function bar(p, w) {
   p = Math.max(0, Math.min(1, p));
   const pal = getPal();
@@ -402,7 +466,6 @@ function bar(p, w) {
   return s + RESET + C.faint('░'.repeat(Math.max(0, w - used)));
 }
 
-// Big banner: 60 FPS CRT scanlines, moving sweep, glitch.
 function bigBanner(text, pal, fill) {
   const rows = bigRows(text);
   const W = [...rows[0]].length;
@@ -460,13 +523,13 @@ const rows = () => Math.max(20, process.stdout.rows || 24);
 
 // ─── State ──────────────────────────────────────────────────────────────────
 const state = {
-  screen: 'target',   // target | features | install | failed | done
+  screen: 'modules',   // modules | target | install | failed | done
   cursor: 0,
   target: isCloudShell ? 0 : (detectedPublicIP !== '127.0.0.1' ? 1 : 2),
-  features: FEATURES.map((f) => f.on),
+  modules: MODULES.map((m) => m.on),
   stages: [],
   current: 0,
-  shown: 0,           // 60 FPS sub-pixel smoothed progress 0..1
+  shown: 0,
   logs: [],
   started: 0,
   finishedAt: 0,
@@ -501,7 +564,6 @@ function sampleCpu() {
     });
     prevCpu = cur;
     let cpuFraction = total > 0 ? Math.max(0, Math.min(1, 1 - idle / total)) : (state.cpu.at(-1) || 0.15);
-    // Keep baseline dynamic so graph never dies into a flatline
     if (cpuFraction < 0.06) cpuFraction = 0.06 + 0.04 * Math.sin(state.tick * 0.08);
     pushCapped(state.cpu, cpuFraction);
 
@@ -523,9 +585,9 @@ function log(line) {
 
 function enabledStages() {
   const tid = TARGETS[state.target].id;
-  const nekoOn = state.features[FEATURES.findIndex((f) => f.id === 'neko')] ?? true;
-  const ariaOn = state.features[FEATURES.findIndex((f) => f.id === 'aria')] ?? true;
-  const tunnelOn = state.features[FEATURES.findIndex((f) => f.id === 'tunnel')] ?? true;
+  const nekoOn = state.modules[0] ?? true;
+  const ariaOn = state.modules[1] ?? true;
+  const tunnelOn = state.modules[2] ?? true;
 
   return STAGES
     .filter((s) => {
@@ -625,8 +687,8 @@ function header(W) {
   const pal = getPal();
   const fill = getFill();
   const big = cols() >= 84 && rows() >= 34;
-  const cur = { target: 0, features: 1 }[state.screen] ?? 2;
-  const crumbs = ['Target', 'Features', 'Install']
+  const cur = state.screen === 'modules' ? 0 : (state.screen === 'target' ? 1 : 2);
+  const crumbs = ['Modules', 'Target', 'Install']
     .map((n, i) => (i < cur ? C.green('✔ ' + n) : i === cur ? bold(C.accent(n)) : C.faint(n)))
     .join(C.faint('  ›  '));
   const L = [];
@@ -648,17 +710,44 @@ function grad(text, phase) {
   }).join('') + RESET;
 }
 
-function menu(title, items, checks) {
-  const L = ['  ' + bold(C.text(title)), ''];
-  items.forEach((it, i) => {
-    const on = i === state.cursor;
-    const mark = checks
-      ? (checks[i] ? C.green(bold('[✔]')) : C.faint('[ ]'))
-      : (on ? C.accent('◉') : C.faint('○'));
-    const label = on ? bold(grad(it, state.tick * 0.04)) : (checks && !checks[i] ? C.faint(it) : C.muted(it));
-    L.push(`  ${on ? C.accent('▸') : ' '} ${mark} ${label}`);
+// Dedicated Checkbox Menu Renderer
+function renderCheckboxModules(W) {
+  const activeCount = state.modules.filter(Boolean).length;
+  const L = [
+    `  ${bold(C.text('SELECT LESSWATCH MODULES & COMPONENTS'))}  ${C.accent(`(${activeCount} of ${MODULES.length} enabled)`)}`,
+    ''
+  ];
+
+  MODULES.forEach((mod, i) => {
+    const isSelected = i === state.cursor;
+    const isChecked = state.modules[i];
+
+    const mark = isChecked
+      ? `${C.green(bold('[✔]'))}`
+      : `${C.faint('[ ]')}`;
+
+    const tagStr = mod.tag ? ` ${C.amber(`[${mod.tag}]`)}` : '';
+    const labelText = `${mod.icon}  ${mod.title}${tagStr}`;
+    const label = isSelected
+      ? bold(grad(labelText, state.tick * 0.04))
+      : (isChecked ? C.text(labelText) : C.faint(labelText));
+
+    L.push(`  ${isSelected ? C.accent('▸') : ' '} ${mark} ${label}`);
   });
+
   L.push('');
+
+  // Focused Description Card
+  const currentMod = MODULES[state.cursor];
+  const targetName = TARGETS[state.target].title;
+  L.push(...boxed([
+    `${bold(C.accent(currentMod.title))} ${C.amber(`[${currentMod.tag}]`)}`,
+    C.muted(currentMod.desc),
+    '',
+    `${C.faint('Target Platform:')} ${C.text(targetName)}  ${C.accent("[Press 't' to change]")}`
+  ], W));
+
+  L.push('', `  ${C.faint('Space toggle checkbox  •  1-6 direct toggle  •  Enter deploy  •  t change target')}`);
   return L;
 }
 
@@ -741,7 +830,7 @@ function thanksView(W) {
   L.push('');
 
   const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
-  const comps = state.features.map((on, i) => (on ? FEATURES[i].title : null)).filter(Boolean);
+  const comps = state.modules.map((on, i) => (on ? MODULES[i].title : null)).filter(Boolean);
   const urlColor = hsl(pal.h0 + pal.span * ((state.tick % 180) / 180), 0.95, 0.7);
   const url = state.publicUrl || 'not captured · set LW_URL';
   const isCloud = TARGETS[state.target].id === 'cloud';
@@ -769,17 +858,23 @@ function buildScreen(W) {
   const s = state.screen;
   const L = header(W);
 
-  if (s === 'target' || s === 'features') {
-    const isT = s === 'target';
-    const items = isT ? TARGETS.map((t) => t.title) : FEATURES.map((f) => f.title);
-    const activeCount = state.features.filter(Boolean).length;
-    const title = isT ? 'WHERE ARE YOU DEPLOYING?' : `CHOOSE COMPONENTS & FEATURES (${activeCount} of ${FEATURES.length} enabled)`;
-    L.push(...menu(title, items, isT ? null : state.features));
-    const cur = isT ? TARGETS[state.cursor] : FEATURES[state.cursor];
+  if (s === 'modules') {
+    L.push(...renderCheckboxModules(W));
+    return L;
+  }
+
+  if (s === 'target') {
+    L.push('  ' + bold(C.text('WHERE ARE YOU DEPLOYING?')), '');
+    TARGETS.forEach((t, i) => {
+      const isSel = i === state.cursor;
+      const mark = i === state.target ? C.green('◉') : C.faint('○');
+      const label = isSel ? bold(grad(t.title, state.tick * 0.04)) : C.muted(t.title);
+      L.push(`  ${isSel ? C.accent('▸') : ' '} ${mark} ${label}`);
+    });
+    L.push('');
+    const cur = TARGETS[state.cursor];
     L.push(...boxed([bold(C.accent(cur.title)), C.muted(cur.desc)], W));
-    L.push('', '  ' + C.faint(isT
-      ? '↑/↓ move · Tab cycle · 1-3 jump · Enter select · q quit'
-      : '↑/↓ move · Space toggle [✔] · Tab cycle · 1-5 direct · Enter install · Esc back'));
+    L.push('', '  ' + C.faint('↑/↓ move · Enter select · Esc back to modules'));
     return L;
   }
 
@@ -805,39 +900,49 @@ function frame() {
 
 // ─── Input ──────────────────────────────────────────────────────────────────
 function onMenuKey(name, str) {
+  const isModules = state.screen === 'modules';
   const isTarget = state.screen === 'target';
-  const count = isTarget ? TARGETS.length : FEATURES.length;
+  const count = isModules ? MODULES.length : TARGETS.length;
   const move = (d) => { state.cursor = (state.cursor + d + count) % count; };
 
   const isUp = name === 'up' || name === 'k' || str === '\x1b[A';
   const isDown = name === 'down' || name === 'j' || name === 'tab' || str === '\x1b[B' || str === '\t';
   const isConfirm = name === 'return' || name === 'enter' || str === '\r' || str === '\n';
   const isSpace = name === 'space' || str === ' ';
-  const isBack = (name === 'escape' || name === 'b' || str === '\x1b') && !isTarget;
+  const isBack = name === 'escape' || name === 'b' || str === '\x1b';
 
   if (isUp) move(-1);
   else if (isDown) move(1);
-  else if (str && /^[1-9]$/.test(str) && Number(str) <= count) {
-    if (!isTarget) {
-      const idx = Number(str) - 1;
-      state.cursor = idx;
-      state.features[idx] = !state.features[idx];
-    } else {
-      state.cursor = Number(str) - 1;
+  else if (str && /^[1-6]$/.test(str) && isModules) {
+    const idx = Number(str) - 1;
+    state.cursor = idx;
+    state.modules[idx] = !state.modules[idx];
+  }
+  else if (str === 'a' || str === 'A') {
+    if (isModules) {
+      const anyOff = state.modules.some(v => !v);
+      state.modules = state.modules.map(() => anyOff);
     }
   }
-  else if (isBack) {
+  else if ((str === 't' || str === 'T') && isModules) {
     state.screen = 'target';
     state.cursor = state.target;
-  } else if (name === 'q') shutdown(0, 'Cancelled.');
-  else if (isSpace && !isTarget) state.features[state.cursor] = !state.features[state.cursor];
+  }
+  else if (isBack && isTarget) {
+    state.screen = 'modules';
+    state.cursor = 0;
+  }
+  else if (name === 'q') shutdown(0, 'Cancelled.');
+  else if (isSpace && isModules) {
+    state.modules[state.cursor] = !state.modules[state.cursor];
+  }
   else if (isConfirm) {
-    if (isTarget) {
-      state.target = state.cursor;
-      state.screen = 'features';
-      state.cursor = 0;
-    } else {
+    if (isModules) {
       startInstall();
+    } else if (isTarget) {
+      state.target = state.cursor;
+      state.screen = 'modules';
+      state.cursor = 0;
     }
   }
 }
@@ -845,7 +950,7 @@ function onMenuKey(name, str) {
 function onKey(str, key = {}) {
   const name = key.name;
   if (key.ctrl && name === 'c') return shutdown(130, 'Installation aborted.');
-  if (state.screen === 'target' || state.screen === 'features') return onMenuKey(name, str);
+  if (state.screen === 'modules' || state.screen === 'target') return onMenuKey(name, str);
   if (state.screen === 'failed') {
     if (name === 'r') return retry();
     if (name === 'q') return shutdown(1, 'Stopped. Run the installer again to resume.');

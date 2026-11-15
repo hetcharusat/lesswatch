@@ -269,6 +269,136 @@ select_menu() {
   echo -e "  ${GREEN}✔ Confirmed:${RESET} ${WHITE}${BOLD}${titles[$current]}${RESET}\n"
 }
 
+# Multi-select Checkbox Menu
+checkbox_menu() {
+  local prompt_title="$1"
+  local -n _out_ref="$2"
+  shift 2
+
+  local -a titles=()
+  local -a subtitles=()
+  local -a states=()
+
+  while [ $# -gt 0 ]; do
+    titles+=("$1")
+    subtitles+=("$2")
+    states+=("$3")
+    shift 3
+  done
+
+  local count=${#titles[@]}
+  local current=0
+  echo -ne "\033[?25l" # Hide cursor
+
+  echo -e "\n${PURPLE}${BOLD}❯ ${prompt_title}${RESET}"
+  echo -e "${DARK_GRAY}  [Space] toggle [✔] · [1-$count] direct toggle · [a] toggle all · [Enter] confirm:${RESET}"
+
+  local total_lines=0
+  for (( i=0; i<count; i++ )); do
+    total_lines=$((total_lines + 1))
+    if [ -n "${subtitles[$i]}" ]; then total_lines=$((total_lines + 1)); fi
+  done
+
+  for (( i=0; i<total_lines; i++ )); do echo ""; done
+
+  redraw() {
+    echo -ne "\033[${total_lines}A"
+    for (( i=0; i<count; i++ )); do
+      local box
+      if [ "${states[$i]}" -eq 1 ]; then
+        box="${GREEN}${BOLD}[✔]${RESET}"
+      else
+        box="${DARK_GRAY}[ ]${RESET}"
+      fi
+
+      if [ "$i" -eq "$current" ]; then
+        echo -e "\r  ${PINK}${BOLD}❯${RESET} ${box} ${CYAN}${BOLD}${titles[$i]}${RESET}\033[K"
+        if [ -n "${subtitles[$i]}" ]; then
+          echo -e "\r      ${ROSE}${subtitles[$i]}${RESET}\033[K"
+        fi
+      else
+        echo -e "\r    ${box} ${GRAY}${titles[$i]}${RESET}\033[K"
+        if [ -n "${subtitles[$i]}" ]; then
+          echo -e "\r      ${DARK_GRAY}${subtitles[$i]}${RESET}\033[K"
+        fi
+      fi
+    done
+  }
+
+  redraw
+
+  while true; do
+    local key=""
+    IFS= read -rsn1 key 2>/dev/null || true
+
+    if [[ "$key" == $'\x1b' ]]; then
+      local rest=""
+      IFS= read -rsn2 -t 0.5 rest 2>/dev/null || true
+      key+="$rest"
+    fi
+
+    case "$key" in
+      $'\x1b[A'|[kK]) # Up
+        current=$(( (current - 1 + count) % count ))
+        redraw
+        ;;
+      $'\x1b[B'|[jJ]|$'\t') # Down or Tab
+        current=$(( (current + 1) % count ))
+        redraw
+        ;;
+      " ") # Space toggle
+        if [ "${states[$current]}" -eq 1 ]; then
+          states[$current]=0
+        else
+          states[$current]=1
+        fi
+        redraw
+        ;;
+      [aA]) # Toggle all
+        local any_off=0
+        for (( i=0; i<count; i++ )); do
+          if [ "${states[$i]}" -eq 0 ]; then any_off=1; break; fi
+        done
+        for (( i=0; i<count; i++ )); do
+          states[$i]=$any_off
+        done
+        redraw
+        ;;
+      [1-9]) # Number direct toggle
+        if [ "$key" -le "$count" ]; then
+          local idx=$((key - 1))
+          current=$idx
+          if [ "${states[$idx]}" -eq 1 ]; then
+            states[$idx]=0
+          else
+            states[$idx]=1
+          fi
+          redraw
+        fi
+        ;;
+      $'\n'|$'\r') # Enter confirm
+        break
+        ;;
+      *)
+        ;;
+    esac
+  done
+
+  echo -ne "\033[?25h" # Restore cursor
+  local res=""
+  for (( i=0; i<count; i++ )); do
+    if [ -n "$res" ]; then res+=","; fi
+    res+="${states[$i]}"
+  done
+  _out_ref="$res"
+
+  local active_n=0
+  for (( i=0; i<count; i++ )); do
+    if [ "${states[$i]}" -eq 1 ]; then active_n=$((active_n + 1)); fi
+  done
+  echo -e "  ${GREEN}✔ Confirmed:${RESET} ${WHITE}${BOLD}${active_n} of ${count} modules enabled${RESET}\n"
+}
+
 # ------------------------------------------------------------------------------
 # 3. OPENING CYBER BANNER & DETECTION
 # ------------------------------------------------------------------------------
@@ -359,69 +489,37 @@ case "$PORT_CHOICE" in
     ;;
 esac
 
-# Step 3: Access & Public Sharing Method
-select_menu "Public Access & Sharing Method" ACCESS_CHOICE \
-  "🌐 Instant Cloudflare Quick Tunnel (Recommended)" \
-  "Generates a 100% free, secure HTTPS link. Shareable with friends anywhere with ZERO port forwarding!" \
-  "🔒 Custom Domain with Automatic SSL (Caddy)" \
-  "Production HTTPS using your own domain (e.g. watch.mywebsite.com)." \
-  "📡 Direct Public IP & Port" \
-  "Direct connection via http://<vps-ip>:${TARGET_PORT} (no external tunnel)."
+# Step 3: Modules Checkbox Menu
+checkbox_menu "Select LESSWATCH Modules & Components" MODULE_RESULTS \
+  "Shared Chromium Virtual Browser (Neko)" "Synced party browser tabs. Auto-sleeps when idle to save RAM." 1 \
+  "Server Media Downloader (aria2c + yt-dlp)" "High-speed torrent daemon & direct YouTube/web stream extractor." 1 \
+  "Cloudflare Public HTTPS Quick Tunnel" "Instant shareable HTTPS URL with SSL without opening router ports." 1 \
+  "LiveKit Voice & Room SFU Server" "Sub-second spatial audio/video party channels with echo cancellation." 1 \
+  "Media Library & Streaming Transcoder" "Direct streaming for MKV, MP4, HLS, WebM + subtitle auto-search." 1 \
+  "Always-On Browser Mode (Pre-warmed in RAM)" "Keeps Neko hot in memory (~600MB permanent RAM instead of sleep)." 0
+
+IFS=',' read -r NEKO_ON DL_ON TUNNEL_ON LIVEKIT_ON STORAGE_ON WARM_ON <<< "$MODULE_RESULTS"
+
+ENABLE_NEKO=false
+[ "$NEKO_ON" = "1" ] && ENABLE_NEKO=true
+
+NEKO_PROFILE="ondemand"
+if [ "$ENABLE_NEKO" = false ]; then
+  NEKO_PROFILE="disabled"
+elif [ "$WARM_ON" = "1" ]; then
+  NEKO_PROFILE="always"
+fi
+
+ENABLE_DOWNLOADER=false
+[ "$DL_ON" = "1" ] && ENABLE_DOWNLOADER=true
+
+ENABLE_TUNNEL=false
+[ "$TUNNEL_ON" = "1" ] && ENABLE_TUNNEL=true
+
+ENABLE_LIVEKIT=true
+[ "$LIVEKIT_ON" = "0" ] && ENABLE_LIVEKIT=false
 
 CUSTOM_DOMAIN=""
-ENABLE_TUNNEL=false
-
-case "$ACCESS_CHOICE" in
-  0)
-    ENABLE_TUNNEL=true
-    ;;
-  1)
-    echo -ne "  ${PURPLE}Enter your domain name (e.g. watch.example.com): ${RESET}"
-    read -r CUSTOM_DOMAIN || CUSTOM_DOMAIN=""
-    echo -e "  ${GREEN}✔ Custom domain registered:${RESET} ${BOLD}${CUSTOM_DOMAIN}${RESET}\n"
-    ;;
-  2)
-    ENABLE_TUNNEL=false
-    ;;
-esac
-
-# Step 4: Shared Virtual Browser (Neko Chromium)
-select_menu "Virtual Shared Browser (Neko Chromium)" NEKO_CHOICE \
-  "🎮 On-Demand Mode (Recommended)" \
-  "Container sleeps when idle. Automatically boots when a room launches Neko. Saves ~600MB RAM." \
-  "🚀 Always-On Mode" \
-  "Instantly warm and ready at all times (~600MB permanent RAM usage)." \
-  "🚫 Disabled" \
-  "Disable Neko module. Best for ultra-low memory (<1GB RAM) VPS instances."
-
-ENABLE_NEKO=true
-NEKO_PROFILE=""
-case "$NEKO_CHOICE" in
-  0)
-    ENABLE_NEKO=true
-    NEKO_PROFILE="ondemand"
-    ;;
-  1)
-    ENABLE_NEKO=true
-    NEKO_PROFILE="always"
-    ;;
-  2)
-    ENABLE_NEKO=false
-    NEKO_PROFILE="disabled"
-    ;;
-esac
-
-# Step 5: Downloader Engine
-select_menu "Server Torrent & Media Downloader (aria2c + yt-dlp)" DL_CHOICE \
-  "⚡ Enabled (Full BitTorrent & Stream Downloader)" \
-  "Aria2 background daemon with DHT + yt-dlp stream pipeline directly into Media Library." \
-  "🚫 Disabled" \
-  "Disable background downloader engine."
-
-ENABLE_DOWNLOADER=true
-if [ "$DL_CHOICE" -eq 1 ]; then
-  ENABLE_DOWNLOADER=false
-fi
 
 # ------------------------------------------------------------------------------
 # 5. SYSTEM TUNING & DEPENDENCIES
