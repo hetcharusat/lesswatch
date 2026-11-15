@@ -1903,14 +1903,6 @@ export function PoufPlayer({
               <div className="a4-right">
                 <button
                   type="button"
-                  onClick={() => { const speeds = [0.75, 1.0, 1.25, 1.5, 2.0]; handleSpeedChange(speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length]); }}
-                  className="a4-pill"
-                  title="Cycle Playback Speed"
-                >
-                  {playbackSpeed === 1.0 ? '1.0x' : `${playbackSpeed}x`}
-                </button>
-                <button
-                  type="button"
                   onClick={() => { setShowSubMenu(prev => !prev); setSubsSubView('root'); setShowSettingsMenu(false); }}
                   className={showSubMenu ? 'a4-pill active' : 'a4-pill'}
                   title="Subtitles"
@@ -1927,16 +1919,6 @@ export function PoufPlayer({
                 </button>
                 <div className="a4-utils">
                   <button type="button" onClick={handleTogglePiP} className="a4-btn" title="Picture-in-Picture"><PictureInPicture size={14} /></button>
-                  {onToggleCamera && (
-                    <button
-                      type="button"
-                      onClick={onToggleCamera}
-                      className={`a4-btn ${isCameraEnabled ? 'active is-camera-on' : ''}`}
-                      title={isCameraEnabled ? "Turn Off Webcam" : "Turn On Webcam"}
-                    >
-                      {isCameraEnabled ? <Video size={14} color="#f472b6" /> : <VideoOff size={14} />}
-                    </button>
-                  )}
                   <button type="button" onClick={handleCaptureScreenshot} className="a4-btn" title="Capture Screenshot Frame"><Camera size={14} /></button>
                   <button type="button" onClick={() => { setIsLocked(true); setShowControls(false); setShowSubMenu(false); setShowSettingsMenu(false); triggerLockHint(); }} className="a4-btn" title="Lock Screen Controls (L)"><Lock size={14} /></button>
                 </div>

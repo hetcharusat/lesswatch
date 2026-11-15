@@ -19,7 +19,7 @@ import {
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
   RotateCcw, Power, Sliders, ChevronDown, ChevronLeft, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward,
-  Video, VideoOff, Eye, EyeOff, GripHorizontal, Minimize2, Maximize2
+  Video, VideoOff, Eye, EyeOff, GripHorizontal, Minimize2, Maximize2, Camera
 } from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';
@@ -266,6 +266,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const localAudioTrackRef = useRef(null);         // LocalAudioTrack (livekit-client)
   const localVideoTrackRef = useRef(null);         // LocalVideoTrack (livekit-client)
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  const [showCameraSettings, setShowCameraSettings] = useState(false);
+  const [videoInputDevices, setVideoInputDevices] = useState([]);
+  const [selectedVideoInput, setSelectedVideoInput] = useState(() => localStorage.getItem('wt_pref_camera') || '');
+  const [cameraBrightness, setCameraBrightness] = useState(() => parseInt(localStorage.getItem('wt_cam_brightness') || '100', 10));
+  const [cameraContrast, setCameraContrast] = useState(() => parseInt(localStorage.getItem('wt_cam_contrast') || '100', 10));
+  const [cameraQuality, setCameraQuality] = useState(() => localStorage.getItem('wt_cam_quality') || '720p');
+
+  async function switchVideoInput(devId) {
+    setSelectedVideoInput(devId);
+    localStorage.setItem('wt_pref_camera', devId);
+    if (isCameraEnabled) {
+      await toggleCamera();
+      setTimeout(() => toggleCamera(), 180);
+    }
+  }
   const [isCameraStarting, setIsCameraStarting] = useState(false);
   const [localVideoTrack, setLocalVideoTrack] = useState(null);
   const [remoteVideoTracks, setRemoteVideoTracks] = useState(new Map()); // participantIdentity -> Track
@@ -300,6 +315,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   // Discord-Style Voice Volume Controls & Boost
   const [peerVolumes, setPeerVolumes] = useState(new Map()); // peerId -> volume (0 to 200)
+  const [hoveredPeerVolId, setHoveredPeerVolId] = useState(null);
+  const [pinnedPeerVolId, setPinnedPeerVolId] = useState(null);
   const peerGainNodesRef = useRef(new Map()); // peerId -> { ctx, gainNode }
   const [voiceSettingsTab, setVoiceSettingsTab] = useState('mic'); // 'mic' | 'peers'
   const [isHoveringExitChitChat, setIsHoveringExitChitChat] = useState(false);
@@ -596,6 +613,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }));
       setAudioInputDevices(aInputs);
       setAudioOutputDevices(aOutputs);
+      const vInputs = devs.filter((d) => d.kind === 'videoinput').map((d, i) => ({
+        ...d,
+        label: d.label || `Camera ${i + 1}`,
+        deviceId: d.deviceId || `camera-${i}`
+      }));
+      setVideoInputDevices(vInputs);
+      if (vInputs.length > 0 && !localStorage.getItem('wt_pref_camera')) {
+        setSelectedVideoInput(vInputs[0].deviceId);
+      }
 
       // Microphone Selection:
       // Respect saved preference if present. Otherwise default to user's primary/first device.
@@ -4730,6 +4756,164 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   // Voice & Mic Settings Popover (Impeccable Cinema Obsidian Pro-Audio Suite)
+  // Camera & Visual Studio Popover (Cinema Obsidian Style)
+  function renderCameraSettingsPopover() {
+    if (!showCameraSettings) return null;
+
+    return (
+      <div className="vs949-v1 cam-studio-popover" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="vs-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+            <Video size={15} color="var(--pink-primary)" />
+            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#fce7f3' }}>Camera & Visual Studio</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCameraSettings(false)}
+            className="vs-close"
+            title="Close camera settings"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="vs-content-scroll">
+          {/* Card 1: Camera Status & Toggle */}
+          <div className="vs-hero-card">
+            <div className="vs-hero-left">
+              <div className="vs-hero-status-row">
+                <span className={`vs-status-pill ${isCameraEnabled ? 'is-connected' : 'is-offline'}`}>
+                  <span className="vs-status-dot" />
+                  <span>{isCameraEnabled ? 'Camera Active' : 'Camera Off'}</span>
+                </span>
+                <span className="vs-hero-sub">
+                  {isCameraEnabled ? 'Broadcasting live video' : 'Webcam is currently disabled'}
+                </span>
+              </div>
+            </div>
+            <div className="vs-hero-actions">
+              <button
+                type="button"
+                onClick={toggleCamera}
+                disabled={isCameraStarting}
+                className={`vs-action-btn ${isCameraEnabled ? 'is-disconnect' : 'is-connect'}`}
+              >
+                {isCameraStarting ? 'Connecting...' : isCameraEnabled ? 'Turn Off' : 'Start Camera'}
+              </button>
+            </div>
+          </div>
+
+          {/* Card 2: Camera Device Selection */}
+          <div className="vs-card">
+            <div className="vs-card-header">
+              <span className="vs-sec-title">Camera Device ({videoInputDevices.length || 1})</span>
+              <button type="button" onClick={refreshMediaDevices} className="vs-rescan" title="Rescan cameras">
+                <RotateCcw size={10} />
+                <span>Rescan</span>
+              </button>
+            </div>
+            <div className="vs-mic-list">
+              {videoInputDevices.length === 0 ? (
+                <div className="vs-mic-empty">Default System Camera</div>
+              ) : (
+                videoInputDevices.map((dev, idx) => {
+                  const isSelected = dev.deviceId === selectedVideoInput;
+                  return (
+                    <button
+                      key={dev.deviceId || idx}
+                      type="button"
+                      onClick={() => switchVideoInput(dev.deviceId)}
+                      className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}
+                    >
+                      <div className="vs-mic-info">
+                        <Camera size={12} className="vs-mic-icon" />
+                        <span className="vs-mic-name">{dev.label || `Camera ${idx + 1}`}</span>
+                      </div>
+                      {isSelected && <Check size={13} color="var(--pink-primary)" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: Visual Image Adjustments */}
+          <div className="vs-card">
+            <div className="vs-card-header">
+              <span className="vs-sec-title">Visual Tone & Adjustments</span>
+            </div>
+            <div className="vs-dsp-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="vs-dsp-cell">
+                <div className="vs-cell-header">
+                  <span className="vs-label">Brightness</span>
+                  <span className="vs-badge is-active">{cameraBrightness}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="50"
+                  max="150"
+                  value={cameraBrightness}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setCameraBrightness(v);
+                    localStorage.setItem('wt_cam_brightness', v);
+                  }}
+                  className="vs-range"
+                />
+              </div>
+
+              <div className="vs-dsp-cell">
+                <div className="vs-cell-header">
+                  <span className="vs-label">Contrast</span>
+                  <span className="vs-badge is-active">{cameraContrast}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="50"
+                  max="150"
+                  value={cameraContrast}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setCameraContrast(v);
+                    localStorage.setItem('wt_cam_contrast', v);
+                  }}
+                  className="vs-range"
+                />
+              </div>
+            </div>
+
+            {/* Quality Preset */}
+            <div style={{ marginTop: '10px' }}>
+              <div className="vs-cell-header" style={{ marginBottom: '6px' }}>
+                <span className="vs-label">Stream Quality</span>
+                <span className="vs-sublabel">{cameraQuality === '1080p' ? 'Full HD 1080p' : cameraQuality === '720p' ? 'HD 720p (Optimal)' : '480p Eco'}</span>
+              </div>
+              <div className="vs-seg3">
+                {['480p', '720p', '1080p'].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => {
+                      setCameraQuality(q);
+                      localStorage.setItem('wt_cam_quality', q);
+                      if (isCameraEnabled) {
+                        toggleCamera().then(() => setTimeout(() => toggleCamera(), 180));
+                      }
+                    }}
+                    className={`vs-seg-btn ${cameraQuality === q ? 'is-on' : ''}`}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
 
@@ -5519,15 +5703,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               </button>
             </div>
 
-            <div className="amb-dock-group">
-              <div className="amb-voice-dock">
+            <div className="amb-dock-group v1-unified-scale" style={{ padding: '5px 8px', gap: '5px', alignItems: 'center' }}>
+              {/* Audio Controls (34px height) */}
+              <div className="amb-voice-dock" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleMicButtonClick();
-                  }}
+                  onClick={(e) => { e.stopPropagation(); handleMicButtonClick(); }}
                   className="amb-voice-btn"
                   style={{
+                    height: '34px',
+                    padding: '0 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    borderRadius: '9999px',
+                    gap: '6px',
                     background: !isVoiceConnected
                       ? undefined
                       : isLocalSpeaking && !isMuted
@@ -5541,51 +5729,85 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 >
                   {!isVoiceConnected ? (
                     <>
-                      <Mic size={13} color="#f472b6" />
+                      <Mic size={14} color="#f472b6" />
                       <span>Mic Off</span>
                     </>
                   ) : isMuted ? (
                     <>
-                      <MicOff size={13} color="#ef4444" />
+                      <MicOff size={14} color="#ef4444" />
                       <span>Muted</span>
                     </>
                   ) : (
                     <>
-                      <Mic size={13} color="#34d399" />
+                      <Mic size={14} color="#34d399" />
                       <span>Live</span>
                     </>
                   )}
                 </button>
-                <div className="amb-dock-divider" />
+                <div className="amb-dock-divider" style={{ height: '18px' }} />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setShowVoiceSettings((prev) => {
-                      const next = !prev;
-                      if (next) refreshMediaDevices();
-                      return next;
-                    });
-                    setShowSubtitlePopover(false);
-                    setShowAudioPopover(false);
+                    setShowVoiceSettings(p => !p);
+                    setShowCameraSettings(false);
                   }}
                   className="amb-voice-btn"
                   style={{
+                    height: '34px',
+                    padding: '0 8px',
                     background: showVoiceSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
-                    color: '#fff5fa',
-                    maxWidth: '150px'
+                    color: '#fff5fa'
                   }}
-                  title="Voice & Audio Settings"
+                  title="Audio Settings"
                 >
-                  <Sliders size={12} color="var(--pink-primary)" />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {audioInputDevices.find((d) => d.deviceId === selectedAudioInput)?.label?.split('(')[0]?.trim() || 'Select Mic'}
-                  </span>
-                  <ChevronDown size={11} color="var(--pink-primary)" style={{ transform: showVoiceSettings ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
+                  <Sliders size={13} color="var(--pink-primary)" />
                 </button>
                 {renderVoiceSettingsPopover()}
               </div>
-            </div>
 
+              <div className="amb-dock-divider" style={{ height: '20px', margin: '0 3px', background: 'rgba(255, 255, 255, 0.22)' }} />
+
+              {/* Video Controls (34px height) */}
+              <div className="amb-voice-dock" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleCamera(); }}
+                  className="amb-voice-btn"
+                  style={{
+                    height: '34px',
+                    padding: '0 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    borderRadius: '9999px',
+                    gap: '6px',
+                    background: isCameraEnabled ? 'rgba(236, 72, 153, 0.38)' : undefined,
+                    color: isCameraEnabled ? '#ffffff' : '#fff5fa'
+                  }}
+                  title={isCameraEnabled ? "Turn Off Camera" : "Turn On Camera"}
+                >
+                  {isCameraEnabled ? <Video size={14} color="#f472b6" /> : <VideoOff size={14} color="#9ca3af" />}
+                  <span>{isCameraEnabled ? 'Cam Live' : 'Cam Off'}</span>
+                </button>
+                <div className="amb-dock-divider" style={{ height: '18px' }} />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCameraSettings(p => !p);
+                    setShowVoiceSettings(false);
+                  }}
+                  className="amb-voice-btn"
+                  style={{
+                    height: '34px',
+                    padding: '0 8px',
+                    background: showCameraSettings ? 'rgba(244, 114, 182, 0.28)' : undefined,
+                    color: '#fff5fa'
+                  }}
+                  title="Camera Controls"
+                >
+                  <Camera size={13} color="var(--pink-primary)" />
+                </button>
+                {renderCameraSettingsPopover()}
+              </div>
+            </div>
             <div className="amb-dock-group">
               <input
                 ref={subtitleFileInputRef}
@@ -5612,46 +5834,109 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 </span>
               )}
 
-              {Array.from(remotePeers.entries()).map(([pId, p]) => (
-                <span
-                  key={pId}
-                  className="amb-status-pill"
-                  style={{
-                    background: p.isSpeaking ? 'rgba(16, 185, 129, 0.22)' : 'rgba(255, 255, 255, 0.08)',
-                    border: p.isSpeaking ? `1px solid ${p.color || '#10b981'}` : '1px solid rgba(255, 255, 255, 0.14)',
-                    color: '#fff'
-                  }}
-                  title={p.isSpeaking ? `${p.username} is speaking` : `${p.username} in voice`}
-                >
-                  <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
-                  <span className="amb-status-text">{p.username}</span>
-                  {p.isMuted ? <MicOff size={10} color="#f87171" /> : p.isSpeaking ? <Radio size={10} color="#10b981" /> : <Mic size={10} color="#fbcfe8" />}
-                </span>
-              ))}
+              {Array.from(remotePeers.entries()).map(([pId, p]) => {
+                const peerVol = peerVolumes.get(pId) ?? 100;
+                const isPeerMuted = peerVol === 0;
+                const isFlyoutOpen = pinnedPeerVolId === pId || hoveredPeerVolId === pId;
 
-              <span
-                className="amb-status-pill"
-                style={{
-                  background: 'rgba(16, 185, 129, 0.12)',
-                  border: '1px solid rgba(16, 185, 129, 0.34)',
-                  color: 'var(--emerald-accent)'
-                }}
-                title={syncStatus}
-              >
-                <span className="status-dot" style={{ background: 'var(--emerald-accent)' }}></span>
-                <span className="amb-status-text">{syncStatus}</span>
-              </span>
+                return (
+                  <div
+                    key={pId}
+                    className="amb-peer-popover-wrap"
+                    onMouseEnter={() => setHoveredPeerVolId(pId)}
+                    onMouseLeave={() => setHoveredPeerVolId(null)}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPinnedPeerVolId((prev) => (prev === pId ? null : pId));
+                      }}
+                      className="amb-status-pill"
+                      style={{
+                        background: p.isSpeaking
+                          ? 'rgba(16, 185, 129, 0.24)'
+                          : isPeerMuted
+                            ? 'rgba(239, 68, 68, 0.18)'
+                            : 'rgba(255, 255, 255, 0.09)',
+                        border: p.isSpeaking
+                          ? `1px solid ${p.color || '#10b981'}`
+                          : isPeerMuted
+                            ? '1px solid rgba(239, 68, 68, 0.4)'
+                            : '1px solid rgba(255, 255, 255, 0.16)',
+                        color: '#fff',
+                        cursor: 'pointer'
+                      }}
+                      title={`${p.username} (${peerVol}%) — Click or hover to adjust volume`}
+                    >
+                      <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
+                      <span className="amb-status-text">{p.username}</span>
+                      {isPeerMuted ? (
+                        <VolumeX size={11} color="#f87171" />
+                      ) : p.isMuted ? (
+                        <MicOff size={10} color="#f87171" />
+                      ) : p.isSpeaking ? (
+                        <Radio size={10} color="#10b981" />
+                      ) : (
+                        <Mic size={10} color="#fbcfe8" />
+                      )}
+                    </button>
 
-              <div className="amb-dock-divider" />
+                    {isFlyoutOpen && (
+                      <div
+                        className="amb-peer-vol-flyout"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flyout-head">
+                          <div className="flyout-user">
+                            <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={16} showBorder={false} />
+                            <span>{p.username}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPinnedPeerVolId(null)}
+                            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}
+                            title="Close"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+
+                        <div className="flyout-slider-row">
+                          <button
+                            type="button"
+                            onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)}
+                            className={`flyout-mute-btn ${isPeerMuted ? 'is-muted' : ''}`}
+                            title={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                          >
+                            {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                          </button>
+                          <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="5"
+                            value={peerVol}
+                            onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                            className="flyout-range"
+                            aria-label={`${p.username} volume`}
+                          />
+                          <span className="flyout-pct">{peerVol}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               <button
                 onClick={handleToggleSideChat}
-                className={`${isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'} amb-btn-sm`}
+                className={`${isChatSidebarOpen ? 'btn-pink-primary' : 'btn-pink-secondary'} amb-btn-sm amb-btn-compact`}
                 style={{ position: 'relative' }}
-                title="Toggle Chit Chat Split Screen (Shortcut: C)"
+                title="Toggle Chat Sidebar (Shortcut: C)"
               >
-                <ClayChat size={15} />
-                <span>Chit Chat</span>
+                <ClayChat size={14} />
+                <span>Chat</span>
                 {unreadChatCount > 0 && !isChatSidebarOpen && (
                   <span className="clay-unread-badge" style={{ marginLeft: '2px' }}>
                     {unreadChatCount}
