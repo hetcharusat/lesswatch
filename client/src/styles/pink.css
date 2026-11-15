@@ -6306,38 +6306,29 @@ body.in-chit-chat-mode header {
   gap: 12px;
   padding: 8px 18px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px) saturate(160%);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(20, 10, 26, 0.78);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow:
-    0 16px 42px rgba(0, 0, 0, 0.4),
+    0 16px 42px rgba(0, 0, 0, 0.45),
     0 2px 10px rgba(236, 72, 153, 0.18),
     inset 0 1px 1px rgba(255, 255, 255, 0.65),
     inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   opacity: 1;
-  filter: blur(0px);
   transform: translate3d(0, 0, 0) scale(1);
   transition:
-    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1) 0ms,
-    transform 300ms cubic-bezier(0.22, 1, 0.36, 1) 0ms,
-    filter 280ms cubic-bezier(0.22, 1, 0.36, 1) 0ms,
-    backdrop-filter 280ms ease 0ms,
-    -webkit-backdrop-filter 280ms ease 0ms;
+    opacity 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pouf-hud-overlay.a4-hud.is-hidden .a4-deck {
   opacity: 0;
-  filter: blur(4px);
-  transform: translate3d(0, 18px, 0) scale(0.965);
-  backdrop-filter: blur(4px) saturate(110%);
-  -webkit-backdrop-filter: blur(4px) saturate(110%);
+  transform: translate3d(0, 14px, 0) scale(0.98);
+  pointer-events: none;
   transition:
-    opacity 460ms cubic-bezier(0.16, 1, 0.3, 1) 350ms,
-    transform 460ms cubic-bezier(0.16, 1, 0.3, 1) 350ms,
-    filter 460ms cubic-bezier(0.16, 1, 0.3, 1) 350ms,
-    backdrop-filter 460ms cubic-bezier(0.16, 1, 0.3, 1) 350ms,
-    -webkit-backdrop-filter 460ms cubic-bezier(0.16, 1, 0.3, 1) 350ms;
+    opacity 350ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 350ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pouf-hud-overlay.a4-hud .a4-left {
@@ -9778,18 +9769,16 @@ body.in-chit-chat-mode header {
   user-select: none;
   touch-action: none;
   cursor: grab;
-  animation: wtPipIn 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: wtPipFade 200ms ease forwards;
   transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes wtPipIn {
+@keyframes wtPipFade {
   0% {
     opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.96);
   }
   100% {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
@@ -9809,10 +9798,12 @@ body.in-chit-chat-mode header {
 .wt-webcam-dock.is-dragging {
   cursor: grabbing !important;
   transition: none !important;
+  animation: none !important;
 }
 
 .wt-webcam-dock.is-dragging * {
   cursor: grabbing !important;
+  pointer-events: none !important;
 }
 
 .wt-webcam-dock.is-resizing {

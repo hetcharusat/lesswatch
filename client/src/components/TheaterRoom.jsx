@@ -629,6 +629,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     } catch {}
     return { x: 0, y: 0 };
   });
+  const webcamPositionRef = useRef(webcamPosition);
+  webcamPositionRef.current = webcamPosition;
   const wasJustDraggedRef = useRef(false);
   const [webcamScale, setWebcamScale] = useState(() => {
     try {
@@ -4111,10 +4113,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   const playFsMorphTransition = useCallback((enteringFs) => {
     const wrapperEl = theaterWrapperRef.current;
-    const curtainEl = fsCurtainRef.current;
     const deckEl = theaterDeckRef.current;
 
-    fsStageAnimRef.current?.cancel?.();
     fsDeckAnimRef.current?.cancel?.();
     fsAuxAnimsRef.current.forEach((a) => a?.cancel?.());
     fsAuxAnimsRef.current = [];
@@ -4124,35 +4124,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       wrapperEl.classList.remove('fs-deck-fading');
     }
 
-    const prefersReduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    if (prefersReduced) {
-      wrapperEl?.classList.remove('fs-deck-fading');
-      if (curtainEl && typeof curtainEl.animate === 'function') {
-        fsStageAnimRef.current = curtainEl.animate(
-          [{ opacity: 0.7 }, { opacity: 0 }],
-          { duration: 180, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'none' }
-        );
-      }
-      return;
-    }
-
-    // Soft cinema veil across OS fullscreen flash — zero video scaling or distortion
-    if (curtainEl && typeof curtainEl.animate === 'function') {
-      fsStageAnimRef.current = curtainEl.animate(
-        [
-          { opacity: 0.94 },
-          { opacity: 0.88, offset: 0.16 },
-          { opacity: 0 }
-        ],
-        {
-          duration: enteringFs ? 420 : 380,
-          easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
-          fill: 'none'
-        }
-      );
-    }
-
-    // Deck slides/fades away on fullscreen-in and glides upward back in on exit
+    // Deck slides/fades smoothly without any curtain flash or player HUD flicker
     if (enteringFs && wrapperEl && deckEl && typeof deckEl.animate === 'function') {
       wrapperEl.classList.add('fs-deck-fading');
       if (fsDeckTimerRef.current) clearTimeout(fsDeckTimerRef.current);
@@ -4162,7 +4134,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           { transform: 'translate3d(0, 18px, 0)', opacity: 0 }
         ],
         {
-          duration: 320,
+          duration: 220,
           easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
           fill: 'forwards'
         }
@@ -4173,7 +4145,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       };
       fsDeckTimerRef.current = setTimeout(() => {
         wrapperEl.classList.remove('fs-deck-fading');
-      }, 360);
+      }, 250);
     } else if (!enteringFs && deckEl && typeof deckEl.animate === 'function') {
       window.requestAnimationFrame(() => {
         fsDeckAnimRef.current = deckEl.animate(
@@ -4182,33 +4154,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             { transform: 'translate3d(0, 0px, 0)', opacity: 1 }
           ],
           {
-            duration: 360,
-            delay: 40,
+            duration: 240,
             easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
             fill: 'backwards'
           }
         );
-      });
-    }
-
-    // Gently fade peripheral controls instead of snapping in
-    const auxEls = wrapperEl?.querySelectorAll('.pouf-hud-overlay:not(.is-hidden), .clay-docked-chat-trigger, .floating-chat-overlay');
-    if (auxEls?.length) {
-      auxEls.forEach((el) => {
-        if (typeof el.animate !== 'function') return;
-        const anim = el.animate(
-          [
-            { opacity: 0, transform: 'translate3d(0, 6px, 0)' },
-            { opacity: 1, transform: 'translate3d(0, 0px, 0)' }
-          ],
-          {
-            duration: 320,
-            delay: 110,
-            easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
-            fill: 'backwards'
-          }
-        );
-        fsAuxAnimsRef.current.push(anim);
       });
     }
   }, []);
@@ -4965,41 +4915,33 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     // Direct card click-and-drag with free movement and magnetic edge snapping on release (Zero-Lag Direct DOM Transform)
     const handleCardPointerDown = (e) => {
-      if (e.target.closest('button, .wt-pip-resize-thumb, .wt-pip-actions')) return;
+      if (e.target.closest('button, .wt-pip-resize-thumb, .wt-pip-actions, input')) return;
       if (e.button !== undefined && e.button !== 0) return;
       e.stopPropagation();
       e.preventDefault();
 
       const startX = e.clientX;
       const startY = e.clientY;
-      const initX = webcamPosition.x;
-      const initY = webcamPosition.y;
+      const initX = webcamPositionRef.current.x;
+      const initY = webcamPositionRef.current.y;
       let hasMoved = false;
       let currentTx = initX;
       let currentTy = initY;
 
       const dockEl = dockRef.current;
-      const pointerId = e.pointerId;
-      try {
-        if (dockEl && typeof dockEl.setPointerCapture === 'function') {
-          dockEl.setPointerCapture(pointerId);
-        }
-      } catch {}
+      if (!dockEl) return;
 
       const onPointerMove = (ev) => {
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
 
-        if (!hasMoved && Math.hypot(dx, dy) > 4) {
+        if (!hasMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
           hasMoved = true;
           wasJustDraggedRef.current = true;
-          setIsWebcamDragging(true);
-          if (dockEl) {
-            dockEl.classList.add('is-dragging');
-          }
+          dockEl.classList.add('is-dragging');
         }
 
-        if (hasMoved && dockEl) {
+        if (hasMoved) {
           currentTx = initX + dx;
           currentTy = initY + dy;
           dockEl.style.transform = `translate3d(${currentTx}px, ${currentTy}px, 0)`;
@@ -5007,19 +4949,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       };
 
       const onPointerUp = (ev) => {
-        try {
-          if (dockEl && typeof dockEl.releasePointerCapture === 'function') {
-            dockEl.releasePointerCapture(pointerId);
-          }
-        } catch {}
+        window.removeEventListener('pointermove', onPointerMove, true);
+        window.removeEventListener('pointerup', onPointerUp, true);
+        window.removeEventListener('pointercancel', onPointerUp, true);
 
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup', onPointerUp);
-        window.removeEventListener('pointercancel', onPointerUp);
+        dockEl.classList.remove('is-dragging');
 
         if (!hasMoved) {
-          setIsWebcamDragging(false);
-          if (dockEl) dockEl.classList.remove('is-dragging');
           // If clicked on a compact reaction orb without dragging, expand to full video
           if (isWebcamCollapsed || e.target.closest('.wt-pip-orb')) {
             setIsWebcamCollapsed(false);
@@ -5027,66 +4963,62 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           return;
         }
 
-        setIsWebcamDragging(false);
-        if (dockEl) dockEl.classList.remove('is-dragging');
-
         // Magnetic edge snapping and viewport clamping
-        if (dockEl) {
-          const rect = dockEl.getBoundingClientRect();
-          const winW = window.innerWidth;
-          const winH = window.innerHeight;
+        const rect = dockEl.getBoundingClientRect();
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
 
-          // Target margins from screen boundaries
-          const MARGIN_LEFT = 20;
-          const MARGIN_RIGHT = 20;
-          const MARGIN_TOP = 20;
-          const MARGIN_BOTTOM = 96; // Space above video player scrubber / controls
-          const SNAP_DIST = 60;     // Magnetic attraction threshold (px)
+        // Target margins from screen boundaries
+        const MARGIN_LEFT = 20;
+        const MARGIN_RIGHT = 20;
+        const MARGIN_TOP = 20;
+        const MARGIN_BOTTOM = 96; // Space above video player scrubber / controls
+        const SNAP_DIST = 60;     // Magnetic attraction threshold (px)
 
-          // Boundaries in tx / ty coordinate space relative to top: 24px, right: 24px
-          const minTx = MARGIN_LEFT - (winW - 24 - rect.width);
-          const maxTx = (winW - MARGIN_RIGHT) - (winW - 24); // +4px
-          const minTy = MARGIN_TOP - 24;                     // -4px
-          const maxTy = winH - MARGIN_BOTTOM - rect.height - 24;
+        // Boundaries in tx / ty coordinate space relative to top: 24px, right: 24px
+        const minTx = MARGIN_LEFT - (winW - 24 - rect.width);
+        const maxTx = (winW - MARGIN_RIGHT) - (winW - 24); // +4px
+        const minTy = MARGIN_TOP - 24;                     // -4px
+        const maxTy = winH - MARGIN_BOTTOM - rect.height - 24;
 
-          let finalTx = currentTx;
-          let finalTy = currentTy;
+        let finalTx = currentTx;
+        let finalTy = currentTy;
 
-          // Magnetic horizontal edge snap (Left / Right)
-          if (rect.left < SNAP_DIST) {
-            finalTx = minTx; // Stick magnetically to left edge
-          } else if ((winW - rect.right) < SNAP_DIST) {
-            finalTx = 0;     // Stick magnetically to right edge (default dock alignment)
-          } else {
-            // Free position, clamped inside screen
-            finalTx = Math.max(minTx, Math.min(maxTx, currentTx));
-          }
-
-          // Magnetic vertical edge snap (Top / Bottom)
-          if (rect.top < SNAP_DIST) {
-            finalTy = 0;     // Stick magnetically to top edge (default dock alignment)
-          } else if ((winH - rect.bottom) < (SNAP_DIST + 40)) {
-            finalTy = maxTy; // Stick magnetically to bottom edge (above player controls)
-          } else {
-            // Free position, clamped inside screen
-            finalTy = Math.max(minTy, Math.min(maxTy, currentTy));
-          }
-
-          dockEl.style.transform = `translate3d(${finalTx}px, ${finalTy}px, 0)`;
-          setWebcamPosition({ x: finalTx, y: finalTy });
-          try {
-            localStorage.setItem('wt_webcam_pos', JSON.stringify({ x: finalTx, y: finalTy }));
-          } catch {}
+        // Magnetic horizontal edge snap (Left / Right)
+        if (rect.left < SNAP_DIST) {
+          finalTx = minTx; // Stick magnetically to left edge
+        } else if ((winW - rect.right) < SNAP_DIST) {
+          finalTx = 0;     // Stick magnetically to right edge (default dock alignment)
+        } else {
+          // Free position, clamped inside screen
+          finalTx = Math.max(minTx, Math.min(maxTx, currentTx));
         }
+
+        // Magnetic vertical edge snap (Top / Bottom)
+        if (rect.top < SNAP_DIST) {
+          finalTy = 0;     // Stick magnetically to top edge (default dock alignment)
+        } else if ((winH - rect.bottom) < (SNAP_DIST + 40)) {
+          finalTy = maxTy; // Stick magnetically to bottom edge (above player controls)
+        } else {
+          // Free position, clamped inside screen
+          finalTy = Math.max(minTy, Math.min(maxTy, currentTy));
+        }
+
+        dockEl.style.transform = `translate3d(${finalTx}px, ${finalTy}px, 0)`;
+        webcamPositionRef.current = { x: finalTx, y: finalTy };
+        setWebcamPosition({ x: finalTx, y: finalTy });
+        try {
+          localStorage.setItem('wt_webcam_pos', JSON.stringify({ x: finalTx, y: finalTy }));
+        } catch {}
 
         setTimeout(() => {
           wasJustDraggedRef.current = false;
         }, 120);
       };
 
-      window.addEventListener('pointermove', onPointerMove, { passive: true });
-      window.addEventListener('pointerup', onPointerUp);
-      window.addEventListener('pointercancel', onPointerUp);
+      window.addEventListener('pointermove', onPointerMove, true);
+      window.addEventListener('pointerup', onPointerUp, true);
+      window.addEventListener('pointercancel', onPointerUp, true);
     };
 
     // Direct mouse drag on bottom-right corner to resize (Zero Flicker using CSS variable)
@@ -6650,14 +6582,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 }}
               >
                 {renderChatOverlay()}
-                {renderPartyWebcamGrid()}
               </PoufPlayer>
             </div>
           )}
 
           {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
           {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
-          {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderPartyWebcamGrid()}
 
           {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
           {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (
@@ -6713,6 +6643,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
           {/* Floating Subtitle & Audio Popovers */}
           {renderTrackPopovers()}
+
+          {/* Floating Party Webcam Dock (Direct, YouTube, and Neko) */}
+          {renderPartyWebcamGrid()}
 
           {/* Glassmorphic Push-to-Talk Voice Emitting HUD */}
           {isPushToTalking && (
