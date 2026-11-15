@@ -82,8 +82,10 @@ if [ -z "$NODE_BIN" ]; then
   done
 fi
 
-# Pre-pull cloudflared in the background so tunnel launch is instantaneous
+# Pre-pull cloudflared, node base image, and livekit in the background so build & tunnel launch are instantaneous
 ( docker pull cloudflare/cloudflared:latest >/dev/null 2>&1 & ) 2>/dev/null || true
+( docker pull node:20-bookworm-slim >/dev/null 2>&1 & ) 2>/dev/null || true
+( docker pull livekit/livekit-server:latest >/dev/null 2>&1 & ) 2>/dev/null || true
 
 # If Node.js is available, hand off directly to next-gen Animated TUI CLI
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then

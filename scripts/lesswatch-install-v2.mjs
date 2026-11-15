@@ -131,11 +131,13 @@ const SHORT = {
   livekit: 'LiveKit', storage: 'Library', neko_warm: 'Always-on',
 };
 
-// Pre-pull cloudflared in the background quietly
+// Pre-pull images in background quietly while user interacts with wizard
 try {
-  const bgPull = spawn('docker', ['pull', 'cloudflare/cloudflared:latest'], { stdio: 'ignore', detached: true });
-  bgPull.on('error', () => { }); // docker missing → don't crash the UI
-  bgPull.unref();
+  for (const img of ['cloudflare/cloudflared:latest', 'node:20-bookworm-slim', 'livekit/livekit-server:latest']) {
+    const bgPull = spawn('docker', ['pull', img], { stdio: 'ignore', detached: true });
+    bgPull.on('error', () => { }); // docker missing → don't crash the UI
+    bgPull.unref();
+  }
 } catch { }
 
 // ─── Real Stage Implementations (Non-Blocking & Watchdog Protected) ─────────
@@ -215,25 +217,42 @@ async function generateEnvironment(log, s) {
 
 function buildServices(log, s) {
   return new Promise((resolve, reject) => {
-    log('Building LESSWATCH core services with Docker BuildKit...');
-
     const livekitOn = state.modules[3] ?? true;
     const services = ['watch-together'];
     if (livekitOn) services.push('livekit');
 
-    const child = spawn('docker', ['compose', 'up', '-d', '--build', ...services], {
+    // Fast-start check: If image already exists locally, start immediately without forced rebuild
+    let hasImage = false;
+    try {
+      execSync('docker image inspect watch-together:latest', { stdio: 'ignore' });
+      hasImage = true;
+    } catch { }
+
+    const forceRebuild = process.argv.includes('--force-build') || process.argv.includes('--rebuild');
+    const composeArgs = ['compose', 'up', '-d'];
+    if (!hasImage || forceRebuild) {
+      composeArgs.push('--build');
+      log('Building LESSWATCH core services with Docker BuildKit...');
+    } else {
+      log('Cached watch-together image found. Starting services (~2s)...');
+    }
+    composeArgs.push(...services);
+
+    const child = spawn('docker', composeArgs, {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     activeChild = child;
     let finished = false;
     let pollerTimer = null;
     let settleTimer = null;
+    let ticker = null;
 
     const cleanupAndResolve = () => {
       if (finished) return;
       finished = true;
       if (pollerTimer) clearInterval(pollerTimer);
       if (settleTimer) clearTimeout(settleTimer);
+      if (ticker) clearInterval(ticker);
       activeChild = null;
       s.progress = 100;
       log('LESSWATCH core services & LiveKit server online.');
@@ -245,9 +264,18 @@ function buildServices(log, s) {
       finished = true;
       if (pollerTimer) clearInterval(pollerTimer);
       if (settleTimer) clearTimeout(settleTimer);
+      if (ticker) clearInterval(ticker);
       activeChild = null;
       reject(err);
     };
+
+    // Smooth progress ticker: during long apt-get or layer downloads, keep the bar feeling alive
+    ticker = setInterval(() => {
+      if (finished) { clearInterval(ticker); return; }
+      if (s.progress < 90) {
+        s.progress = Math.min(90, +(s.progress + 0.35).toFixed(1));
+      }
+    }, 1000);
 
     // Non-blocking async poller: checks if container is running without freezing event loop
     pollerTimer = setInterval(() => {
@@ -265,17 +293,32 @@ function buildServices(log, s) {
       for (const line of lines) {
         if (!line.trim()) continue;
         log(line);
-        if (line.includes('Step 1/')) s.progress = 15;
-        else if (line.includes('Step 2/')) s.progress = 30;
-        else if (line.includes('Step 3/')) s.progress = 50;
-        else if (line.includes('Step 4/')) s.progress = 65;
-        else if (line.includes('Step 5/')) s.progress = 80;
-        else if (line.includes('Step 6/')) s.progress = 90;
-        else if (line.includes('Started') || line.includes('Running')) {
-          s.progress = 95;
+
+        // Check for Docker BuildKit fractional steps: [X/Y]
+        const stepMatch = line.match(/\[\s*(\d+)\s*\/\s*(\d+)\s*\]/);
+        if (stepMatch) {
+          const stepCur = parseInt(stepMatch[1], 10);
+          const stepTotal = parseInt(stepMatch[2], 10);
+          if (stepTotal > 0) {
+            const calculated = Math.min(92, Math.round((stepCur / (stepTotal + 1)) * 90) + 10);
+            s.progress = Math.max(s.progress, calculated);
+          }
+        } else if (line.includes('Step 1/') || /load metadata|load build definition/i.test(line)) {
+          s.progress = Math.max(s.progress, 15);
+        } else if (line.includes('Step 2/') || /apt-get/i.test(line)) {
+          s.progress = Math.max(s.progress, 35);
+        } else if (line.includes('Step 3/') || /yt-dlp|curl/i.test(line)) {
+          s.progress = Math.max(s.progress, 55);
+        } else if (line.includes('Step 4/') || /COPY package/i.test(line)) {
+          s.progress = Math.max(s.progress, 65);
+        } else if (line.includes('Step 5/') || /npm ci|npm install/i.test(line)) {
+          s.progress = Math.max(s.progress, 80);
+        } else if (line.includes('Step 6/') || /exporting to image|naming to/i.test(line)) {
+          s.progress = Math.max(s.progress, 90);
+        } else if (line.includes('Started') || line.includes('Running') || line.includes('healthy')) {
+          s.progress = 96;
           // Once Docker Compose logs "Started" for watch-together, the container is up!
-          // Don't wait for stuck child compose pipes — settle and resolve.
-          if (!settleTimer && (line.includes('watch-together') || line.includes('Started'))) {
+          if (!settleTimer && (line.includes('watch-together') || line.includes('Started') || line.includes('livekit'))) {
             settleTimer = setTimeout(() => {
               cleanupAndResolve();
             }, 2000);
@@ -528,7 +571,7 @@ function formatLogLine(raw, maxLen) {
     colored = C.accent(BOLD + clean);
   } else if (clean.includes('Started') || clean.includes('Up') || clean.includes('verified') || clean.includes('online')) {
     colored = green('✔ ') + C.green(clean);
-  } else if (clean.includes('Starting') || clean.includes('Step') || clean.includes('Building')) {
+  } else if (clean.includes('Starting') || clean.includes('Step') || clean.includes('Building') || /^#\d+\s+\[/i.test(clean) || /=>\s*\[/i.test(clean)) {
     colored = C.amber('▸ ') + C.amber(clean);
   } else if (clean.includes('fail') || clean.includes('Error') || clean.includes('error')) {
     colored = C.red('✖ ') + C.red(clean);
@@ -674,6 +717,7 @@ const state = {
   pendingDone: false, doneT: 0, error: '', publicUrl: '', plain: false,
   cpu: Array(120).fill(0.05), mem: Array(120).fill(0.2), cpuV: 0.05, lastSample: 0,
   confetti: null, quitting: false,
+  fullLogs: false, logScroll: 0,
 };
 const t0 = Date.now();
 let activeChild = null;
@@ -759,11 +803,38 @@ function chart(hist, w, R, colorFn) {
 // ─── Pipeline ───────────────────────────────────────────────────────────────
 function log(line) {
   const clean = String(line).replace(ANSI_RE, '').replace(/\s+$/, '');
+  if (!clean) return;
   const m = clean.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
   if (m) state.publicUrl = m[0];
+
+  // Write full raw log to disk for live tail -f install.log
+  try {
+    fs.appendFileSync('./install.log', clean + '\n');
+  } catch { }
+
+  // Deduplicate live download / layer progress stream so it updates in-place
+  const isProgressLine = /^#\d+\s+(?:sha256:[a-f0-9]+|[a-f0-9]{12}|extracting|downloading)/i.test(clean) ||
+    /\b\d+(?:\.\d+)?\s*(?:B|kB|MB|GB)\s*\/\s*\d+/i.test(clean);
+
+  if (isProgressLine && state.logs.length > 0) {
+    const last = state.logs[state.logs.length - 1];
+    const currPrefixMatch = clean.match(/^(#\d+\s+(?:sha256:[a-f0-9]{8,64}|[a-f0-9]{12}))/i);
+    const lastPrefixMatch = last.match(/^(#\d+\s+(?:sha256:[a-f0-9]{8,64}|[a-f0-9]{12}))/i);
+
+    if (currPrefixMatch && lastPrefixMatch && currPrefixMatch[1] === lastPrefixMatch[1]) {
+      state.logs[state.logs.length - 1] = clean;
+      return;
+    }
+  }
+
+  // Deduplicate consecutive identical lines
+  if (state.logs.length > 0 && state.logs[state.logs.length - 1] === clean) {
+    return;
+  }
+
   state.logs.push(clean);
-  if (state.logs.length > 200) state.logs.splice(0, 100);
-  if (state.plain && clean) console.log(clean);
+  if (state.logs.length > 2000) state.logs.splice(0, 500);
+  if (state.plain) console.log(clean);
 }
 
 function enabledStages() {
@@ -849,6 +920,8 @@ function startInstall() {
   state.pendingDone = false;
   state.shown = 0;
   state.logs = [];
+  state.fullLogs = false;
+  state.logScroll = 0;
   go('install');
   return runPipeline(0);
 }
@@ -1266,15 +1339,48 @@ const screens = {
   install: {
     renderTop: (inner) => installTop(inner, false),
     renderLogs: (inner, rows) => installLogs(inner, rows, false),
-    key() { }
+    key(s, k = {}) {
+      if (s === 'l' || s === 'L') {
+        state.fullLogs = !state.fullLogs;
+        state.logScroll = 0;
+      } else if (k.name === 'up') {
+        state.logScroll = Math.min(state.logScroll + 1, Math.max(0, state.logs.length - 4));
+      } else if (k.name === 'down') {
+        state.logScroll = Math.max(0, state.logScroll - 1);
+      } else if (k.name === 'pageup') {
+        state.logScroll = Math.min(state.logScroll + 10, Math.max(0, state.logs.length - 4));
+      } else if (k.name === 'pagedown') {
+        state.logScroll = Math.max(0, state.logScroll - 10);
+      } else if (k.name === 'home') {
+        state.logScroll = Math.max(0, state.logs.length - 4);
+      } else if (k.name === 'end') {
+        state.logScroll = 0;
+      }
+    }
   },
 
   failed: {
     renderTop: (inner) => installTop(inner, true),
     renderLogs: (inner, rows) => installLogs(inner, rows, true),
-    key(s, k) {
-      if (s === 'r') retry();
-      else if (s === 'q') shutdown(1, 'Stopped. Run the installer again to resume.');
+    key(s, k = {}) {
+      if (s === 'r' || s === 'R') retry();
+      else if (s === 'q' || s === 'Q') shutdown(1, 'Stopped. Run the installer again to resume.');
+      else if (s === 'l' || s === 'L') {
+        state.fullLogs = !state.fullLogs;
+        state.logScroll = 0;
+      } else if (k.name === 'up') {
+        state.logScroll = Math.min(state.logScroll + 1, Math.max(0, state.logs.length - 4));
+      } else if (k.name === 'down') {
+        state.logScroll = Math.max(0, state.logScroll - 1);
+      } else if (k.name === 'pageup') {
+        state.logScroll = Math.min(state.logScroll + 10, Math.max(0, state.logs.length - 4));
+      } else if (k.name === 'pagedown') {
+        state.logScroll = Math.max(0, state.logScroll - 10);
+      } else if (k.name === 'home') {
+        state.logScroll = Math.max(0, state.logs.length - 4);
+      } else if (k.name === 'end') {
+        state.logScroll = 0;
+      }
     },
   },
 
@@ -1379,16 +1485,22 @@ function installTop(inner, failed = false) {
 
 function installLogs(inner, rows, failed = false) {
   const L = [];
-  if (failed) {
+  if (failed && !state.fullLogs) {
     const e = wrap(state.error, inner - 2);
     L.push(' ' + C.red(e[0] || ''), ' ' + C.red(e[1] || ''));
-    L.push('', hint([['r', 'retry step'], ['q', 'quit']], inner));
+    L.push('', hint([['r', 'retry step'], ['l', 'view full logs'], ['q', 'quit']], inner));
     return L;
   }
 
   // Calculate available rows for log stream (scales dynamically with terminal height)
-  const maxLogs = Math.max(3, Math.min(8, (rows || 24) - 20));
-  const tail = state.logs.slice(-maxLogs);
+  // When in fullLogs mode: compact top takes 5-6 lines including borders
+  // When in normal mode: top box takes ~21 lines including borders and oscilloscope
+  const topOverhead = state.fullLogs ? 6 : 21;
+  const maxLogs = Math.max(state.fullLogs ? 10 : 4, (rows || 24) - topOverhead);
+
+  const endIdx = state.logs.length - (state.logScroll || 0);
+  const startIdx = Math.max(0, endIdx - maxLogs);
+  const tail = state.logs.slice(startIdx, Math.max(0, endIdx));
   while (tail.length < maxLogs) tail.unshift('');
 
   for (const raw of tail) {
@@ -1399,7 +1511,13 @@ function installLogs(inner, rows, failed = false) {
     L.push(formatLogLine(raw, inner));
   }
 
-  L.push(center(dim('Ctrl+C to abort'), inner));
+  if (state.logScroll > 0) {
+    L.push(center(C.amber(`▲ Scrolled up by ${state.logScroll} lines · Press [End] for live stream · [L] Dashboard`), inner));
+  } else if (state.fullLogs) {
+    L.push(center(dim('Press [L] for Dashboard  ·  [↑/↓] Scroll  ·  Logged to ./install.log  ·  Ctrl+C to abort'), inner));
+  } else {
+    L.push(center(dim('Press [L] Fullscreen Logs  ·  Logged to ./install.log  ·  Ctrl+C to abort'), inner));
+  }
   return L;
 }
 
@@ -1438,14 +1556,42 @@ function draw() {
   let rendered;
   if (state.screen === 'install' || state.screen === 'failed') {
     const isFail = state.screen === 'failed';
-    const topLines = screens[state.screen].renderTop(inner);
-    const framedTop = box(topLines, W, 'lesswatch');
+    if (state.fullLogs) {
+      const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
+      const elapsed = (((state.finishedAt || Date.now()) - state.started) / 1000).toFixed(1);
+      const pct = String(Math.round(state.shown * 100)).padStart(3);
+      const curStage = state.stages[state.current]?.label || 'Installing';
+      const statusIcon = isFail ? C.red('✖') : (state.pendingDone ? green('✔') : C.accent(spin));
+      const statusText = isFail ? C.red('FAILED') : (state.pendingDone ? green('DONE') : C.accent(curStage));
 
-    const logTitle = isFail ? 'failure diagnostics' : 'live deployment stream';
-    const bottomLines = screens[state.screen].renderLogs(inner, rows);
-    const framedBottom = box(bottomLines, W, logTitle);
+      const compactTop = [
+        `${statusIcon} ${BOLD}${statusText}${RESET}  ${dim('·')}  ${C.muted(elapsed + 's')}  ${dim('·')}  ${bar(state.shown, Math.max(10, inner - 48))} ${BOLD}${C.accent(pct + '%')}${RESET}  ${dim('·')}  ${C.accent('[L] Dashboard')}  ${C.muted('[↑/↓] Scroll')}`
+      ];
+      const framedTop = box(compactTop, W, 'lesswatch');
 
-    rendered = ['', ...framedTop, ...framedBottom];
+      const logTitle = isFail
+        ? 'failure diagnostics · FULL VIEW'
+        : (state.logScroll > 0
+          ? `live stream · SCROLLED UP -${state.logScroll} ([End] live · [L] Dashboard)`
+          : 'live deployment stream · FULL VIEW ([L] Dashboard)');
+      const bottomLines = screens[state.screen].renderLogs(inner, rows);
+      const framedBottom = box(bottomLines, W, logTitle);
+
+      rendered = ['', ...framedTop, ...framedBottom];
+    } else {
+      const topLines = screens[state.screen].renderTop(inner);
+      const framedTop = box(topLines, W, 'lesswatch');
+
+      const logTitle = isFail
+        ? 'failure diagnostics'
+        : (state.logScroll > 0
+          ? `live stream · SCROLLED UP -${state.logScroll} ([End] live · [L] Full)`
+          : 'live deployment stream · [L] Full Logs');
+      const bottomLines = screens[state.screen].renderLogs(inner, rows);
+      const framedBottom = box(bottomLines, W, logTitle);
+
+      rendered = ['', ...framedTop, ...framedBottom];
+    }
   } else {
     let lines = screens[state.screen].render(inner);
     const reveal = Math.floor(state.sa * 80) + 1;       // staggered line reveal on every screen change

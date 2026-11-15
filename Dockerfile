@@ -4,6 +4,7 @@ FROM node:20-bookworm-slim
 WORKDIR /app
 
 ENV NODE_ENV=production \
+    DEBIAN_FRONTEND=noninteractive \
     PORT=3000 \
     DATA_DIR=/app/data \
     DOWNLOADS_DIR=/app/downloads
@@ -19,11 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install latest yt-dlp binary for web video stream extraction
-RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+RUN curl -fsSL --retry 3 --retry-delay 2 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 COPY package*.json ./
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund
 
 COPY server.js ./
 COPY public ./public

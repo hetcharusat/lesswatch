@@ -1,6 +1,7 @@
 services:
   watch-together:
     build: .
+    image: watch-together:latest
     container_name: watch-together
     restart: unless-stopped
     ports:
