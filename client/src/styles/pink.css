@@ -9777,8 +9777,9 @@ body.in-chit-chat-mode header {
   pointer-events: auto;
   user-select: none;
   touch-action: none;
+  cursor: grab;
   animation: wtPipIn 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @keyframes wtPipIn {
@@ -9808,6 +9809,10 @@ body.in-chit-chat-mode header {
 .wt-webcam-dock.is-dragging {
   cursor: grabbing !important;
   transition: none !important;
+}
+
+.wt-webcam-dock.is-dragging * {
+  cursor: grabbing !important;
 }
 
 .wt-webcam-dock.is-resizing {
@@ -10095,7 +10100,7 @@ body.in-chit-chat-mode .wt-webcam-hidden-trigger {
   display: flex;
   flex-direction: column;
   align-items: center;
-  cursor: pointer;
+  cursor: grab;
   opacity: 0.52;
   transition: opacity 220ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }

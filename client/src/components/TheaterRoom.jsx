@@ -348,7 +348,8 @@ const PartyWebcamOrb = memo(function PartyWebcamOrb({
   isMuted,
   isSpeaking,
   onExpand,
-  onHideWebcam
+  onHideWebcam,
+  wasJustDraggedRef
 }) {
   const videoRef = useRef(null);
 
@@ -393,8 +394,11 @@ const PartyWebcamOrb = memo(function PartyWebcamOrb({
   return (
     <div
       className="wt-pip-orb"
-      title={`${name} · Click to expand to full video`}
-      onClick={onExpand}
+      title={`${name} · Click to expand · Drag to reposition`}
+      onClick={(e) => {
+        if (wasJustDraggedRef?.current) return;
+        onExpand?.();
+      }}
     >
       <div className="wt-pip-orb-frame">
         <video
@@ -611,7 +615,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [isWebcamCollapsed, setIsWebcamCollapsed] = useState(false);
   const [isSelfViewHidden, setIsSelfViewHidden] = useState(false);
   const [isCinemaDimmed, setIsCinemaDimmed] = useState(false);
-  const [webcamPosition, setWebcamPosition] = useState({ x: 0, y: 0 });
+  const [webcamPosition, setWebcamPosition] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wt_webcam_pos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
+          return parsed;
+        }
+      }
+    } catch {}
+    return { x: 0, y: 0 };
+  });
+  const wasJustDraggedRef = useRef(false);
   const [webcamScale, setWebcamScale] = useState(() => {
     try {
       return Number(localStorage.getItem('wt_webcam_scale')) || 220;
@@ -4948,44 +4964,102 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       );
     }
 
-    // Direct card click-and-drag to move with magnetic corner snapping on release
+    // Direct card click-and-drag with free movement and magnetic edge snapping on release
     const handleCardPointerDown = (e) => {
-      if (e.target.closest('button, .wt-pip-resize-thumb')) return;
-      e.preventDefault();
+      if (e.target.closest('button, .wt-pip-resize-thumb, .wt-pip-actions')) return;
+      if (e.button !== undefined && e.button !== 0) return;
       e.stopPropagation();
-      setIsWebcamDragging(true);
+
       const startX = e.clientX;
       const startY = e.clientY;
       const initX = webcamPosition.x;
       const initY = webcamPosition.y;
+      let hasMoved = false;
 
       const onPointerMove = (ev) => {
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
-        setWebcamPosition({
-          x: initX + dx,
-          y: initY + dy,
-        });
+
+        if (!hasMoved && Math.hypot(dx, dy) > 4) {
+          hasMoved = true;
+          wasJustDraggedRef.current = true;
+          setIsWebcamDragging(true);
+        }
+
+        if (hasMoved) {
+          setWebcamPosition({
+            x: initX + dx,
+            y: initY + dy,
+          });
+        }
       };
 
-      const onPointerUp = () => {
-        setIsWebcamDragging(false);
+      const onPointerUp = (ev) => {
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', onPointerUp);
         window.removeEventListener('pointercancel', onPointerUp);
 
-        // Magnetic corner snapping
+        if (!hasMoved) {
+          setIsWebcamDragging(false);
+          return;
+        }
+
+        setIsWebcamDragging(false);
+
+        // Magnetic edge snapping and viewport clamping
         if (dockRef.current) {
           const rect = dockRef.current.getBoundingClientRect();
           const winW = window.innerWidth;
           const winH = window.innerHeight;
-          const isLeft = (rect.left + rect.width / 2) < winW / 2;
-          const isTop = (rect.top + rect.height / 2) < winH / 2;
 
-          const targetX = isLeft ? -(winW - rect.width - 48) : 0;
-          const targetY = isTop ? 0 : (winH - rect.height - 130);
-          setWebcamPosition({ x: targetX, y: targetY });
+          // Target margins from screen boundaries
+          const MARGIN_LEFT = 20;
+          const MARGIN_RIGHT = 20;
+          const MARGIN_TOP = 20;
+          const MARGIN_BOTTOM = 96; // Space above video player scrubber / controls
+          const SNAP_DIST = 60;     // Magnetic attraction threshold (px)
+
+          const currentTx = initX + (ev.clientX - startX);
+          const currentTy = initY + (ev.clientY - startY);
+
+          // Boundaries in tx / ty coordinate space relative to top: 24px, right: 24px
+          const minTx = MARGIN_LEFT - (winW - 24 - rect.width);
+          const maxTx = (winW - MARGIN_RIGHT) - (winW - 24); // +4px
+          const minTy = MARGIN_TOP - 24;                     // -4px
+          const maxTy = winH - MARGIN_BOTTOM - rect.height - 24;
+
+          let finalTx = currentTx;
+          let finalTy = currentTy;
+
+          // Magnetic horizontal edge snap (Left / Right)
+          if (rect.left < SNAP_DIST) {
+            finalTx = minTx; // Stick magnetically to left edge
+          } else if ((winW - rect.right) < SNAP_DIST) {
+            finalTx = 0;     // Stick magnetically to right edge (default dock alignment)
+          } else {
+            // Free position, clamped inside screen
+            finalTx = Math.max(minTx, Math.min(maxTx, currentTx));
+          }
+
+          // Magnetic vertical edge snap (Top / Bottom)
+          if (rect.top < SNAP_DIST) {
+            finalTy = 0;     // Stick magnetically to top edge (default dock alignment)
+          } else if ((winH - rect.bottom) < (SNAP_DIST + 40)) {
+            finalTy = maxTy; // Stick magnetically to bottom edge (above player controls)
+          } else {
+            // Free position, clamped inside screen
+            finalTy = Math.max(minTy, Math.min(maxTy, currentTy));
+          }
+
+          setWebcamPosition({ x: finalTx, y: finalTy });
+          try {
+            localStorage.setItem('wt_webcam_pos', JSON.stringify({ x: finalTx, y: finalTy }));
+          } catch {}
         }
+
+        setTimeout(() => {
+          wasJustDraggedRef.current = false;
+        }, 120);
       };
 
       window.addEventListener('pointermove', onPointerMove, { passive: true });
@@ -5038,9 +5112,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           '--webcam-w': `${webcamScale}px`
         }}
         onPointerDown={handleCardPointerDown}
-        onDoubleClick={() => setWebcamPosition({ x: 0, y: 0 })}
+        onDoubleClick={() => {
+          setWebcamPosition({ x: 0, y: 0 });
+          try {
+            localStorage.removeItem('wt_webcam_pos');
+          } catch {}
+        }}
         onClick={(e) => e.stopPropagation()}
-        title={isWebcamDragging ? 'Dragging webcam' : 'Drag to reposition · Double-click to reset corner'}
+        title={isWebcamDragging ? 'Dragging webcam' : 'Drag anywhere to move (magnetic edges) · Double-click to reset'}
       >
         {isWebcamCollapsed ? (
           <div className="wt-pip-orbs-rack">
@@ -5054,6 +5133,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 isSpeaking={isLocalSpeaking}
                 onExpand={() => setIsWebcamCollapsed(false)}
                 onHideWebcam={() => setIsWebcamHidden(true)}
+                wasJustDraggedRef={wasJustDraggedRef}
               />
             )}
             {remotePeersWithVideo.map(([peerId, peer]) => {
@@ -5091,6 +5171,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   isSpeaking={peer?.isSpeaking}
                   onExpand={() => setIsWebcamCollapsed(false)}
                   onHideWebcam={() => setIsWebcamHidden(true)}
+                  wasJustDraggedRef={wasJustDraggedRef}
                 />
               );
             })}
