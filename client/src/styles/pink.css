@@ -1226,19 +1226,56 @@ body {
   max-width: min(428px, calc(100vw - 48px));
   pointer-events: auto;
   cursor: pointer;
-  color: #fdf2f8;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.45) 100%);
-  backdrop-filter: blur(16px) saturate(190%);
-  -webkit-backdrop-filter: blur(16px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  position: relative;
+  overflow: hidden;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.32),
-    0 2px 10px rgba(236, 72, 153, 0.15),
-    inset 0 1px 1px rgba(255, 255, 255, 0.65),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 10px rgba(236, 72, 153, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 0 20px 2px rgba(255, 255, 255, 0.2);
   transform-origin: bottom left;
   animation: fcLiquidBubbleIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
   transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.floating-chat-pill::before,
+.floating-chat-media-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.85),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.floating-chat-pill::after,
+.floating-chat-media-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8),
+    transparent,
+    rgba(255, 255, 255, 0.3)
+  );
+  pointer-events: none;
 }
 
 .floating-chat-pill {
@@ -1261,12 +1298,13 @@ body {
 
 .floating-chat-pill:hover,
 .floating-chat-media-card:hover {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.09) 45%, rgba(24, 12, 36, 0.5) 100%);
+  background: rgba(255, 255, 255, 0.32);
+  border-color: rgba(255, 255, 255, 0.55);
   box-shadow:
-    0 16px 36px rgba(0, 0, 0, 0.35),
+    0 10px 34px rgba(0, 0, 0, 0.16),
     0 0 16px rgba(244, 114, 182, 0.28),
-    inset 0 1px 1px rgba(255, 255, 255, 0.75);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 0 20px 4px rgba(255, 255, 255, 0.28);
   transform: translateY(-1px);
 }
 
@@ -7281,17 +7319,53 @@ body.in-chit-chat-mode header {
   padding: 6px 12px;
   border-radius: 9999px;
   pointer-events: auto;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.45) 100%);
-  backdrop-filter: blur(16px) saturate(190%);
-  -webkit-backdrop-filter: blur(16px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.38),
-    0 2px 10px rgba(236, 72, 153, 0.15),
-    inset 0 1px 1px rgba(255, 255, 255, 0.65),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
+    0 8px 32px rgba(0, 0, 0, 0.14),
+    0 2px 10px rgba(236, 72, 153, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 0 20px 2px rgba(255, 255, 255, 0.2);
   transform-origin: bottom left;
   animation: wfbMorphIn 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.wfb-p3::before,
+.wfb-v1::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.85),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.wfb-p3::after,
+.wfb-v1::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8),
+    transparent,
+    rgba(255, 255, 255, 0.3)
+  );
+  pointer-events: none;
 }
 
 .wfb-p3.is-closing,
@@ -7379,14 +7453,15 @@ body.in-chit-chat-mode header {
   background: transparent;
   border: none;
   outline: none;
-  color: #fdf2f8;
-  font-size: 0.85rem;
-  font-weight: 500;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .wfb-p3 .floating-chat-input::placeholder,
 .wfb-v1 .floating-chat-input::placeholder {
-  color: rgba(249, 232, 244, 0.56);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .wfb-p3 .wfb-actions,

@@ -81,15 +81,15 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
         display: 'flex',
         flexDirection: 'column',
         background: isDarkTheme
-          ? 'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.85) 100%)'
-          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 245, 250, 0.9) 100%)',
-        border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.32)' : '1px solid rgba(236, 72, 153, 0.2)',
+          ? 'rgba(255, 255, 255, 0.22)'
+          : 'rgba(255, 255, 255, 0.95)',
+        border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.38)' : '1px solid rgba(236, 72, 153, 0.2)',
         borderRadius: '20px',
         boxShadow: isDarkTheme
-          ? '0 20px 48px rgba(0, 0, 0, 0.38), 0 2px 14px rgba(236, 72, 153, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.65), inset 0 -1px 1px rgba(0, 0, 0, 0.25)'
+          ? '0 8px 32px rgba(0, 0, 0, 0.14), 0 2px 10px rgba(236, 72, 153, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 -1px 0 rgba(255, 255, 255, 0.15), inset 0 0 20px 2px rgba(255, 255, 255, 0.2)'
           : '0 16px 36px rgba(236, 72, 153, 0.12), inset 0 1px 1px #ffffff',
-        backdropFilter: 'blur(20px) saturate(190%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(190%)',
+        backdropFilter: 'blur(6px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(6px) saturate(160%)',
         overflow: 'hidden',
         zIndex: 120,
         boxSizing: 'border-box',
