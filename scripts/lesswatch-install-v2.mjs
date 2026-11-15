@@ -63,7 +63,7 @@ const TARGETS = [
   {
     id: 'cloud',
     short: 'Cloud Shell',
-    icon: '◆',
+    icon: '☁',
     tag: 'DETECTED',
     title: 'Google Cloud Shell / Web Sandbox',
     defaultPort: 8080,
@@ -74,7 +74,7 @@ const TARGETS = [
   {
     id: 'vps',
     short: 'Cloud VM / VPS',
-    icon: '▲',
+    icon: '⚡',
     tag: 'DEDICATED',
     title: 'Linux Cloud VM / Dedicated VPS',
     defaultPort: 3000,
@@ -85,7 +85,7 @@ const TARGETS = [
   {
     id: 'local',
     short: 'Local / Docker',
-    icon: '■',
+    icon: '💻',
     tag: 'LOCAL',
     title: 'Local Workstation / Docker Desktop',
     defaultPort: 3000,
@@ -499,9 +499,7 @@ function truncateAnsi(str, maxLen) {
 function pad(s, w) {
   const len = vlen(s);
   if (len > w) {
-    const t = truncateAnsi(s, w);
-    const tl = vlen(t);
-    return tl < w ? t + ' '.repeat(w - tl) : t;
+    return truncateAnsi(s, w);
   }
   return s + ' '.repeat(w - len);
 }
@@ -570,7 +568,6 @@ function gtext(s, bold = false) {
 }
 const green = C.green;
 const dim = (s) => DIM + s + RESET;
-const bold = (s) => BOLD + s + RESET;
 
 function hsl(h, s, l) {
   if (!COLOR) return '';
@@ -1000,13 +997,14 @@ const screens = {
       });
       L.push('');
       const cur = TARGETS[state.cursor];
-      L.push(
-        dim('─'.repeat(Math.max(8, inner))),
-        ` ${C.accent(BOLD + cur.title + RESET)}  ${C.amber(`[${cur.short}]`)}`,
-        ` ${dim(cur.desc)}`,
-        ` ${C.faint('Network Mode: ')} ${C.text(cur.netMode)}  ${dim('·')}  ${C.faint('Port: ')}${C.green(String(cur.defaultPort))}`,
-        ` ${C.faint('WebRTC Sync:  ')} ${C.text(cur.webrtc)}`,
-      );
+      L.push(...box([
+        `${BOLD}${C.accent(cur.title)}${RESET} ${C.amber(`[${cur.short}]`)}`,
+        dim(cur.desc),
+        '',
+        `${C.faint('Network Mode: ')} ${C.text(cur.netMode)}`,
+        `${C.faint('WebRTC Sync:  ')} ${C.text(cur.webrtc)}`,
+        `${C.faint('Default Port: ')} ${C.green(String(cur.defaultPort))}  ${dim('(customizable in next step)')}`
+      ], inner, 'target details'));
       L.push('', hint([['↑↓', 'move'], ['space', 'select'], ['1-3', 'direct'], ['enter', 'next (port)'], ['esc', 'menu']], inner));
       return L;
     },
@@ -1089,12 +1087,12 @@ const screens = {
         ? 'Type numeric port digits (1-65535). Press [Enter] to confirm, [Esc] to cancel.'
         : cur.desc;
 
-      L.push(
-        dim('─'.repeat(Math.max(8, inner))),
-        ` ${C.accent(BOLD + cur.title + RESET)}`,
-        ` ${dim(descText)}`,
-        ` ${C.faint('Active Configuration: ')} ${C.green(String(curPort))} ${C.faint(`(bound on target ${TARGETS[state.target].short})`)}`
-      );
+      L.push(...box([
+        `${BOLD}${C.accent(cur.title)}${RESET}`,
+        dim(descText),
+        '',
+        `${C.faint('Active Configuration: ')} ${C.green(String(curPort))} ${C.faint(`(bound on target ${TARGETS[state.target].short})`)}`
+      ], inner, 'port configuration'));
 
       const hintText = state.editingCustomPort
         ? [['0-9', 'type digits'], ['enter', 'confirm'], ['esc', 'cancel']]
@@ -1277,17 +1275,17 @@ const screens = {
         if (gy >= 0 && gy < H && gx >= 0 && gx < inner) grid[gy][gx] = hsl(p.h + state.t * 90, 0.9, 0.65) + p.ch + RESET;
       }
 
-      const isCloud = TARGETS[state.target].id === 'cloud';
-      const ip = isCloud ? 'NAT Sandbox (tunnel active)' : (detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)');
-      const ipKey = isCloud ? 'Access Mode' : 'Public IP';
+      const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
+      const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
       const url = state.publicUrl || 'not captured · set LW_URL';
-      const local = process.env.LW_LOCAL || `http://localhost:${defaultPort()}`;
+      const isCloud = TARGETS[state.target].id === 'cloud';
+      const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
       const label = (k) => C.accent(pad(k, 12));
 
       const ipFx = typeFx(ip, 0.7, 26);
       const urlFx = typeFx(url, 1.5, 36);
       const cur = (fx) => (fx && !fx.done ? C.accent('▌') : '');
-      const ipLine = ipFx ? ` ${label(ipKey)} ${C.text(ipFx.shown)}${C.accent(ipFx.pending)}${cur(ipFx)}` : '';
+      const ipLine = ipFx ? ` ${label('Public IP')} ${C.text(ipFx.shown)}${C.accent(ipFx.pending)}${cur(ipFx)}` : '';
 
       let urlLine = '';
       if (urlFx) {
@@ -1414,9 +1412,8 @@ function draw() {
     out.write(E + 'H' + C.amber(`Terminal too small (${cols}x${rows}). Need at least 60x22.`) + E + 'K\n' + E + 'J');
     return;
   }
-  // Adaptive width: clean, responsive sizing that never exceeds terminal column bounds
-  const maxW = Math.max(60, cols - 4);
-  const W = Math.min(maxW, 88);
+  // Adaptive width: standard 86-94 for modern terminals, ensures full URL readability
+  const W = Math.max(76, Math.min(cols - 4, 92));
   const inner = W - 4;
   const left = ' '.repeat(Math.max(0, Math.floor((cols - W) / 2)));
 
@@ -1465,31 +1462,18 @@ function finish() {
   leaveScreen();
   const url = state.publicUrl || '(not captured, see the tunnel step output)';
   const isCloud = TARGETS[state.target].id === 'cloud';
-  const local = process.env.LW_LOCAL || `http://localhost:${defaultPort()}`;
-  const ip = isCloud ? 'NAT Sandbox (Cloudflare tunnel active)' : (detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)');
+  const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
+  const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
   const cols = out.columns || 80;
-  const cardW = Math.max(60, Math.min(cols - 4, 88));
-  const inner = cardW - 4;
-
-  const lines = [
+  const cardW = Math.max(86, Math.min(cols - 4, 94));
+  const card = box([
     BOLD + green('LESSWATCH is live') + RESET, '',
-    isCloud ? `${C.accent('Access Mode ')}  ${ip}` : `${C.accent('Public IP   ')}  ${ip}`,
-  ];
-
-  if (vlen(url) + 14 > inner) {
-    lines.push(`${C.accent('Public URL  ')}`);
-    lines.push(`  ${BOLD}${C.text(url)}${RESET}`);
-  } else {
-    lines.push(`${C.accent('Public URL  ')}  ${BOLD}${C.text(url)}${RESET}`);
-  }
-
-  lines.push(
-    `${C.accent('Local       ')}  ${local}`,
-    `${C.accent('Login       ')}  admin / admin`, '',
+    `${C.accent('Public IP ')}  ${ip}`,
+    `${C.accent('Public URL')}  ${BOLD}${C.text(url)}${RESET}`,
+    `${C.accent('Local     ')}  ${local}`,
+    `${C.accent('Login     ')}  admin / admin`, '',
     C.muted('docker compose ps  ·  docker compose logs -f'),
-  );
-
-  const card = box(lines, cardW, '');
+  ], cardW, '');
   const left = ' '.repeat(Math.max(0, Math.floor((cols - cardW) / 2)));
   out.write('\n' + card.map((l) => left + l).join('\n') + '\n\n');
   process.exit(0);
