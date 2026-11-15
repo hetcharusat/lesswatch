@@ -1472,13 +1472,15 @@ export function PoufPlayer({
         <>
           <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>Audio Stream ({audioTracks.length || 1})</span></button>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '200px', overflowY: 'auto' }}>
-            {audioTracks.length === 0 ? (<div className="pouf-yt-menu-item active"><span>Default Audio (Stereo AAC)</span><Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} /></div>) : (audioTracks.map((t, idx) => { const trackIdx = t.index ?? idx; const isActive = activeAudioIndex === trackIdx; return (
-              <div key={trackIdx} onClick={() => onAudioTrackChange?.(trackIdx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track #${idx + 1}`}</span>
-                {t.codec && <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>{t.codec.toUpperCase()}</span>}
-                {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
-              </div>
-            ); }))}
+            {audioTracks.length === 0 ? (<div className="pouf-yt-menu-item active"><span>Default Audio (Stereo AAC)</span><Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} /></div>) : (audioTracks.map((t, idx) => {
+              const trackIdx = t.index ?? idx; const isActive = activeAudioIndex === trackIdx; return (
+                <div key={trackIdx} onClick={() => onAudioTrackChange?.(trackIdx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track #${idx + 1}`}</span>
+                  {t.codec && <span style={{ fontSize: '0.60rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: '#d1d5db' }}>{t.codec.toUpperCase()}</span>}
+                  {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                </div>
+              );
+            }))}
           </div>
           {audioTracks.length > 1 && !audioStatusData?.allReady && (<button type="button" onClick={handleProcessAllAudio} disabled={isProcessingAudio} style={{ marginTop: '6px', padding: '6px 8px', borderRadius: '6px', background: 'rgba(244, 114, 182, 0.15)', border: '1px solid rgba(244, 114, 182, 0.35)', color: '#fbcfe8', fontSize: '0.68rem', fontWeight: 700, cursor: isProcessingAudio ? 'not-allowed' : 'pointer' }}>{isProcessingAudio ? 'Extracting in background...' : 'Pre-extract All Tracks to AAC'}</button>)}
         </>
@@ -1801,330 +1803,332 @@ export function PoufPlayer({
       )}
 
       {/* 6. Minimalist Obsidian Cinema HUD Glass Controls Overlay */}
+      <div
+        className={`pouf-hud-overlay a4-hud ${!isLocked && showControls ? '' : 'is-hidden'}`}
+      >
+        <div className="a4-timeline">
+          <span className="a4-tcode">{formatTime(playProgress)}</span>
           <div
-            className={`pouf-hud-overlay a4-hud ${!isLocked && showControls ? '' : 'is-hidden'}`}
+            id="pouf-progress-track"
+            className="a4-track"
+            onMouseDown={(e) => {
+              const track = e.currentTarget;
+              if (!track || !videoRef.current || !duration) return;
+              isDraggingScrubberRef.current = true;
+              const rect = track.getBoundingClientRect();
+              const upd = (cx) => {
+                const tt = Math.max(0, Math.min(1, (cx - rect.left) / (rect.width || 1))) * duration;
+                setPlayProgress(tt);
+                return tt;
+              };
+              upd(e.clientX);
+              const onMM = (me) => upd(me.clientX);
+              const onMU = (ue) => {
+                const ft = upd(ue.clientX);
+                isDraggingScrubberRef.current = false;
+                if (videoRef.current) videoRef.current.currentTime = ft;
+                if (shouldUseAudioElement && audioRef.current) audioRef.current.currentTime = ft;
+                if (onSeek) onSeek(ft);
+                window.removeEventListener('mousemove', onMM);
+                window.removeEventListener('mouseup', onMU);
+              };
+              window.addEventListener('mousemove', onMM);
+              window.addEventListener('mouseup', onMU);
+            }}
+            onMouseMove={(e) => {
+              if (!duration) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
+              setHoverPosition(pos * 100);
+              setHoverTime(pos * duration);
+            }}
+            onMouseLeave={handleScrubberMouseLeave}
           >
-            <div className="a4-timeline">
-              <span className="a4-tcode">{formatTime(playProgress)}</span>
-              <div
-                id="pouf-progress-track"
-                className="a4-track"
-                onMouseDown={(e) => {
-                  const track = e.currentTarget;
-                  if (!track || !videoRef.current || !duration) return;
-                  isDraggingScrubberRef.current = true;
-                  const rect = track.getBoundingClientRect();
-                  const upd = (cx) => {
-                    const tt = Math.max(0, Math.min(1, (cx - rect.left) / (rect.width || 1))) * duration;
-                    setPlayProgress(tt);
-                    return tt;
-                  };
-                  upd(e.clientX);
-                  const onMM = (me) => upd(me.clientX);
-                  const onMU = (ue) => {
-                    const ft = upd(ue.clientX);
-                    isDraggingScrubberRef.current = false;
-                    if (videoRef.current) videoRef.current.currentTime = ft;
-                    if (shouldUseAudioElement && audioRef.current) audioRef.current.currentTime = ft;
-                    if (onSeek) onSeek(ft);
-                    window.removeEventListener('mousemove', onMM);
-                    window.removeEventListener('mouseup', onMU);
-                  };
-                  window.addEventListener('mousemove', onMM);
-                  window.addEventListener('mouseup', onMU);
-                }}
-                onMouseMove={(e) => {
-                  if (!duration) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
-                  setHoverPosition(pos * 100);
-                  setHoverTime(pos * duration);
-                }}
-                onMouseLeave={handleScrubberMouseLeave}
-              >
-                {hoverTime !== null && (
-                  <div className="a4-tip" style={{ left: `${hoverPosition}%` }}>
-                    {formatTime(hoverTime)}
-                  </div>
-                )}
-                <div className="a4-rail">
-                  <div className="a4-buf" style={{ width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%` }} />
-                  <div className="a4-fill" style={{ width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
-                </div>
-                <div className="a4-knob" style={{ left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
+            {hoverTime !== null && (
+              <div className="a4-tip" style={{ left: `${hoverPosition}%` }}>
+                {formatTime(hoverTime)}
               </div>
-              <span className="a4-tcode" style={{ color: 'rgba(255,228,230,0.75)' }}>{formatTime(duration)}</span>
-            </div>
-
-            <div className="a4-deck">
-              <div className="a4-left">
-                <button type="button" onClick={() => setIsMuted(m => !m)} className="a4-btn" title={isMuted ? 'Unmute' : 'Mute'}>
-                  {isMuted || volume === 0 ? <VolumeX size={16} color="#ff2e93" /> : <Volume2 size={16} />}
-                </button>
-                <input
-                  type="range" min="0" max="1" step="0.05"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => { const val = parseFloat(e.target.value); setVolume(val); setIsMuted(false); localStorage.setItem('wt_player_vol', val); }}
-                  style={{ width: '54px', accentColor: '#ff2e93', cursor: 'pointer', height: '3px' }}
-                  aria-label="Volume"
-                />
-                {onForceSyncAll && (
-                  <button type="button" onClick={onForceSyncAll} className="a4-pill" title="Sync Everyone">
-                    <RefreshCw size={12} color="#f472b6" /><span>Sync</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="a4-center">
-                <button type="button" onClick={() => handleSeekRelative(-10)} className="a4-btn" title="Rewind 10s (Left Arrow)"><RotateCcw size={15} /></button>
-                <button type="button" onClick={togglePlayPause} className="a4-play" title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}>
-                  {localPlaying ? <ClayPause size={19} /> : <ClayPlay size={19} />}
-                </button>
-                <button type="button" onClick={() => handleSeekRelative(10)} className="a4-btn" title="Fast Forward 10s (Right Arrow)"><RotateCw size={15} /></button>
-              </div>
-
-              <div className="a4-right">
-                <button
-                  type="button"
-                  onClick={() => { setShowSubMenu(prev => !prev); setSubsSubView('root'); setShowSettingsMenu(false); }}
-                  className={showSubMenu ? 'a4-pill active' : 'a4-pill'}
-                  title="Subtitles"
-                >
-                  <ClaySubtitles size={13} /><span>Subs</span>{activeSubtitleIndex >= 0 && <span className="pouf-active-dot" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowSettingsMenu(prev => !prev); setSettingsSubView('root'); setShowSubMenu(false); }}
-                  className={showSettingsMenu ? 'a4-btn active' : 'a4-btn'}
-                  title="Settings (Audio, Speed, Boost, Presets)"
-                >
-                  <Settings size={15} style={{ transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }} />
-                </button>
-                <div className="a4-utils">
-                  <button type="button" onClick={handleTogglePiP} className="a4-btn" title="Picture-in-Picture"><PictureInPicture size={14} /></button>
-                  <button type="button" onClick={handleCaptureScreenshot} className="a4-btn" title="Capture Screenshot Frame"><Camera size={14} /></button>
-                  <button type="button" onClick={() => { setIsLocked(true); setShowControls(false); setShowSubMenu(false); setShowSettingsMenu(false); triggerLockHint(); }} className="a4-btn" title="Lock Screen Controls (L)"><Lock size={14} /></button>
-                </div>
-                <button type="button" onClick={toggleFullscreen} className="a4-btn" title="Fullscreen (F)">{isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}</button>
-              </div>
-            </div>
-
-            {showSubMenu && (
-                  <div onClick={(e) => e.stopPropagation()} className="subv1-shell">
-                    {subsSubView === 'root' && (
-                      <>
-                        <div className="subv1-head">
-                          <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#fce7f3' }}>Subtitles (CC)</span>
-                          <button type="button" onClick={() => setShowSubMenu(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}><X size={14} /></button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '165px', overflowY: 'auto' }}>
-                          <div onClick={() => onSubtitleChange?.(-1)} className={`pouf-yt-menu-item ${activeSubtitleIndex === -1 ? 'active' : ''}`}>
-                            <span>Off</span>{activeSubtitleIndex === -1 && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                          </div>
-                          {allSubtitles.map((t, idx) => { const isActive = activeSubtitleIndex === idx; return (
-                            <div key={idx} onClick={() => onSubtitleChange?.(idx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track ${idx + 1}`}</span>
-                              {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
-                            </div>
-                          ); })}
-                        </div>
-                        <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '2px 0' }} />
-                        <input type="file" ref={fileInputRef} accept=".srt,.vtt" onChange={handleUploadSubtitleFile} style={{ display: 'none' }} />
-                        <div onClick={() => fileInputRef.current?.click()} className="pouf-yt-menu-item"><Upload size={14} color="#f472b6" /><span>Upload Subtitle File</span></div>
-                        <div onClick={() => setSubsSubView('search')} className="pouf-yt-menu-item"><Sparkles size={14} color="#f472b6" /><span>Search SubDL Online</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
-                        <div onClick={() => setSubsSubView('options')} className="pouf-yt-menu-item"><Sliders size={14} color="#f472b6" /><span>Studio Customizer & Sync</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
-                      </>
-                    )}
-                    {subsSubView === 'options' && (
-                      <>
-                        <div className="subv1-head">
-                          <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Subtitle Studio</span></button>
-                          <button type="button" onClick={resetSubtitleDefaults} title="Reset All Subtitle Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'rgba(255,255,255,0.07)', color: '#f9a8d4', borderRadius: 999, padding: '3px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
-                            <RotateCcw size={11} /><span>Reset</span>
-                          </button>
-                        </div>
-                        <div className="subv1-stage">
-                          <span style={{ ...getSubtitleCueStyle(0.58), maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {currentCueText || 'We stayed till dawn.'}
-                          </span>
-                        </div>
-                        <div className="subv1-tabs">
-                          <button type="button" onClick={() => setSubCustomizerTab('presets')} className={`subv1-tab ${subCustomizerTab === 'presets' ? 'is-on' : ''}`}>Pink Moods & Look</button>
-                          <button type="button" onClick={() => setSubCustomizerTab('tune')} className={`subv1-tab ${subCustomizerTab === 'tune' ? 'is-on' : ''}`}>Fine Tune & Sync</button>
-                        </div>
-                        {subCustomizerTab === 'presets' ? (
-                          <div className="subv1-scroll">
-                            <div className="subv1-preset-grid">
-                              {PINK_SUB_PRESETS.map((p) => {
-                                const isActive = subtitleBgColor === p.bgColor && subtitleColor.toLowerCase() === p.color.toLowerCase() && subtitleFont === p.font && subtitleEdge === p.edge;
-                                return (
-                                  <button type="button" key={p.id} onClick={() => applySubtitlePreset(p)} className={`subv1-preset-card ${isActive ? 'is-active' : ''}`}>
-                                    <span style={{ width: 22, height: 22, borderRadius: 7, background: p.swatch, flexShrink: 0, border: '1px solid rgba(255,255,255,0.28)' }} />
-                                    <span style={{ minWidth: 0 }}>
-                                      <span style={{ display: 'block', fontSize: '0.70rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
-                                      <span style={{ display: 'block', fontSize: '0.60rem', color: '#f472b6' }}>{p.tag}</span>
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Typeface</div>
-                              <div className="subv1-seg-row">
-                                {[{ id: 'sans', label: 'Clean' }, { id: 'rounded', label: 'Soft' }, { id: 'serif', label: 'Serif' }, { id: 'mono', label: 'Mono' }].map((f) => (
-                                  <button type="button" key={f.id} onClick={() => handleSubtitleFontChange(f.id)} className={`subv1-pill ${subtitleFont === f.id ? 'is-active' : ''}`}>{f.label}</button>
-                                ))}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Edge & Glow</div>
-                              <div className="subv1-seg-row">
-                                {[{ id: 'auto', label: 'Auto' }, { id: 'crisp', label: 'Outline' }, { id: 'glow', label: 'Soft Glow' }, { id: 'pink-glow', label: 'Pink Neon' }].map((edge) => (
-                                  <button type="button" key={edge.id} onClick={() => handleSubtitleEdgeChange(edge.id)} className={`subv1-pill ${subtitleEdge === edge.id ? 'is-active' : ''}`}>{edge.label}</button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="subv1-scroll">
-                            <div className="subv1-sl-grid">
-                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>SIZE</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleSize}px</span></div><input type="range" min="14" max="48" step="1" value={subtitleSize} onChange={(e) => handleSizeChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
-                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>HEIGHT</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBottom}px</span></div><input type="range" min="16" max="240" step="4" value={subtitleBottom} onChange={(e) => handleBottomChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
-                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>OPACITY</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgOpacity}%</span></div><input type="range" min="0" max="100" step="5" value={subtitleBgOpacity} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgOpacity(v); localStorage.setItem('wt_sub_bg_opacity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
-                              <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>BLUR</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgBlur}px</span></div><input type="range" min="0" max="20" step="1" value={subtitleBgBlur} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgBlur(v); localStorage.setItem('wt_sub_bg_blur', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Backdrop Tint</div>
-                              <div className="subv1-seg-row">
-                                {Object.entries(SUBTITLE_BG_MAP).map(([id, info]) => (
-                                  <button type="button" key={id} onClick={() => handleSubtitleBgColorChange(id)} style={{ padding: '4px 2px', borderRadius: 7, background: info.hex, border: subtitleBgColor === id ? '1.5px solid #f472b6' : '1px solid rgba(255,255,255,0.14)', color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{info.label.split(' ')[0]}</button>
-                                ))}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Text Color</div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                {['#ffffff', '#fde047', '#fbcfe8', '#f472b6', '#fb7185', '#e879f9', '#38bdf8', '#34d399'].map((c) => (
-                                  <button type="button" key={c} onClick={() => handleSubtitleColorChange(c)} style={{ flex: 1, height: 20, borderRadius: 6, background: c, border: subtitleColor.toLowerCase() === c ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)', cursor: 'pointer' }} />
-                                ))}
-                                <input type="color" value={subtitleColor} onChange={(e) => handleSubtitleColorChange(e.target.value)} title="Custom Color" style={{ width: 22, height: 22, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer' }} />
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>
-                                <span>Sync Offset</span>
-                                <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>{subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}</span>
-                              </div>
-                              <div style={{ display: 'flex', gap: 4 }}>
-                                <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.5</button>
-                                <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.1</button>
-                                <button type="button" onClick={() => handleDelayChange(0)} className="pouf-dock-pill-btn" style={{ padding: '3px 7px', fontSize: '0.65rem' }}>0s</button>
-                                <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.1</button>
-                                <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.5</button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {subsSubView === 'search' && (
-                      <>
-                        <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>SubDL Online Search</span></button>
-                        <div style={{ display: 'flex', gap: '4px', padding: '2px 4px' }}>
-                          <input type="text" value={onlineSearchQuery} onChange={(e) => setOnlineSearchQuery(e.target.value)} placeholder="Search movie/anime..." onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()} className="pouf-glass-input" style={{ flex: 1, padding: '4px 6px', fontSize: '0.72rem' }} />
-                          <button type="button" onClick={() => handleSearchOnlineSubtitles()} disabled={isSearchingOnline} className="pouf-glass-btn-primary" style={{ padding: '4px 8px', fontSize: '0.70rem' }}>{isSearchingOnline ? '...' : <Search size={12} />}</button>
-                        </div>
-                        <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                          {isSearchingOnline ? (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.70rem', color: '#f472b6' }}>Searching SubDL...</div>) : onlineSearchResults.length > 0 ? (onlineSearchResults.map((sub, sIdx) => (
-                            <div key={sIdx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(244,114,182,0.15)', gap: '6px' }}>
-                              <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, fontSize: '0.68rem', color: '#f3f4f6' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{sub.fileName}</div><span style={{ fontSize: '0.60rem', color: '#f472b6' }}>{sub.language}</span></div>
-                              <button type="button" onClick={() => handleDownloadOnlineSubtitle(sub)} disabled={isDownloadingOnline} className="pouf-glass-btn-primary" style={{ padding: '3px 6px', fontSize: '0.64rem', flexShrink: 0 }}>{downloadingSubId === sub.fileId ? '...' : 'Get'}</button>
-                            </div>
-                          ))) : (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.68rem', color: '#9ca3af' }}>Type title and press enter</div>)}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
             )}
+            <div className="a4-rail">
+              <div className="a4-buf" style={{ width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%` }} />
+              <div className="a4-fill" style={{ width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
+            </div>
+            <div className="a4-knob" style={{ left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
+          </div>
+          <span className="a4-tcode" style={{ color: 'rgba(255,228,230,0.75)' }}>{formatTime(duration)}</span>
+        </div>
 
-            {showSettingsMenu && (
-                  <div onClick={(e) => e.stopPropagation()} className="cfgv1-shell">
-                    {settingsSubView !== 'filters' ? renderSettingsCoreViews() : (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Picture & Grain</span></button>
-                          <button type="button" onClick={() => handleToggleGrainEnabled(!filmGrainEnabled)} style={{ border: '1px solid rgba(244,114,182,0.32)', background: filmGrainEnabled ? 'rgba(236,72,153,0.24)' : 'rgba(255,255,255,0.06)', color: filmGrainEnabled ? '#fdf2f8' : '#9ca3af', borderRadius: 999, padding: '2px 8px', fontSize: '0.63rem', fontWeight: 800, cursor: 'pointer' }}>
-                            Grain: {filmGrainEnabled ? 'ON' : 'OFF'}
-                          </button>
-                        </div>
-                        <div className="cfgv1-tabs">
-                          <button type="button" onClick={() => setFilterLabTab('color')} className={`cfgv1-tab ${filterLabTab === 'color' ? 'is-on' : ''}`}>Color Look</button>
-                          <button type="button" onClick={() => setFilterLabTab('grain')} className={`cfgv1-tab ${filterLabTab === 'grain' ? 'is-on' : ''}`}>Film Grain</button>
-                        </div>
-                        {filterLabTab === 'color' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            {VISUAL_GRADE_PRESETS.map((p) => {
-                              const isActive = visualPreset === p.id;
-                              return (
-                                <button type="button" key={p.id} onClick={() => handleApplyVisualPreset(p)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`} style={{ border: 'none', width: '100%', textAlign: 'left', background: isActive ? undefined : 'transparent' }}>
-                                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.dot, border: '1px solid rgba(255,255,255,0.25)', flexShrink: 0 }} />
-                                  <span>{p.label}</span>
-                                  {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div className="cfgv1-swatch">
-                              {filmGrainEnabled && (
-                                <div style={{ position: 'absolute', inset: '-30%', pointerEvents: 'none', ...getFilmGrainVisualProps(0.45) }} />
-                              )}
-                              <span style={{ position: 'relative', fontSize: '0.63rem', fontWeight: 700, color: '#fce7f3', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-                                {filmGrainEnabled ? `${FILM_GRAIN_STOCKS.find((s) => s.id === filmGrainPreset)?.label || '35mm'} · ${filmGrainIntensity}%` : 'Grain Disabled (Clean Feed)'}
-                              </span>
-                              <span style={{ position: 'relative', fontSize: '0.60rem', color: '#f9a8d4', fontFamily: 'monospace' }}>
-                                {filmGrainEnabled ? (filmGrainBlend === 'normal' ? 'Universal' : filmGrainBlend) : 'OFF'}
-                              </span>
-                            </div>
-                            <div className="cfgv1-stocks">
-                              {FILM_GRAIN_STOCKS.map((s) => (
-                                <button type="button" key={s.id} onClick={() => handleApplyGrainStock(s)} className={`cfgv1-card ${filmGrainEnabled && filmGrainPreset === s.id ? 'is-on' : ''}`}>
-                                  <span style={{ fontSize: '0.67rem', fontWeight: 800 }}>{s.label}</span>
-                                  <span style={{ fontSize: '0.57rem', color: '#f472b6' }}>{s.tag}</span>
-                                </button>
-                              ))}
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                              <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Strength</span><span>{filmGrainEnabled ? `${filmGrainIntensity}%` : '0%'}</span></div>
-                                <input type="range" min="5" max="100" step="5" value={filmGrainIntensity} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainIntensity(v); localStorage.setItem('wt_grain_intensity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
-                              </div>
-                              <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Grain Size</span><span>{filmGrainSize.toFixed(1)}x</span></div>
-                                <input type="range" min="0.6" max="1.8" step="0.1" value={filmGrainSize} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainSize(v); localStorage.setItem('wt_grain_size', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
-                              </div>
-                            </div>
-                            <div className="cfgv1-chips">
-                              <button type="button" onClick={() => { const order = ['normal', 'soft-light', 'overlay']; const n = order[(order.indexOf(filmGrainBlend) + 1) % order.length]; handleToggleGrainEnabled(true); setFilmGrainBlend(n); localStorage.setItem('wt_grain_blend', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainBlend === 'normal' ? 'is-on' : ''}`} title="Universal guarantees visibility on black frames & all streams">
-                                {filmGrainBlend === 'normal' ? 'Universal' : (filmGrainBlend === 'soft-light' ? 'Soft Light' : 'Overlay')}
-                              </button>
-                              <button type="button" onClick={() => { const n = filmGrainChroma === 'mono' ? 'color' : 'mono'; handleToggleGrainEnabled(true); setFilmGrainChroma(n); localStorage.setItem('wt_grain_chroma', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainChroma === 'color' ? 'is-on' : ''}`}>
-                                {filmGrainChroma === 'mono' ? 'Silver Mono' : 'Color Dye'}
-                              </button>
-                              <button type="button" onClick={() => { const n = filmGrainMotion === '24fps' ? 'still' : '24fps'; handleToggleGrainEnabled(true); setFilmGrainMotion(n); localStorage.setItem('wt_grain_motion', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainMotion === '24fps' ? 'is-on' : ''}`}>
-                                {filmGrainMotion === '24fps' ? '24fps Live' : 'Static'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
+        <div className="a4-deck">
+          <div className="a4-left">
+            <button type="button" onClick={() => setIsMuted(m => !m)} className="a4-btn" title={isMuted ? 'Unmute' : 'Mute'}>
+              {isMuted || volume === 0 ? <VolumeX size={16} color="#ff2e93" /> : <Volume2 size={16} />}
+            </button>
+            <input
+              type="range" min="0" max="1" step="0.05"
+              value={isMuted ? 0 : volume}
+              onChange={(e) => { const val = parseFloat(e.target.value); setVolume(val); setIsMuted(false); localStorage.setItem('wt_player_vol', val); }}
+              style={{ width: '54px', accentColor: '#ff2e93', cursor: 'pointer', height: '3px' }}
+              aria-label="Volume"
+            />
+            {onForceSyncAll && (
+              <button type="button" onClick={onForceSyncAll} className="a4-pill" title="Sync Everyone">
+                <RefreshCw size={12} color="#f472b6" /><span>Sync</span>
+              </button>
             )}
           </div>
+
+          <div className="a4-center">
+            <button type="button" onClick={() => handleSeekRelative(-10)} className="a4-btn" title="Rewind 10s (Left Arrow)"><RotateCcw size={15} /></button>
+            <button type="button" onClick={togglePlayPause} className="a4-play" title={localPlaying ? 'Pause (Space)' : 'Play (Space)'}>
+              {localPlaying ? <ClayPause size={19} /> : <ClayPlay size={19} />}
+            </button>
+            <button type="button" onClick={() => handleSeekRelative(10)} className="a4-btn" title="Fast Forward 10s (Right Arrow)"><RotateCw size={15} /></button>
+          </div>
+
+          <div className="a4-right">
+            <button
+              type="button"
+              onClick={() => { setShowSubMenu(prev => !prev); setSubsSubView('root'); setShowSettingsMenu(false); }}
+              className={showSubMenu ? 'a4-pill active' : 'a4-pill'}
+              title="Subtitles"
+            >
+              <ClaySubtitles size={13} /><span>Subs</span>{activeSubtitleIndex >= 0 && <span className="pouf-active-dot" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowSettingsMenu(prev => !prev); setSettingsSubView('root'); setShowSubMenu(false); }}
+              className={showSettingsMenu ? 'a4-btn active' : 'a4-btn'}
+              title="Settings (Audio, Speed, Boost, Presets)"
+            >
+              <Settings size={15} style={{ transform: showSettingsMenu ? 'rotate(45deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }} />
+            </button>
+            <div className="a4-utils">
+              <button type="button" onClick={handleTogglePiP} className="a4-btn" title="Picture-in-Picture"><PictureInPicture size={14} /></button>
+              <button type="button" onClick={handleCaptureScreenshot} className="a4-btn" title="Capture Screenshot Frame"><Camera size={14} /></button>
+              <button type="button" onClick={() => { setIsLocked(true); setShowControls(false); setShowSubMenu(false); setShowSettingsMenu(false); triggerLockHint(); }} className="a4-btn" title="Lock Screen Controls (L)"><Lock size={14} /></button>
+            </div>
+            <button type="button" onClick={toggleFullscreen} className="a4-btn" title="Fullscreen (F)">{isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}</button>
+          </div>
+        </div>
+
+        {showSubMenu && (
+          <div onClick={(e) => e.stopPropagation()} className="subv1-shell">
+            {subsSubView === 'root' && (
+              <>
+                <div className="subv1-head">
+                  <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#fce7f3' }}>Subtitles (CC)</span>
+                  <button type="button" onClick={() => setShowSubMenu(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}><X size={14} /></button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '165px', overflowY: 'auto' }}>
+                  <div onClick={() => onSubtitleChange?.(-1)} className={`pouf-yt-menu-item ${activeSubtitleIndex === -1 ? 'active' : ''}`}>
+                    <span>Off</span>{activeSubtitleIndex === -1 && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                  </div>
+                  {allSubtitles.map((t, idx) => {
+                    const isActive = activeSubtitleIndex === idx; return (
+                      <div key={idx} onClick={() => onSubtitleChange?.(idx)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || `Track ${idx + 1}`}</span>
+                        {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto', flexShrink: 0 }} />}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '2px 0' }} />
+                <input type="file" ref={fileInputRef} accept=".srt,.vtt" onChange={handleUploadSubtitleFile} style={{ display: 'none' }} />
+                <div onClick={() => fileInputRef.current?.click()} className="pouf-yt-menu-item"><Upload size={14} color="#f472b6" /><span>Upload Subtitle File</span></div>
+                <div onClick={() => setSubsSubView('search')} className="pouf-yt-menu-item"><Sparkles size={14} color="#f472b6" /><span>Search SubDL Online</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
+                <div onClick={() => setSubsSubView('options')} className="pouf-yt-menu-item"><Sliders size={14} color="#f472b6" /><span>Studio Customizer & Sync</span><ChevronRight size={14} style={{ marginLeft: 'auto', color: '#9ca3af' }} /></div>
+              </>
+            )}
+            {subsSubView === 'options' && (
+              <>
+                <div className="subv1-head">
+                  <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Subtitle Studio</span></button>
+                  <button type="button" onClick={resetSubtitleDefaults} title="Reset All Subtitle Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'rgba(255,255,255,0.07)', color: '#f9a8d4', borderRadius: 999, padding: '3px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                    <RotateCcw size={11} /><span>Reset</span>
+                  </button>
+                </div>
+                <div className="subv1-stage">
+                  <span style={{ ...getSubtitleCueStyle(0.58), maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {currentCueText || 'We stayed till dawn.'}
+                  </span>
+                </div>
+                <div className="subv1-tabs">
+                  <button type="button" onClick={() => setSubCustomizerTab('presets')} className={`subv1-tab ${subCustomizerTab === 'presets' ? 'is-on' : ''}`}>Pink Moods & Look</button>
+                  <button type="button" onClick={() => setSubCustomizerTab('tune')} className={`subv1-tab ${subCustomizerTab === 'tune' ? 'is-on' : ''}`}>Fine Tune & Sync</button>
+                </div>
+                {subCustomizerTab === 'presets' ? (
+                  <div className="subv1-scroll">
+                    <div className="subv1-preset-grid">
+                      {PINK_SUB_PRESETS.map((p) => {
+                        const isActive = subtitleBgColor === p.bgColor && subtitleColor.toLowerCase() === p.color.toLowerCase() && subtitleFont === p.font && subtitleEdge === p.edge;
+                        return (
+                          <button type="button" key={p.id} onClick={() => applySubtitlePreset(p)} className={`subv1-preset-card ${isActive ? 'is-active' : ''}`}>
+                            <span style={{ width: 22, height: 22, borderRadius: 7, background: p.swatch, flexShrink: 0, border: '1px solid rgba(255,255,255,0.28)' }} />
+                            <span style={{ minWidth: 0 }}>
+                              <span style={{ display: 'block', fontSize: '0.70rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                              <span style={{ display: 'block', fontSize: '0.60rem', color: '#f472b6' }}>{p.tag}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Typeface</div>
+                      <div className="subv1-seg-row">
+                        {[{ id: 'sans', label: 'Clean' }, { id: 'rounded', label: 'Soft' }, { id: 'serif', label: 'Serif' }, { id: 'mono', label: 'Mono' }].map((f) => (
+                          <button type="button" key={f.id} onClick={() => handleSubtitleFontChange(f.id)} className={`subv1-pill ${subtitleFont === f.id ? 'is-active' : ''}`}>{f.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Edge & Glow</div>
+                      <div className="subv1-seg-row">
+                        {[{ id: 'auto', label: 'Auto' }, { id: 'crisp', label: 'Outline' }, { id: 'glow', label: 'Soft Glow' }, { id: 'pink-glow', label: 'Pink Neon' }].map((edge) => (
+                          <button type="button" key={edge.id} onClick={() => handleSubtitleEdgeChange(edge.id)} className={`subv1-pill ${subtitleEdge === edge.id ? 'is-active' : ''}`}>{edge.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="subv1-scroll">
+                    <div className="subv1-sl-grid">
+                      <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>SIZE</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleSize}px</span></div><input type="range" min="14" max="48" step="1" value={subtitleSize} onChange={(e) => handleSizeChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                      <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>HEIGHT</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBottom}px</span></div><input type="range" min="16" max="240" step="4" value={subtitleBottom} onChange={(e) => handleBottomChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                      <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>OPACITY</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgOpacity}%</span></div><input type="range" min="0" max="100" step="5" value={subtitleBgOpacity} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgOpacity(v); localStorage.setItem('wt_sub_bg_opacity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                      <div><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', marginBottom: 2 }}><span>BLUR</span><span style={{ color: '#fff', fontFamily: 'monospace' }}>{subtitleBgBlur}px</span></div><input type="range" min="0" max="20" step="1" value={subtitleBgBlur} onChange={(e) => { const v = Number(e.target.value); setSubtitleBgBlur(v); localStorage.setItem('wt_sub_bg_blur', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} /></div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Backdrop Tint</div>
+                      <div className="subv1-seg-row">
+                        {Object.entries(SUBTITLE_BG_MAP).map(([id, info]) => (
+                          <button type="button" key={id} onClick={() => handleSubtitleBgColorChange(id)} style={{ padding: '4px 2px', borderRadius: 7, background: info.hex, border: subtitleBgColor === id ? '1.5px solid #f472b6' : '1px solid rgba(255,255,255,0.14)', color: '#fff', fontSize: '0.62rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{info.label.split(' ')[0]}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>Text Color</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {['#ffffff', '#fde047', '#fbcfe8', '#f472b6', '#fb7185', '#e879f9', '#38bdf8', '#34d399'].map((c) => (
+                          <button type="button" key={c} onClick={() => handleSubtitleColorChange(c)} style={{ flex: 1, height: 20, borderRadius: 6, background: c, border: subtitleColor.toLowerCase() === c ? '2px solid #fff' : '1px solid rgba(0,0,0,0.4)', cursor: 'pointer' }} />
+                        ))}
+                        <input type="color" value={subtitleColor} onChange={(e) => handleSubtitleColorChange(e.target.value)} title="Custom Color" style={{ width: 22, height: 22, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer' }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.64rem', fontWeight: 800, color: '#f472b6', textTransform: 'uppercase', marginBottom: 4 }}>
+                        <span>Sync Offset</span>
+                        <span style={{ color: subtitleDelay !== 0 ? '#fbbf24' : '#34d399', fontFamily: 'JetBrains Mono, monospace' }}>{subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.5</button>
+                        <button type="button" onClick={() => handleDelayChange(subtitleDelay - 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>-0.1</button>
+                        <button type="button" onClick={() => handleDelayChange(0)} className="pouf-dock-pill-btn" style={{ padding: '3px 7px', fontSize: '0.65rem' }}>0s</button>
+                        <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.1)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.1</button>
+                        <button type="button" onClick={() => handleDelayChange(subtitleDelay + 0.5)} className="pouf-dock-pill-btn" style={{ flex: 1, justifyContent: 'center', padding: '3px 0', fontSize: '0.66rem' }}>+0.5</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            {subsSubView === 'search' && (
+              <>
+                <button type="button" onClick={() => setSubsSubView('root')} className="pouf-yt-back-btn"><ChevronLeft size={16} /><span>SubDL Online Search</span></button>
+                <div style={{ display: 'flex', gap: '4px', padding: '2px 4px' }}>
+                  <input type="text" value={onlineSearchQuery} onChange={(e) => setOnlineSearchQuery(e.target.value)} placeholder="Search movie/anime..." onKeyDown={(e) => e.key === 'Enter' && handleSearchOnlineSubtitles()} className="pouf-glass-input" style={{ flex: 1, padding: '4px 6px', fontSize: '0.72rem' }} />
+                  <button type="button" onClick={() => handleSearchOnlineSubtitles()} disabled={isSearchingOnline} className="pouf-glass-btn-primary" style={{ padding: '4px 8px', fontSize: '0.70rem' }}>{isSearchingOnline ? '...' : <Search size={12} />}</button>
+                </div>
+                <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                  {isSearchingOnline ? (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.70rem', color: '#f472b6' }}>Searching SubDL...</div>) : onlineSearchResults.length > 0 ? (onlineSearchResults.map((sub, sIdx) => (
+                    <div key={sIdx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(244,114,182,0.15)', gap: '6px' }}>
+                      <div style={{ overflow: 'hidden', flex: 1, minWidth: 0, fontSize: '0.68rem', color: '#f3f4f6' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{sub.fileName}</div><span style={{ fontSize: '0.60rem', color: '#f472b6' }}>{sub.language}</span></div>
+                      <button type="button" onClick={() => handleDownloadOnlineSubtitle(sub)} disabled={isDownloadingOnline} className="pouf-glass-btn-primary" style={{ padding: '3px 6px', fontSize: '0.64rem', flexShrink: 0 }}>{downloadingSubId === sub.fileId ? '...' : 'Get'}</button>
+                    </div>
+                  ))) : (<div style={{ textAlign: 'center', padding: '10px 0', fontSize: '0.68rem', color: '#9ca3af' }}>Type title and press enter</div>)}
+                </div>
+              </>
+            )}
+          </div>
+
+        )}
+
+        {showSettingsMenu && (
+          <div onClick={(e) => e.stopPropagation()} className="cfgv1-shell">
+            {settingsSubView !== 'filters' ? renderSettingsCoreViews() : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button type="button" onClick={() => setSettingsSubView('root')} className="pouf-yt-back-btn" style={{ padding: 0 }}><ChevronLeft size={16} /><span>Picture & Grain</span></button>
+                  <button type="button" onClick={() => handleToggleGrainEnabled(!filmGrainEnabled)} style={{ border: '1px solid rgba(244,114,182,0.32)', background: filmGrainEnabled ? 'rgba(236,72,153,0.24)' : 'rgba(255,255,255,0.06)', color: filmGrainEnabled ? '#fdf2f8' : '#9ca3af', borderRadius: 999, padding: '2px 8px', fontSize: '0.63rem', fontWeight: 800, cursor: 'pointer' }}>
+                    Grain: {filmGrainEnabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+                <div className="cfgv1-tabs">
+                  <button type="button" onClick={() => setFilterLabTab('color')} className={`cfgv1-tab ${filterLabTab === 'color' ? 'is-on' : ''}`}>Color Look</button>
+                  <button type="button" onClick={() => setFilterLabTab('grain')} className={`cfgv1-tab ${filterLabTab === 'grain' ? 'is-on' : ''}`}>Film Grain</button>
+                </div>
+                {filterLabTab === 'color' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {VISUAL_GRADE_PRESETS.map((p) => {
+                      const isActive = visualPreset === p.id;
+                      return (
+                        <button type="button" key={p.id} onClick={() => handleApplyVisualPreset(p)} className={`pouf-yt-menu-item ${isActive ? 'active' : ''}`} style={{ border: 'none', width: '100%', textAlign: 'left', background: isActive ? undefined : 'transparent' }}>
+                          <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.dot, border: '1px solid rgba(255,255,255,0.25)', flexShrink: 0 }} />
+                          <span>{p.label}</span>
+                          {isActive && <Check size={14} color="#f472b6" style={{ marginLeft: 'auto' }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="cfgv1-swatch">
+                      {filmGrainEnabled && (
+                        <div style={{ position: 'absolute', inset: '-30%', pointerEvents: 'none', ...getFilmGrainVisualProps(0.45) }} />
+                      )}
+                      <span style={{ position: 'relative', fontSize: '0.63rem', fontWeight: 700, color: '#fce7f3', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+                        {filmGrainEnabled ? `${FILM_GRAIN_STOCKS.find((s) => s.id === filmGrainPreset)?.label || '35mm'} · ${filmGrainIntensity}%` : 'Grain Disabled (Clean Feed)'}
+                      </span>
+                      <span style={{ position: 'relative', fontSize: '0.60rem', color: '#f9a8d4', fontFamily: 'monospace' }}>
+                        {filmGrainEnabled ? (filmGrainBlend === 'normal' ? 'Universal' : filmGrainBlend) : 'OFF'}
+                      </span>
+                    </div>
+                    <div className="cfgv1-stocks">
+                      {FILM_GRAIN_STOCKS.map((s) => (
+                        <button type="button" key={s.id} onClick={() => handleApplyGrainStock(s)} className={`cfgv1-card ${filmGrainEnabled && filmGrainPreset === s.id ? 'is-on' : ''}`}>
+                          <span style={{ fontSize: '0.67rem', fontWeight: 800 }}>{s.label}</span>
+                          <span style={{ fontSize: '0.57rem', color: '#f472b6' }}>{s.tag}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Strength</span><span>{filmGrainEnabled ? `${filmGrainIntensity}%` : '0%'}</span></div>
+                        <input type="range" min="5" max="100" step="5" value={filmGrainIntensity} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainIntensity(v); localStorage.setItem('wt_grain_intensity', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.60rem', color: '#f9a8d4', fontWeight: 700, marginBottom: 2 }}><span>Grain Size</span><span>{filmGrainSize.toFixed(1)}x</span></div>
+                        <input type="range" min="0.6" max="1.8" step="0.1" value={filmGrainSize} onChange={(e) => { const v = Number(e.target.value); handleToggleGrainEnabled(true); setFilmGrainSize(v); localStorage.setItem('wt_grain_size', v); }} style={{ width: '100%', accentColor: '#ec4899', height: 4 }} />
+                      </div>
+                    </div>
+                    <div className="cfgv1-chips">
+                      <button type="button" onClick={() => { const order = ['normal', 'soft-light', 'overlay']; const n = order[(order.indexOf(filmGrainBlend) + 1) % order.length]; handleToggleGrainEnabled(true); setFilmGrainBlend(n); localStorage.setItem('wt_grain_blend', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainBlend === 'normal' ? 'is-on' : ''}`} title="Universal guarantees visibility on black frames & all streams">
+                        {filmGrainBlend === 'normal' ? 'Universal' : (filmGrainBlend === 'soft-light' ? 'Soft Light' : 'Overlay')}
+                      </button>
+                      <button type="button" onClick={() => { const n = filmGrainChroma === 'mono' ? 'color' : 'mono'; handleToggleGrainEnabled(true); setFilmGrainChroma(n); localStorage.setItem('wt_grain_chroma', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainChroma === 'color' ? 'is-on' : ''}`}>
+                        {filmGrainChroma === 'mono' ? 'Silver Mono' : 'Color Dye'}
+                      </button>
+                      <button type="button" onClick={() => { const n = filmGrainMotion === '24fps' ? 'still' : '24fps'; handleToggleGrainEnabled(true); setFilmGrainMotion(n); localStorage.setItem('wt_grain_motion', n); }} className={`cfgv1-chip ${filmGrainEnabled && filmGrainMotion === '24fps' ? 'is-on' : ''}`}>
+                        {filmGrainMotion === '24fps' ? '24fps Live' : 'Static'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+        )}
+      </div>
 
       {/* 8. In-Video Overlays (Floating Instant Chat rendered inside player for Fullscreen visibility) */}
       <div
