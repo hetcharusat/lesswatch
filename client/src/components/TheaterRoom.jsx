@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import ReactDOM from 'react-dom';
 import { io } from 'socket.io-client';
 import Hls from 'hls.js';
@@ -124,6 +124,323 @@ function playAudioChirp(type = 'unmute') {
     setTimeout(() => ctx.close(), 250);
   } catch { }
 }
+
+// Floating Party Webcam Video Tile (Zero-Flicker Direct Resize, Pure Cinema Glass, Memoized Top-Level)
+const PartyWebcamCard = memo(function PartyWebcamCard({
+  track,
+  isLocal,
+  name,
+  avatar,
+  isMuted,
+  isSpeaking,
+  onToggleCamera,
+  onHideSelf,
+  onCollapse,
+  onHideWebcam,
+  onResizeStart
+}) {
+  const videoRef = useRef(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [isHudVisible, setIsHudVisible] = useState(true);
+  const hideTimeoutRef = useRef(null);
+
+  // Auto-hide name tag & action buttons after 10 seconds of inactivity
+  useEffect(() => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setIsHudVisible(false);
+    }, 10000);
+    return () => {
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
+
+  const handleUserActivity = useCallback(() => {
+    setIsHudVisible(true);
+    if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    hideTimeoutRef.current = setTimeout(() => {
+      setIsHudVisible(false);
+    }, 10000);
+  }, []);
+
+  useEffect(() => {
+    if (!track || !videoRef.current) {
+      setIsVideoReady(false);
+      return;
+    }
+    const el = videoRef.current;
+    el.muted = true;
+    el.playsInline = true;
+
+    // Check if element is already bound to this active track to prevent any video flicker
+    const mediaTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
+    const existingStream = el.srcObject;
+    if (existingStream && mediaTrack && existingStream.getTracks && existingStream.getTracks().includes(mediaTrack)) {
+      if (el.paused) el.play?.().catch(() => {});
+      setIsVideoReady(true);
+      return;
+    }
+
+    try {
+      if (typeof track.attach === 'function') {
+        track.attach(el);
+      } else if (track.mediaStreamTrack) {
+        el.srcObject = new MediaStream([track.mediaStreamTrack]);
+      } else if (track instanceof MediaStreamTrack) {
+        el.srcObject = new MediaStream([track]);
+      } else if (track instanceof MediaStream) {
+        el.srcObject = track;
+      }
+      el.play?.().catch(() => {});
+    } catch (attachErr) {
+      console.warn('Error attaching video track:', attachErr);
+    }
+
+    const onPlaying = () => setIsVideoReady(true);
+    el.addEventListener('playing', onPlaying);
+    el.addEventListener('loadeddata', onPlaying);
+
+    if (el.readyState >= 2) {
+      setIsVideoReady(true);
+    }
+
+    return () => {
+      el.removeEventListener('playing', onPlaying);
+      el.removeEventListener('loadeddata', onPlaying);
+      try {
+        if (typeof track.detach === 'function') {
+          track.detach(el);
+        } else {
+          el.srcObject = null;
+        }
+      } catch { }
+    };
+  }, [track]);
+
+  return (
+    <div
+      className={`wt-pip-card ${isLocal ? 'is-local' : ''}`}
+      onPointerEnter={handleUserActivity}
+      onPointerMove={handleUserActivity}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="wt-pip-video"
+        style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+      />
+
+      {(!isVideoReady && !isLocal) && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            background: 'linear-gradient(145deg, rgba(22, 14, 30, 0.95) 0%, rgba(10, 5, 16, 0.98) 100%)',
+            zIndex: 1
+          }}
+        >
+          <UserAvatar user={{ name, avatar }} size={38} showBorder={true} />
+          <span style={{ fontSize: '0.68rem', color: '#fbcfe8', fontWeight: 600 }}>Connecting video...</span>
+        </div>
+      )}
+
+      {/* Ambient Top Shadow Gradient for Floating Controls */}
+      <div className="wt-pip-scrim-top" />
+
+      {/* Top Floating Glass HUD (Auto-hides after 10s of inactivity, reappears on hover/move) */}
+      <div
+        className={`wt-pip-hud-top ${!isHudVisible ? 'is-autohidden' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="wt-pip-badge">
+          <span className="wt-pip-avatar-ring">
+            <UserAvatar user={{ name, avatar }} size={15} showBorder={false} />
+          </span>
+          <span className="wt-pip-name">{name}</span>
+        </div>
+
+        <div className="wt-pip-actions">
+          {/* Collapse to smaller pill */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCollapse();
+            }}
+            className="wt-pip-btn"
+            title="Collapse to smaller reaction pill"
+          >
+            <Minimize2 size={11} />
+          </button>
+
+          {/* Hide into tiny edge button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onHideWebcam();
+            }}
+            className="wt-pip-btn"
+            title="Hide webcam (turns into tiny button)"
+          >
+            <EyeOff size={11} />
+          </button>
+
+          {isLocal && onHideSelf && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHideSelf();
+              }}
+              className="wt-pip-btn"
+              title="Hide self-view from your screen"
+            >
+              <Eye size={11} />
+            </button>
+          )}
+
+          {isLocal && onToggleCamera && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCamera();
+              }}
+              className="wt-pip-btn is-close"
+              title="Turn off webcam"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom-Right Corner Resize Grip (Native Drag to Resize) */}
+      <div
+        className="wt-pip-resize-thumb"
+        onPointerDown={(e) => onResizeStart(e)}
+        title="Drag corner to resize video"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <line x1="9" y1="2" x2="2" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+          <line x1="9" y1="5.5" x2="5.5" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+          <line x1="9" y1="9" x2="9" y2="9.01" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </div>
+    </div>
+  );
+});
+
+// Collapsed Micro Reaction Bubble (Smaller pill with lesser resting opacity, Top-Level Memoized)
+const PartyWebcamOrb = memo(function PartyWebcamOrb({
+  track,
+  isLocal,
+  name,
+  avatar,
+  isMuted,
+  isSpeaking,
+  onExpand,
+  onHideWebcam
+}) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (!track || !videoRef.current) return;
+    const el = videoRef.current;
+    el.muted = true;
+    el.playsInline = true;
+
+    // Check if element is already bound to this active track to prevent any video flicker
+    const mediaTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
+    const existingStream = el.srcObject;
+    if (existingStream && mediaTrack && existingStream.getTracks && existingStream.getTracks().includes(mediaTrack)) {
+      if (el.paused) el.play?.().catch(() => {});
+      return;
+    }
+
+    try {
+      if (typeof track.attach === 'function') {
+        track.attach(el);
+      } else if (track.mediaStreamTrack) {
+        el.srcObject = new MediaStream([track.mediaStreamTrack]);
+      } else if (track instanceof MediaStreamTrack) {
+        el.srcObject = new MediaStream([track]);
+      } else if (track instanceof MediaStream) {
+        el.srcObject = track;
+      }
+      el.play?.().catch(() => {});
+    } catch { }
+
+    return () => {
+      try {
+        if (typeof track.detach === 'function') {
+          track.detach(el);
+        } else {
+          el.srcObject = null;
+        }
+      } catch { }
+    };
+  }, [track]);
+
+  return (
+    <div
+      className="wt-pip-orb"
+      title={`${name} · Click to expand to full video`}
+      onClick={onExpand}
+    >
+      <div className="wt-pip-orb-frame">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="wt-pip-orb-video"
+          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+        />
+
+        {/* Hover action overlay */}
+        <div className="wt-pip-orb-hover-overlay" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="wt-pip-orb-mini-btn"
+            onClick={onExpand}
+            title="Expand to full video"
+          >
+            <Maximize2 size={11} />
+          </button>
+          <button
+            type="button"
+            className="wt-pip-orb-mini-btn"
+            onClick={onHideWebcam}
+            title="Hide (turns into tiny button)"
+          >
+            <EyeOff size={11} />
+          </button>
+        </div>
+      </div>
+
+      {/* Small box rendered below the video, showing name and mic status */}
+      <div className="wt-pip-orb-footer">
+        <span className="wt-pip-orb-name">{name}</span>
+        {isMuted ? (
+          <MicOff size={9} color="#f87171" title="Muted" />
+        ) : isSpeaking ? (
+          <Radio size={9} color="#10b981" title="Speaking" />
+        ) : (
+          <Mic size={9} color="#fbcfe8" style={{ opacity: 0.75 }} title="Microphone active" />
+        )}
+      </div>
+    </div>
+  );
+});
 
 export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = null, initialMedia, initialTitle, initialType, onNavigate, onConsumeInitialMedia, onOpenAvatarModal }) {
   const [socket, setSocket] = useState(null);
@@ -4529,295 +4846,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const m = Math.floor(s / 60);
     const remS = s % 60;
     return `${m}:${remS.toString().padStart(2, '0')}`;
-  }
-
-  // Floating Party Webcam Video Tile (Zero-Flicker Direct Resize, Pure Cinema Glass)
-  function PartyWebcamCard({
-    track,
-    isLocal,
-    name,
-    avatar,
-    isMuted,
-    isSpeaking,
-    onToggleCamera,
-    onHideSelf,
-    onCollapse,
-    onHideWebcam,
-    onResizeStart
-  }) {
-    const videoRef = useRef(null);
-    const [isVideoReady, setIsVideoReady] = useState(false);
-    const [isHudVisible, setIsHudVisible] = useState(true);
-    const hideTimeoutRef = useRef(null);
-
-    // Auto-hide name tag & action buttons after 10 seconds of inactivity
-    useEffect(() => {
-      hideTimeoutRef.current = setTimeout(() => {
-        setIsHudVisible(false);
-      }, 10000);
-      return () => {
-        if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
-      };
-    }, []);
-
-    const handleUserActivity = () => {
-      setIsHudVisible(true);
-      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
-      hideTimeoutRef.current = setTimeout(() => {
-        setIsHudVisible(false);
-      }, 10000);
-    };
-
-    useEffect(() => {
-      if (!track || !videoRef.current) {
-        setIsVideoReady(false);
-        return;
-      }
-      const el = videoRef.current;
-      el.muted = true;
-      el.playsInline = true;
-
-      try {
-        if (typeof track.attach === 'function') {
-          track.attach(el);
-        } else if (track.mediaStreamTrack) {
-          el.srcObject = new MediaStream([track.mediaStreamTrack]);
-        } else if (track instanceof MediaStreamTrack) {
-          el.srcObject = new MediaStream([track]);
-        } else if (track instanceof MediaStream) {
-          el.srcObject = track;
-        }
-        el.play?.().catch(() => {});
-      } catch (attachErr) {
-        console.warn('Error attaching video track:', attachErr);
-      }
-
-      const onPlaying = () => setIsVideoReady(true);
-      el.addEventListener('playing', onPlaying);
-      el.addEventListener('loadeddata', onPlaying);
-
-      if (el.readyState >= 2) {
-        setIsVideoReady(true);
-      }
-
-      return () => {
-        el.removeEventListener('playing', onPlaying);
-        el.removeEventListener('loadeddata', onPlaying);
-        try {
-          if (typeof track.detach === 'function') {
-            track.detach(el);
-          } else {
-            el.srcObject = null;
-          }
-        } catch { }
-      };
-    }, [track]);
-
-    return (
-      <div
-        className={`wt-pip-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}
-        onPointerEnter={handleUserActivity}
-        onPointerMove={handleUserActivity}
-      >
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="wt-pip-video"
-          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
-        />
-
-        {(!isVideoReady && !isLocal) && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              background: 'linear-gradient(145deg, rgba(22, 14, 30, 0.95) 0%, rgba(10, 5, 16, 0.98) 100%)',
-              zIndex: 1
-            }}
-          >
-            <UserAvatar user={{ name, avatar }} size={38} showBorder={true} />
-            <span style={{ fontSize: '0.68rem', color: '#fbcfe8', fontWeight: 600 }}>Connecting video...</span>
-          </div>
-        )}
-
-        {/* Ambient Top Shadow Gradient for Floating Controls */}
-        <div className="wt-pip-scrim-top" />
-
-        {/* Top Floating Glass HUD (Auto-hides after 10s of inactivity, reappears on hover/move) */}
-        <div
-          className={`wt-pip-hud-top ${!isHudVisible ? 'is-autohidden' : ''}`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="wt-pip-badge">
-            <span className="wt-pip-avatar-ring">
-              <UserAvatar user={{ name, avatar }} size={15} showBorder={false} />
-            </span>
-            <span className="wt-pip-name">{name}</span>
-          </div>
-
-          <div className="wt-pip-actions">
-            {/* Collapse to smaller pill */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCollapse();
-              }}
-              className="wt-pip-btn"
-              title="Collapse to smaller reaction pill"
-            >
-              <Minimize2 size={11} />
-            </button>
-
-            {/* Hide into tiny edge button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onHideWebcam();
-              }}
-              className="wt-pip-btn"
-              title="Hide webcam (turns into tiny button)"
-            >
-              <EyeOff size={11} />
-            </button>
-
-            {isLocal && onHideSelf && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onHideSelf();
-                }}
-                className="wt-pip-btn"
-                title="Hide self-view from your screen"
-              >
-                <Eye size={11} />
-              </button>
-            )}
-
-            {isLocal && onToggleCamera && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleCamera();
-                }}
-                className="wt-pip-btn is-close"
-                title="Turn off webcam"
-              >
-                <X size={11} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom-Right Corner Resize Grip (Native Drag to Resize) */}
-        <div
-          className="wt-pip-resize-thumb"
-          onPointerDown={(e) => onResizeStart(e)}
-          title="Drag corner to resize video"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <line x1="9" y1="2" x2="2" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
-            <line x1="9" y1="5.5" x2="5.5" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
-            <line x1="9" y1="9" x2="9" y2="9.01" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </div>
-      </div>
-    );
-  }
-
-  // Collapsed Micro Reaction Bubble (Smaller pill with lesser resting opacity)
-  function PartyWebcamOrb({ track, isLocal, name, avatar, isMuted, isSpeaking, onExpand, onHideWebcam }) {
-    const videoRef = useRef(null);
-
-    useEffect(() => {
-      if (!track || !videoRef.current) return;
-      const el = videoRef.current;
-      el.muted = true;
-      el.playsInline = true;
-      try {
-        if (typeof track.attach === 'function') {
-          track.attach(el);
-        } else if (track.mediaStreamTrack) {
-          el.srcObject = new MediaStream([track.mediaStreamTrack]);
-        } else if (track instanceof MediaStreamTrack) {
-          el.srcObject = new MediaStream([track]);
-        } else if (track instanceof MediaStream) {
-          el.srcObject = track;
-        }
-        el.play?.().catch(() => {});
-      } catch { }
-      return () => {
-        try {
-          if (typeof track.detach === 'function') {
-            track.detach(el);
-          } else {
-            el.srcObject = null;
-          }
-        } catch { }
-      };
-    }, [track]);
-
-    return (
-      <div
-        className={`wt-pip-orb ${isSpeaking ? 'is-speaking' : ''}`}
-        title={`${name} · Click to expand to full video`}
-        onClick={onExpand}
-      >
-        <div className="wt-pip-orb-frame">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="wt-pip-orb-video"
-            style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
-          />
-
-          {/* Hover action overlay */}
-          <div className="wt-pip-orb-hover-overlay" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="wt-pip-orb-mini-btn"
-              onClick={onExpand}
-              title="Expand to full video"
-            >
-              <Maximize2 size={11} />
-            </button>
-            <button
-              type="button"
-              className="wt-pip-orb-mini-btn"
-              onClick={onHideWebcam}
-              title="Hide (turns into tiny button)"
-            >
-              <EyeOff size={11} />
-            </button>
-          </div>
-        </div>
-
-        {/* Small box rendered below the video, showing name and mic status */}
-        <div className="wt-pip-orb-footer">
-          <span className="wt-pip-orb-name">{name}</span>
-          {isMuted ? (
-            <MicOff size={9} color="#f87171" title="Muted" />
-          ) : isSpeaking ? (
-            <Radio size={9} color="#10b981" title="Speaking" />
-          ) : (
-            <Mic size={9} color="#fbcfe8" style={{ opacity: 0.75 }} title="Microphone active" />
-          )}
-        </div>
-      </div>
-    );
   }
 
   // Floating Party Webcam Grid Dock

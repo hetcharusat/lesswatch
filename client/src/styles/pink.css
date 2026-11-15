@@ -9911,11 +9911,8 @@ body.in-chit-chat-mode header {
 }
 
 .wt-pip-card.is-speaking {
-  border-color: #ff5ea5 !important;
-  box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.5),
-    0 0 0 2px #ff5ea5,
-    0 0 24px rgba(255, 94, 165, 0.75) !important;
+  /* No harsh flashing outline ring around video feed when speaking */
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .wt-pip-video {
@@ -10129,8 +10126,8 @@ body.in-chit-chat-mode header {
 }
 
 .wt-pip-orb.is-speaking .wt-pip-orb-frame {
-  border-color: #ff5ea5 !important;
-  box-shadow: 0 0 0 2px #ff5ea5, 0 0 20px rgba(255, 94, 165, 0.95) !important;
+  /* No harsh flashing outline ring around video frame when speaking */
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .wt-pip-orb-video {
