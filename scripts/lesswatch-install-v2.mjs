@@ -1,24 +1,35 @@
 #!/usr/bin/env node
 /**
- * lesswatch-install-v2.mjs · 60 FPS retro animated self-host installer · zero dependencies
+ * lesswatch-install-v2.mjs · 60 FPS animated self-host installer · zero dependencies
  *
- *   node lesswatch-install-v2.mjs          demo run (simulated steps)
+ *   node lesswatch-install-v2.mjs          demo run (simulated steps + simulated load)
  *   node lesswatch-install-v2.mjs --real   runs the live commands in STAGES
  *
- * Keys: ↑/↓ j/k move · Tab next · Space toggle [✔] · 1-6 direct toggle · a toggle all
- *       Enter confirm · t change target · r retry · q quit · Ctrl+C abort
+ * Flow:
+ *   Splash (environment detection)
+ *     └─ Menu ─┬─ Express install  (auto-detected target + recommended modules) → Review → Install → Done
+ *              ├─ Custom install   (Target → Modules → Review) → Install → Done
+ *              ├─ What's included
+ *              └─ Quit
+ *
+ * Keys: ↑/↓ j/k move · Space select/toggle · Enter next · Esc/←/Backspace back
+ *       1-6 toggle module · a toggle all · t jump to target · y deploy (review)
+ *       r retry (failed) · c copy URL (done) · q quit · Ctrl+C abort
  * Env:  LW_URL=https://...    public URL shown on the thank-you screen
  *       LW_LOCAL=http://...   local URL (default http://localhost:8080)
  */
 import readline from 'node:readline';
 import os from 'node:os';
 import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn, execSync } from 'node:child_process';
+import { spawn, exec, execSync } from 'node:child_process';
 
 const REAL = process.argv.includes('--real');
-const out = (s) => process.stdout.write(s);
+const out = process.stdout;
+const inp = process.stdin;
+const isTTY = Boolean(out.isTTY && inp.isTTY);
+const COLOR = Boolean(out.isTTY) && !('NO_COLOR' in process.env);
+const E = '\x1b[';
 
 // ─── Environment Detection ──────────────────────────────────────────────────
 const isCloudShell = Boolean(
@@ -29,75 +40,54 @@ const isCloudShell = Boolean(
   (process.env.HOME && process.env.HOME.includes('cloudshell'))
 );
 
+// Async so the splash can animate while the lookup runs.
 let detectedPublicIP = '127.0.0.1';
-try {
-  detectedPublicIP = execSync("curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'", { encoding: 'utf-8' }).trim() || '127.0.0.1';
-} catch {}
+let ipReady = false;
+const defaultTarget = () => (isCloudShell ? 0 : (detectedPublicIP !== '127.0.0.1' ? 1 : 2));
+const ipPromise = new Promise((resolve) => {
+  exec(
+    "curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'",
+    { encoding: 'utf-8', timeout: 6000 },
+    (err, stdout) => {
+      const ip = String(stdout || '').trim();
+      if (ip) detectedPublicIP = ip;
+      ipReady = true;
+      if (!state.targetTouched) state.target = defaultTarget();
+      resolve();
+    }
+  );
+});
 
 // ─── Config & Modules Checklist ─────────────────────────────────────────────
 const TARGETS = [
-  { id: 'cloud', title: 'Google Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080 with Web Preview.' },
-  { id: 'vps',   title: 'Linux Cloud VM / Dedicated VPS',   desc: 'Always-on 24/7 hosting with direct UDP for WebRTC.' },
-  { id: 'local', title: 'Local Workstation / Docker',       desc: 'Local testing on your PC workstation.' },
+  { id: 'cloud', short: 'Cloud Shell',    title: 'Google Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080 with Web Preview.' },
+  { id: 'vps',   short: 'Cloud VM / VPS', title: 'Linux Cloud VM / Dedicated VPS',   desc: 'Always-on 24/7 hosting with direct UDP for WebRTC.' },
+  { id: 'local', short: 'Local / Docker', title: 'Local Workstation / Docker',       desc: 'Local testing on your PC workstation.' },
 ];
 
 const MODULES = [
-  {
-    id: 'neko',
-    icon: '🌐',
-    tag: 'RECOMMENDED',
-    title: 'Shared Chromium Virtual Browser (Neko)',
-    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.',
-    on: true
-  },
-  {
-    id: 'aria',
-    icon: '⚡',
-    tag: 'CORE ENGINE',
-    title: 'Server Media Downloader (aria2c + yt-dlp)',
-    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.',
-    on: true
-  },
-  {
-    id: 'tunnel',
-    icon: '🚀',
-    tag: 'ZERO CONFIG',
-    title: 'Cloudflare Public HTTPS Quick Tunnel',
-    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.',
-    on: true
-  },
-  {
-    id: 'livekit',
-    icon: '🎙️',
-    tag: 'SPATIAL AUDIO',
-    title: 'LiveKit Voice & Room SFU Server',
-    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.',
-    on: true
-  },
-  {
-    id: 'storage',
-    icon: '🎬',
-    tag: 'STORAGE',
-    title: 'Media Library & Streaming Transcoder',
-    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.',
-    on: true
-  },
-  {
-    id: 'neko_warm',
-    icon: '💾',
-    tag: 'OPTIONAL',
-    title: 'Always-On Browser Mode (Pre-warmed in RAM)',
-    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).',
-    on: false
-  }
+  { id: 'neko', icon: '🌐', tag: 'RECOMMENDED', title: 'Shared Chromium Virtual Browser (Neko)',
+    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.', on: true },
+  { id: 'aria', icon: '⚡', tag: 'CORE ENGINE', title: 'Server Media Downloader (aria2c + yt-dlp)',
+    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.', on: true },
+  { id: 'tunnel', icon: '🚀', tag: 'ZERO CONFIG', title: 'Cloudflare Public HTTPS Quick Tunnel',
+    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.', on: true },
+  { id: 'livekit', icon: '🎤', tag: 'SPATIAL AUDIO', title: 'LiveKit Voice & Room SFU Server',
+    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.', on: true },
+  { id: 'storage', icon: '🎬', tag: 'STORAGE', title: 'Media Library & Streaming Transcoder',
+    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.', on: true },
+  { id: 'neko_warm', icon: '💾', tag: 'OPTIONAL', title: 'Always-On Browser Mode (Pre-warmed in RAM)',
+    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).', on: false },
 ];
+const SHORT = {
+  neko: 'Neko browser', aria: 'Downloader', tunnel: 'HTTPS tunnel',
+  livekit: 'LiveKit', storage: 'Library', neko_warm: 'Always-on',
+};
 
 // Pre-pull cloudflared in the background quietly
 try {
-  const bgPull = spawn('docker', ['pull', 'cloudflare/cloudflared:latest'], {
-    stdio: 'ignore',
-    detached: true
-  });
+  const bgPull = spawn('docker', ['pull', 'cloudflare/cloudflared:latest'], { stdio: 'ignore', detached: true });
+  bgPull.on('error', () => {}); // docker missing → don't crash the UI
   bgPull.unref();
 } catch {}
 
@@ -372,215 +362,266 @@ const STAGES = [
   { id: 'tunnel', label: 'Public HTTPS tunnel',      cmd: 'sh scripts/tunnel.sh',     exec: startTunnel,          sim: 1200, feature: 'tunnel' },
 ];
 
-const PALETTES = [
-  { name: 'SYNTHWAVE', h0: 290, span: 110 },
-  { name: 'SUNSET',    h0: 0,   span: 55  },
-  { name: 'MATRIX',    h0: 100, span: 50  },
-  { name: 'ICE',       h0: 170, span: 60  },
-];
-const FILLS = ['solid', 'shade', 'dither'];
-const FILL_CHAR = { solid: '█', shade: '▓', dither: '▒' };
-
 const SIM_LINES = [
   'resolving dependencies', 'layer cache hit, reusing', 'verifying checksum',
   'writing config', 'health check ok', 'waiting for ports', 'connection established',
 ];
-const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const REEL = ['◐', '◓', '◑', '◒'];
-const SPARK = ' ▂▃▄▅▆▇█';
+
+// ─── Terminal helpers ───────────────────────────────────────────────────────
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const BLOCKS = ' ▁▂▃▄▅▆▇█';
 const PARTIAL = ' ▏▎▍▌▋▊▉';
 const CONFETTI = ['✦', '✧', '*', '•', '◆', '▲', '✶'];
+const SCRAMBLE = '▓▒░#%&@$*+=?';
+const WIZARD = ['Target', 'Modules', 'Review', 'Install'];
 
-// ─── Big block font (ANSI Shadow style) ─────────────────────────────────────
-const GLYPHS = {
-  L: ['██╗     ', '██║     ', '██║     ', '██║     ', '███████╗', '╚══════╝'],
-  E: ['███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '███████╗', '╚══════╝'],
-  S: ['███████╗', '██╔════╝', '███████╗', '╚════██║', '███████║', '╚══════╝'],
-  W: ['██╗    ██╗', '██║    ██║', '██║ █╗ ██║', '██║███╗██║', '╚███╔███╔╝', ' ╚══╝╚══╝ '],
-  A: [' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
-  T: ['████████╗', '╚══██╔══╝', '   ██║   ', '   ██║   ', '   ██║   ', '   ╚═╝   '],
-  C: [' ██████╗', '██╔════╝', '██║     ', '██║     ', '╚██████╗', ' ╚═════╝'],
-  H: ['██╗  ██╗', '██║  ██║', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
-  N: ['███╗   ██╗', '████╗  ██║', '██╔██╗ ██║', '██║╚██╗██║', '██║ ╚████║', '╚═╝  ╚═══╝'],
-  K: ['██╗  ██╗', '██║ ██╔╝', '█████╔╝ ', '██╔═██╗ ', '██║  ██╗', '╚═╝  ╚═╝'],
-  Y: ['██╗   ██╗', '╚██╗ ██╔╝', ' ╚████╔╝ ', '  ╚██╔╝  ', '   ██║   ', '   ╚═╝   '],
-  O: [' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '],
-  U: ['██╗   ██╗', '██║   ██║', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '],
-  ' ': ['  ', '  ', '  ', '  ', '  ', '  '],
+const A = (code) => (COLOR ? `${E}${code}m` : '');
+const RESET = A(0), BOLD = A(1), DIM = A(2);
+const fg = (c) => (COLOR ? `${E}38;2;${c[0]};${c[1]};${c[2]}m` : '');
+const bgc = (c) => (COLOR ? `${E}48;2;${c[0]};${c[1]};${c[2]}m` : '');
+const tint = (c) => (s) => fg(c) + s + RESET;
+const C = {
+  accent: tint([34, 211, 238]), green: tint([110, 231, 160]), amber: tint([251, 191, 36]),
+  red: tint([248, 113, 113]), text: tint([228, 228, 231]), muted: tint([161, 161, 170]),
+  faint: tint([100, 100, 112]),
 };
+const GREEN = [110, 231, 160];
+const STOPS = [[255, 106, 193], [167, 139, 250], [90, 220, 255]];
+const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function bigRows(text) {
-  const rows = ['', '', '', '', '', ''];
-  for (const ch of text.toUpperCase()) {
-    const g = GLYPHS[ch] || GLYPHS[' '];
-    const w = Math.max(...g.map((r) => [...r].length));
-    g.forEach((r, i) => { rows[i] += r.padEnd(w); });
+// Width-aware length: emoji are 2 columns wide, variation selectors / ZWJ are 0.
+function cw(ch) {
+  const c = ch.codePointAt(0);
+  if (c === 0xfe0f || c === 0x200d) return 0;
+  if ((c >= 0x1f300 && c <= 0x1faff) || c === 0x26a1) return 2;
+  return 1;
+}
+const vlen = (s) => { let n = 0; for (const ch of s.replace(ANSI_RE, '')) n += cw(ch); return n; };
+const pad = (s, w) => s + ' '.repeat(Math.max(0, w - vlen(s)));
+const center = (s, w) => ' '.repeat(Math.max(0, Math.floor((w - vlen(s)) / 2))) + s;
+function fit(s, n) {
+  let w = 0, r = '';
+  for (const ch of String(s).replace(ANSI_RE, '')) {
+    const k = cw(ch);
+    if (w + k > n - 1 && vlen(s) > n) return r + '…';
+    r += ch; w += k;
   }
-  return rows;
+  return r;
+}
+function wrap(text, w) {
+  const lines = [];
+  let cur = '';
+  for (const wd of text.split(' ')) {
+    if (cur && vlen(cur) + 1 + vlen(wd) > w) { lines.push(cur); cur = wd; }
+    else cur = cur ? cur + ' ' + wd : wd;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function wrapTokens(tokens, width, sep = '   ') {
+  const lines = [];
+  let cur = '';
+  for (const t of tokens) {
+    if (cur && vlen(cur) + vlen(sep) + vlen(t) > width) { lines.push(cur); cur = t; }
+    else cur = cur ? cur + sep + t : t;
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
-// ─── Styling ────────────────────────────────────────────────────────────────
-const RESET = '\x1b[0m';
-const rgb = (r, g, b) => (s) => `\x1b[38;2;${r};${g};${b}m${s}\x1b[39m`;
-const C = {
-  accent: rgb(34, 211, 238),
-  green:  rgb(52, 211, 153),
-  amber:  rgb(251, 191, 36),
-  red:    rgb(248, 113, 113),
-  text:   rgb(228, 228, 231),
-  muted:  rgb(161, 161, 170),
-  faint:  rgb(82, 82, 91),
-};
-const bold = (s) => `\x1b[1m${s}\x1b[22m`;
-const strip = (s) => String(s).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-const vis = (s) => [...strip(s)].length;
-const fit = (s, n) => {
-  const t = [...strip(s)];
-  return t.length > n ? t.slice(0, Math.max(0, n - 1)).join('') + '…' : t.join('');
-};
+function grad(t) {
+  const x = clamp(t, 0, 1) * (STOPS.length - 1);
+  const i = Math.min(Math.floor(x), STOPS.length - 2);
+  const f = x - i;
+  return [0, 1, 2].map((k) => Math.round(STOPS[i][k] + (STOPS[i + 1][k] - STOPS[i][k]) * f));
+}
+const wave = (i, speed = 3, freq = 0.15) => (Math.sin(i * freq - state.t * speed) + 1) / 2;
+function gtext(s, bold = false) {
+  let r = bold ? BOLD : '';
+  [...s].forEach((ch, i) => { r += ch === ' ' ? ch : fg(grad(wave(i))) + ch; });
+  return r + RESET;
+}
+const green = C.green;
+const dim = (s) => DIM + s + RESET;
 
 function hsl(h, s, l) {
+  if (!COLOR) return '';
   h = ((h % 360) + 360) % 360;
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
   const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
     : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
-  return `\x1b[38;2;${Math.round((r + m) * 255)};${Math.round((g + m) * 255)};${Math.round((b + m) * 255)}m`;
+  return `${E}38;2;${Math.round((r + m) * 255)};${Math.round((g + m) * 255)};${Math.round((b + m) * 255)}m`;
 }
 
-const getPal = () => PALETTES[Math.floor(state.tick / 300) % PALETTES.length];
-const getFill = () => FILLS[Math.floor(state.tick / 450) % FILLS.length];
+// Hint bar: drops middle hints until it fits the box.
+function hint(pairs, inner) {
+  const sep = dim('  ·  ');
+  const render = (p) => p.map(([k, d]) => fg(grad(0.55)) + BOLD + k + RESET + dim(' ' + d)).join(sep);
+  const p = [...pairs];
+  while (inner && vlen(render(p)) > inner && p.length > 2) p.splice(1, 1);
+  return center(render(p), inner || 0);
+}
 
-function bar(p, w) {
-  p = Math.max(0, Math.min(1, p));
-  const pal = getPal();
+function stepper(active, inner) {
+  if (inner < 58) return dim(`Step ${active + 1}/${WIZARD.length} · `) + gtext(WIZARD[active], true);
+  return WIZARD.map((l, i) =>
+    i < active ? green('✔ ' + l) : i === active ? gtext('● ' + l, true) : dim('○ ' + l)
+  ).join(dim(' ─ '));
+}
+// Express flow has no wizard steps, so it gets a title line instead.
+const topline = (active, inner) =>
+  state.mode === 'express'
+    ? gtext('EXPRESS INSTALL', true) + dim(`  ·  ${TARGETS[state.target].short}`)
+    : stepper(active, inner);
+
+// Selectable row with a soft highlight that glides between rows.
+function selRow(i, content, inner) {
+  const sel = i === state.cursor;
+  const ptr = sel ? fg(grad(wave(0, 4))) + '❯' + RESET : ' ';
+  let s = ` ${ptr} ${content}`;
+  const k = Math.max(0, 1 - Math.abs(state.hl - i));
+  if (COLOR && k > 0.04) {
+    const bg = bgc([Math.round(14 + 24 * k), Math.round(18 + 26 * k), Math.round(32 + 48 * k)]);
+    s = bg + pad(s, inner).split(RESET).join(RESET + bg) + RESET;
+  }
+  return s;
+}
+
+function box(lines, W, title) {
+  const inner = W - 4;
+  const colorAt = (i, k = 0) => fg(grad((Math.sin(i * 0.09 - state.t * 1.6 + k) + 1) / 2));
+  let top = '╭' + '─'.repeat(W - 2) + '╮';
+  if (title) {
+    const t = ` ${title} `;
+    top = top.slice(0, 3) + t + top.slice(3 + t.length);
+  }
+  const topC = [...top].map((ch, i) => colorAt(i) + ch).join('') + RESET;
+  const bot = [...('╰' + '─'.repeat(W - 2) + '╯')].map((ch, i) => colorAt(i, 2) + ch).join('') + RESET;
+  const body = lines.map((l, r) => {
+    const side = colorAt(r * 3, 1);
+    return `${side}│${RESET} ${pad(l, inner)} ${side}│${RESET}`;
+  });
+  return [topC, ...body, bot];
+}
+
+function bar(p, w, shim = true) {
+  p = clamp(p, 0, 1);
   const units = p * w * 8;
   const full = Math.floor(units / 8);
   const rem = Math.floor(units % 8);
+  const sx = (state.t * 42) % (w + 14) - 7;
   let s = '';
-  for (let i = 0; i < full; i++) s += hsl(pal.h0 + pal.span * (i / w), 0.95, 0.6) + '█';
+  for (let i = 0; i < full; i++) {
+    s += (shim && Math.abs(i - sx) < 2.2 ? fg([255, 255, 255]) : fg(grad(i / w))) + '█' + RESET;
+  }
   const partial = full < w && rem > 0;
-  if (partial) s += hsl(pal.h0 + pal.span * (full / w), 0.95, 0.6) + PARTIAL[rem];
+  if (partial) s += fg(grad(full / w)) + PARTIAL[rem] + RESET;
   const used = full + (partial ? 1 : 0);
-  return s + RESET + C.faint('░'.repeat(Math.max(0, w - used)));
+  return s + C.faint('░'.repeat(Math.max(0, w - used)));
 }
-
-function bigBanner(text, pal, fill) {
-  const rows = bigRows(text);
-  const W = [...rows[0]].length;
-  const sweepX = ((state.tick * 0.4) % (W + 16)) - 8;
-  const glitchRow = (Math.floor(state.tick / 360) * 7) % 6;
-  const glitching = state.tick % 360 < 6;
-  return rows.map((row, r) => {
-    let s = glitching && r === glitchRow ? '   ' : '';
-    Array.from(row).forEach((ch, x) => {
-      if (ch === ' ') { s += ' '; return; }
-      const t = x / W + state.tick * 0.004;
-      const tri = Math.abs((t % 2) - 1);
-      const hue = pal.h0 + pal.span * tri + r * 6;
-      let light = r % 2 ? 0.52 : 0.64;
-      if (Math.abs(x - sweepX) < 4) light = 0.96;
-      s += hsl(hue, 0.95, light) + (ch === '█' ? FILL_CHAR[fill] : ch);
-    });
-    return s + RESET;
-  });
-}
-
-function compactTitle(pal) {
-  return [...'L E S S W A T C H'].map((ch, x) => {
-    const tri = Math.abs(((x / 18) + state.tick * 0.004) % 2 - 1);
-    return hsl(pal.h0 + pal.span * tri, 0.95, 0.65) + bold(ch);
-  }).join('') + RESET;
-}
-
-function marquee(W, pal) {
-  const msg = ' ◆ STREAM TOGETHER ◆ SELF-HOSTED ◆ WATCH IN SYNC ◆ NO SUBSCRIPTIONS ◆ ';
-  const off = Math.floor(state.tick * 0.2) % msg.length;
-  const span = [...(msg.repeat(6)).slice(off, off + W - 4)];
-  return span.map((ch, i) =>
-    hsl(pal.h0 + pal.span * (i / Math.max(1, span.length)) + state.tick * 0.8, 0.9, 0.62) + ch
-  ).join('') + RESET;
-}
-
-function animatedRule(W, pal) {
-  const n = W - 4;
-  const pos = Math.floor(Math.abs(((state.tick * 0.2) % (2 * n)) - n));
-  let s = '';
-  for (let i = 0; i < n; i++) s += i === pos ? hsl(pal.h0, 0.95, 0.7) + '◆' : C.faint('─');
-  return s + RESET;
-}
-
-function box(lines, width, color = C.faint) {
-  const inner = width - 2;
-  const row = (l) => color('│') + ' ' + l + ' '.repeat(Math.max(0, inner - 2 - vis(l))) + ' ' + color('│');
-  return [color('╭' + '─'.repeat(inner) + '╮'), ...lines.map(row), color('╰' + '─'.repeat(inner) + '╯')];
-}
-const boxed = (lines, W, color) => box(lines, W, color).map((l) => '  ' + l);
-
-const cols = () => Math.max(60, process.stdout.columns || 80);
-const rows = () => Math.max(20, process.stdout.rows || 24);
 
 // ─── State ──────────────────────────────────────────────────────────────────
 const state = {
-  screen: 'modules',   // modules | target | install | failed | done
-  cursor: 0,
-  target: isCloudShell ? 0 : (detectedPublicIP !== '127.0.0.1' ? 1 : 2),
+  screen: 'splash', screenT: 0, sa: 0, t: 0, frame: 0,
+  mode: 'express',                 // express | custom
+  cursor: 0, hl: 0, lastMenu: 0, btn: 0,
+  target: defaultTarget(), targetTouched: false,
   modules: MODULES.map((m) => m.on),
-  stages: [],
-  current: 0,
-  shown: 0,
-  logs: [],
-  started: 0,
-  finishedAt: 0,
-  error: '',
-  publicUrl: '',
-  tick: 0,
-  cpu: Array(30).fill(0.1),
-  mem: Array(30).fill(0.15),
-  confetti: null,
+  flash: {}, toast: null,
+  stages: [], current: 0, shown: 0, logs: [], started: 0, finishedAt: 0,
+  pendingDone: false, doneT: 0, error: '', publicUrl: '', plain: false,
+  cpu: Array(120).fill(0.05), mem: Array(120).fill(0.2), cpuV: 0.05, lastSample: 0,
+  confetti: null, quitting: false,
 };
-
-let loop = null;
+const t0 = Date.now();
 let activeChild = null;
 let leftScreen = false;
 let prevCpu = os.cpus();
 
-// ─── Telemetry (Rock-Solid Oscilloscope Graph) ──────────────────────────────
-const pushCapped = (arr, v) => { arr.push(v); if (arr.length > 40) arr.shift(); };
-const spark = (arr, w) => arr.slice(-w).map((v) => SPARK[Math.min(7, Math.max(0, Math.floor(v * 8)))]).join('').padStart(w, ' ');
+function go(next) {
+  const prev = state.screen;
+  state.screen = next;
+  state.screenT = state.t;
+  state.sa = 0;
+  if (next === 'menu') state.cursor = state.lastMenu;
+  if (next === 'target') state.cursor = state.target;
+  if (next === 'modules') state.cursor = prev === 'target' ? 0 : clamp(state.cursor, 0, MODULES.length - 1);
+  if (next === 'review') state.btn = 0;
+  if (next === 'done') state.confetti = null;
+  state.hl = state.cursor;
+}
+function toast(text) { state.toast = { text, until: state.t + 3 }; }
 
-function sampleCpu() {
-  try {
-    const cur = os.cpus();
-    if (!cur || cur.length === 0) return;
-    const sum = (o) => Object.values(o.times).reduce((a, b) => a + b, 0);
-    let idle = 0;
-    let total = 0;
-    cur.forEach((c, i) => {
-      const p = prevCpu && prevCpu[i] ? prevCpu[i] : c;
-      total += sum(c) - sum(p);
-      idle += c.times.idle - p.times.idle;
-    });
-    prevCpu = cur;
-    let cpuFraction = total > 0 ? Math.max(0, Math.min(1, 1 - idle / total)) : (state.cpu.at(-1) || 0.15);
-    if (cpuFraction < 0.06) cpuFraction = 0.06 + 0.04 * Math.sin(state.tick * 0.08);
-    pushCapped(state.cpu, cpuFraction);
+// ─── CPU / RAM telemetry ────────────────────────────────────────────────────
+// Real mode reads the OS. Demo mode synthesises load that follows the running
+// stage, so spikes line up with what the installer is "doing".
+const LOAD = { docker: 0.22, env: 0.3, build: 0.9, neko: 0.62, aria: 0.3, tunnel: 0.42 };
+const push = (arr, v) => { arr.push(v); if (arr.length > 160) arr.shift(); };
 
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const memFraction = totalMem > 0 ? Math.max(0, Math.min(1, 1 - freeMem / totalMem)) : 0.2;
-    pushCapped(state.mem, memFraction);
-  } catch {}
+function sample() {
+  let mem;
+  if (REAL) {
+    try {
+      const cur = os.cpus();
+      const sum = (o) => Object.values(o.times).reduce((a, b) => a + b, 0);
+      let idle = 0, total = 0;
+      cur.forEach((c, i) => {
+        const p = prevCpu && prevCpu[i] ? prevCpu[i] : c;
+        total += sum(c) - sum(p);
+        idle += c.times.idle - p.times.idle;
+      });
+      prevCpu = cur;
+      const f = total > 0 ? clamp(1 - idle / total, 0, 1) : state.cpuV;
+      state.cpuV += (f - state.cpuV) * 0.6;
+    } catch {}
+    mem = clamp(1 - os.freemem() / os.totalmem(), 0, 1);
+  } else {
+    const run = state.screen === 'install' ? state.stages[state.current] : null;
+    const active = Boolean(run && run.status === 'running');
+    const base = active ? (LOAD[run.id] ?? 0.4) : (state.screen === 'install' ? 0.12 : 0.06);
+    let target = base * (0.55 + 0.45 * Math.random());
+    if (active && base > 0.2 && Math.random() < 0.14) target = Math.min(1, target + 0.2 + Math.random() * 0.3);
+    state.cpuV += (target - state.cpuV) * 0.55;
+    mem = 0.24 + 0.34 * state.shown + 0.01 * Math.sin(state.t * 1.3);
+  }
+  push(state.cpu, clamp(state.cpuV, 0.02, 1));
+  push(state.mem, clamp(mem, 0, 1));
+}
+
+const heat = (f) => hsl(140 - 140 * clamp(f, 0, 1), 0.85, 0.55);
+const cool = (f) => hsl(195 + 70 * clamp(f, 0, 1), 0.8, 0.62);
+
+// Multi-row area chart: R rows × 8 sub-levels, newest sample on the right.
+function chart(hist, w, R, colorFn) {
+  const data = hist.slice(-w);
+  while (data.length < w) data.unshift(0);
+  const lines = [];
+  for (let r = 0; r < R; r++) {
+    let s = '';
+    for (const v of data) {
+      const h = Math.round(clamp(v, 0, 1) * R * 8);
+      const lvl = clamp(h - (R - 1 - r) * 8, 0, 8);
+      if (lvl === 0) { s += r === R - 1 ? C.faint('▁') : ' '; continue; }
+      const frac = ((R - 1 - r) * 8 + lvl) / (R * 8);
+      s += colorFn(frac) + BLOCKS[lvl] + RESET;
+    }
+    lines.push(s);
+  }
+  return lines;
 }
 
 // ─── Pipeline ───────────────────────────────────────────────────────────────
 function log(line) {
-  const clean = strip(line).replace(/\s+$/, '');
+  const clean = String(line).replace(ANSI_RE, '').replace(/\s+$/, '');
   const m = clean.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
   if (m) state.publicUrl = m[0];
   state.logs.push(clean);
   if (state.logs.length > 200) state.logs.splice(0, 100);
+  if (state.plain && clean) console.log(clean);
 }
 
 function enabledStages() {
@@ -649,12 +690,13 @@ async function runPipeline(from) {
     } catch (err) {
       s.status = 'failed';
       state.error = err.message;
-      state.screen = 'failed';
+      go('failed');
       return;
     }
   }
   state.finishedAt = Date.now();
-  state.screen = 'done';
+  state.pendingDone = true;       // frame loop eases the bar to 100%, then flips to 'done'
+  state.doneT = 0;
   if (!REAL && !state.publicUrl) state.publicUrl = 'https://lesswatch-demo.trycloudflare.com';
   if (process.env.LW_URL) state.publicUrl = process.env.LW_URL;
 }
@@ -662,8 +704,11 @@ async function runPipeline(from) {
 function startInstall() {
   state.stages = enabledStages();
   state.started = Date.now();
-  state.screen = 'install';
-  runPipeline(0);
+  state.pendingDone = false;
+  state.shown = 0;
+  state.logs = [];
+  go('install');
+  return runPipeline(0);
 }
 
 function retry() {
@@ -671,7 +716,7 @@ function retry() {
   s.status = 'pending';
   s.progress = 0;
   state.error = '';
-  state.screen = 'install';
+  go('install');
   runPipeline(state.current);
 }
 
@@ -682,340 +727,444 @@ function overall() {
   return (done + (cur ? cur.progress / 100 : 0)) / n;
 }
 
-// ─── Views ──────────────────────────────────────────────────────────────────
-function header(W) {
-  const pal = getPal();
-  const fill = getFill();
-  const big = cols() >= 84 && rows() >= 34;
-  const cur = state.screen === 'modules' ? 0 : (state.screen === 'target' ? 1 : 2);
-  const crumbs = ['Modules', 'Target', 'Install']
-    .map((n, i) => (i < cur ? C.green('✔ ' + n) : i === cur ? bold(C.accent(n)) : C.faint(n)))
-    .join(C.faint('  ›  '));
-  const L = [];
-  if (big) L.push(...bigBanner('LESSWATCH', pal, fill).map((l) => '  ' + l));
-  else L.push('  ' + compactTitle(pal));
-  L.push('  ' + marquee(W, pal));
-  L.push('  ' + C.muted(`self-host installer · 60fps · ${REAL ? 'live' : 'demo'} · ${pal.name} · ${fill}`));
-  L.push('  ' + crumbs);
-  L.push('  ' + animatedRule(W, pal));
-  L.push('');
-  return L;
-}
-
-function grad(text, phase) {
-  const pal = getPal();
-  return [...text].map((ch, i) => {
-    const tri = Math.abs(((i / Math.max(1, text.length)) + phase * 0.1) % 2 - 1);
-    return hsl(pal.h0 + pal.span * tri, 0.95, 0.65) + ch;
-  }).join('') + RESET;
-}
-
-// Dedicated Checkbox Menu Renderer
-function renderCheckboxModules(W) {
-  const activeCount = state.modules.filter(Boolean).length;
-  const L = [
-    `  ${bold(C.text('SELECT LESSWATCH MODULES & COMPONENTS'))}  ${C.accent(`(${activeCount} of ${MODULES.length} enabled)`)}`,
-    ''
-  ];
-
-  MODULES.forEach((mod, i) => {
-    const isSelected = i === state.cursor;
-    const isChecked = state.modules[i];
-
-    const mark = isChecked
-      ? `${C.green(bold('[✔]'))}`
-      : `${C.faint('[ ]')}`;
-
-    const tagStr = mod.tag ? ` ${C.amber(`[${mod.tag}]`)}` : '';
-    const labelText = `${mod.icon}  ${mod.title}${tagStr}`;
-    const label = isSelected
-      ? bold(grad(labelText, state.tick * 0.04))
-      : (isChecked ? C.text(labelText) : C.faint(labelText));
-
-    L.push(`  ${isSelected ? C.accent('▸') : ' '} ${mark} ${label}`);
+// ─── Screens ────────────────────────────────────────────────────────────────
+const LOGO = {
+  L: ['█  ', '█  ', '█▄▄'], E: ['█▀▀', '█▀▀', '█▄▄'], S: ['█▀▀', '▀▀█', '▄▄█'],
+  W: ['█   █', '█ █ █', '▀▄▀▄▀'], A: ['▄▀▄', '█▀█', '▀ ▀'], T: ['▀█▀', ' █ ', ' ▀ '],
+  C: ['█▀▀', '█  ', '▀▀▀'], H: ['█ █', '█▀█', '▀ ▀'],
+};
+const logoLines = () => [0, 1, 2].map((r) => [...'LESSWATCH'].map((ch) => LOGO[ch][r]).join(' '));
+function paintLogo(lines) {
+  return lines.map((l, r) => {
+    let s = '';
+    [...l].forEach((ch, i) => { s += ch === ' ' ? ' ' : fg(grad(wave(i + r * 2, 3.5, 0.18))) + BOLD + ch; });
+    return s + RESET;
   });
-
-  L.push('');
-
-  // Focused Description Card
-  const currentMod = MODULES[state.cursor];
-  const targetName = TARGETS[state.target].title;
-  L.push(...boxed([
-    `${bold(C.accent(currentMod.title))} ${C.amber(`[${currentMod.tag}]`)}`,
-    C.muted(currentMod.desc),
-    '',
-    `${C.faint('Target Platform:')} ${C.text(targetName)}  ${C.accent("[Press 't' to change]")}`
-  ], W));
-
-  L.push('', `  ${C.faint('Space toggle checkbox  •  1-6 direct toggle  •  Enter deploy  •  t change target')}`);
-  return L;
 }
 
-function stageLine(s) {
-  const spin = SPIN[Math.floor(state.tick / 6) % SPIN.length];
-  const icon = { pending: C.faint('○'), running: C.accent(spin), done: C.green('✔'), failed: C.red('✖') }[s.status];
-  const label = s.label.padEnd(28);
-  const name = {
-    pending: (t) => C.faint(t),
-    running: (t) => bold(C.text(t)),
-    done:    (t) => C.muted(t),
-    failed:  (t) => C.red(t),
-  }[s.status](label);
-  let right = '';
-  if (s.status === 'running') {
-    right = bar(s.progress / 100, 22) + C.muted(` ${String(Math.round(s.progress)).padStart(3)}%`);
-  } else if (s.status === 'done') {
-    right = C.green(`${(s.ms / 1000).toFixed(1)}s`);
+const envName = () => (isCloudShell ? 'Google Cloud Shell' : detectedPublicIP !== '127.0.0.1' ? 'Linux VM / VPS' : 'Local workstation');
+const sysInfo = () => `${os.cpus().length} vCPU · ${(os.totalmem() / 1073741824).toFixed(1)} GB RAM`;
+const enabledCount = () => state.modules.filter((v, i) => v && !(MODULES[i].id === 'neko_warm' && !state.modules[0])).length;
+
+function toggleModule(i) {
+  const isWarm = MODULES[i].id === 'neko_warm';
+  if (isWarm && !state.modules[0] && !state.modules[i]) return toast('Always-On mode needs the Neko browser enabled');
+  state.modules[i] = !state.modules[i];
+  state.flash[i] = state.t;
+  if (i === 0 && !state.modules[0] && state.modules[5]) {
+    state.modules[5] = false;
+    state.flash[5] = state.t;
+    toast('Always-On mode switched off (needs Neko)');
   }
-  return `  ${icon} ${name} ${right}`;
+}
+function markFor(i) {
+  const on = state.modules[i];
+  if (MODULES[i].id === 'neko_warm' && !state.modules[0] && !on) return C.faint('[–]');
+  const a = state.t - (state.flash[i] ?? -99);
+  if (a < 0.22) {
+    const f = on ? ['·', '◔', '◑', '✔'] : ['✔', '◑', '◔', '·'];
+    return (on ? C.green : C.amber)(BOLD + '[' + f[Math.min(3, Math.floor(a / 0.055))] + ']');
+  }
+  return on ? C.green(BOLD + '[✔]') : C.faint('[ ]');
 }
 
-function installView(W) {
-  const L = [];
-  const end = state.finishedAt || Date.now();
-  const elapsed = ((end - state.started) / 1000).toFixed(1);
-  const reel = REEL[Math.floor(state.tick / 10) % REEL.length];
+const menuItems = () => [
+  { label: 'Express install', desc: `auto · ${TARGETS[defaultTarget()].short} · recommended`,
+    run: () => { state.mode = 'express'; state.target = defaultTarget(); state.modules = MODULES.map((m) => m.on); go('review'); } },
+  { label: 'Custom install', desc: 'choose target & modules',
+    run: () => { state.mode = 'custom'; if (!state.targetTouched) state.target = defaultTarget(); go('target'); } },
+  { label: 'What\u2019s included', desc: 'see every module', run: () => go('about') },
+  { label: 'Quit', desc: 'exit installer', run: () => shutdown(0) },
+];
+
+// Scramble-resolve text effect for the final public IP / URL.
+function typeFx(text, start, cps) {
+  const el = state.sa - start;
+  if (el < 0) return null;
+  const n = Math.min(text.length, Math.floor(el * cps));
+  const done = n >= text.length;
+  const pending = done ? '' : [...text.slice(n, n + 4)].map(() => SCRAMBLE[Math.floor(Math.random() * SCRAMBLE.length)]).join('');
+  return { shown: text.slice(0, n), pending, done, since: el - text.length / cps };
+}
+
+const screens = {
+  splash: {
+    render(inner) {
+      const logo = paintLogo(logoLines()).map((l) => center(l, inner));
+      const tag = 'stream together · self-hosted · watch in sync';
+      const typed = tag.slice(0, Math.floor(Math.max(0, state.sa - 0.5) * 34));
+      const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
+      const ind = ' '.repeat(Math.max(2, Math.floor((inner - 44) / 2)));
+      const row = (at, k, v, ok) => (state.sa >= at ? `${ind}${ok ? green('✔') : C.accent(spin)} ${C.accent(k.padEnd(12))} ${C.text(v)}` : '');
+      return [
+        '', ...logo, '',
+        center(dim(typed) + (Math.floor(state.t * 3) % 2 ? dim('▌') : ' '), inner), '',
+        row(1.1, 'Environment', envName(), true),
+        row(1.4, 'Public IP', ipReady ? (detectedPublicIP === '127.0.0.1' ? 'none (local only)' : detectedPublicIP) : 'detecting…', ipReady),
+        row(1.7, 'Resources', sysInfo(), true),
+        '',
+        state.sa > 2.4 ? center(Math.floor(state.t * 1.6) % 2 ? BOLD + green('▌ PRESS ANY KEY ▐') : '', inner) : '',
+      ];
+    },
+    key() { go('menu'); },
+  },
+
+  menu: {
+    render(inner) {
+      const items = menuItems();
+      return [
+        center(gtext('LESSWATCH', true) + dim('  installer'), inner),
+        center(dim(`detected: ${envName()} · ${sysInfo()}`), inner), '',
+        dim('What would you like to do?'), '',
+        ...items.map((it, i) => selRow(i, `${pad(`${i + 1}  ${it.label}`, 22)}${dim(fit(it.desc, Math.max(8, inner - 4 - 22)))}`, inner)),
+        '', hint([['↑↓', 'move'], ['enter', 'select'], ['q', 'quit']], inner),
+      ];
+    },
+    key(s, k) {
+      const n = menuItems().length;
+      const run = () => { state.lastMenu = state.cursor; menuItems()[state.cursor].run(); };
+      if (k.name === 'up' || s === 'k') state.cursor = (state.cursor + n - 1) % n;
+      else if (k.name === 'down' || s === 'j') state.cursor = (state.cursor + 1) % n;
+      else if (/^[1-9]$/.test(s) && +s <= n) { state.cursor = +s - 1; run(); }
+      else if (k.name === 'return') run();
+      else if (s === 'q' || k.name === 'escape') shutdown(0);
+    },
+  },
+
+  about: {
+    render(inner) {
+      const L = [center(gtext('What\u2019s included', true), inner), ''];
+      MODULES.forEach((m) => {
+        L.push(` ${green('✔')} ${BOLD}${m.icon}  ${fit(m.title, inner - 10)}${RESET}`);
+        L.push('     ' + dim(fit(m.desc, inner - 6)));
+      });
+      L.push('', hint([['enter', 'back'], ['esc', 'back']], inner));
+      return L;
+    },
+    key(s, k) { if (k.name === 'return' || k.name === 'escape' || k.name === 'backspace') go('menu'); },
+  },
+
+  target: {
+    render(inner) {
+      const L = [topline(0, inner), '', dim('Where are you deploying?'), ''];
+      TARGETS.forEach((t, i) => {
+        const mark = i === state.target ? green('◉') : C.faint('○');
+        const det = i === defaultTarget() ? C.amber('  [DETECTED]') : '';
+        L.push(selRow(i, `${mark} ${i === state.cursor ? BOLD : ''}${t.title}${RESET}${det}`, inner));
+      });
+      L.push('');
+      const d = wrap(TARGETS[state.cursor].desc, inner - 2);
+      L.push(' ' + dim(d[0] || ''), ' ' + dim(d[1] || ''));
+      L.push('', hint([['↑↓', 'move'], ['space', 'select'], ['enter', 'next'], ['esc', 'back']], inner));
+      return L;
+    },
+    key(s, k) {
+      const n = TARGETS.length;
+      if (k.name === 'up' || s === 'k') state.cursor = (state.cursor + n - 1) % n;
+      else if (k.name === 'down' || s === 'j') state.cursor = (state.cursor + 1) % n;
+      else if (s === ' ') { state.target = state.cursor; state.targetTouched = true; }
+      else if (k.name === 'return' || k.name === 'right') { state.target = state.cursor; state.targetTouched = true; go('modules'); }
+      else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') go('menu');
+      else if (s === 'q') shutdown(0);
+    },
+  },
+
+  modules: {
+    render(inner) {
+      const tid = TARGETS[state.target].id;
+      const L = [topline(1, inner), '', `${dim('Pick what to install')}  ${C.accent(`${enabledCount()} of ${MODULES.length} enabled`)}`, ''];
+      MODULES.forEach((m, i) => {
+        const on = state.modules[i];
+        const blocked = m.id === 'neko_warm' && !state.modules[0];
+        let note = '';
+        if (m.id === 'tunnel' && tid === 'local') note = ' (skipped on Local)';
+        if (blocked) note = ' (needs Neko)';
+        const room = Math.max(10, inner - 4 - 4 - 3 - m.tag.length - 3 - note.length);
+        const title = fit(m.title, room);
+        const label = i === state.cursor ? BOLD + title + RESET : (on && !blocked ? C.text(title) : C.faint(title));
+        L.push(selRow(i, `${markFor(i)} ${m.icon} ${label} ${C.amber(`[${m.tag}]`)}${C.faint(note)}`, inner));
+      });
+      L.push('');
+      const d = wrap(MODULES[state.cursor].desc, inner - 2);
+      L.push(' ' + dim(d[0] || ''), ' ' + dim(d[1] || ''));
+      const tl = state.toast && state.t < state.toast.until ? C.amber('! ' + state.toast.text) : dim(`Target: ${TARGETS[state.target].short}`);
+      L.push(' ' + tl, hint([['↑↓', 'move'], ['space', 'toggle'], ['a', 'all'], ['t', 'target'], ['enter', 'next'], ['esc', 'back']], inner));
+      return L;
+    },
+    key(s, k) {
+      const n = MODULES.length;
+      if (k.name === 'up' || s === 'k') state.cursor = (state.cursor + n - 1) % n;
+      else if (k.name === 'down' || s === 'j') state.cursor = (state.cursor + 1) % n;
+      else if (s === ' ') toggleModule(state.cursor);
+      else if (/^[1-6]$/.test(s)) { state.cursor = +s - 1; toggleModule(state.cursor); }
+      else if (s === 'a' || s === 'A') {
+        const anyOff = state.modules.some((v) => !v);
+        MODULES.forEach((m, i) => { if (state.modules[i] !== anyOff) { state.modules[i] = anyOff; state.flash[i] = state.t; } });
+      }
+      else if (s === 't' || s === 'T') go('target');
+      else if (k.name === 'return' || k.name === 'right') go('review');
+      else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') go('target');
+      else if (s === 'q') shutdown(0);
+    },
+  },
+
+  review: {
+    render(inner) {
+      const stages = enabledStages();
+      const tid = TARGETS[state.target].id;
+      const modTokens = MODULES.map((m, i) => {
+        const on = state.modules[i] && !(m.id === 'neko_warm' && !state.modules[0]);
+        return on ? green('✔ ') + C.text(SHORT[m.id]) : C.faint('✖ ' + SHORT[m.id]);
+      });
+      const pipe = stages.map((s, i) => C.muted(`${i + 1}.`) + C.text(s.id));
+      const kv = (k, v) => ` ${dim(pad(k, 10))}${v}`;
+      const btn = (label, on, c) => (on
+        ? bgc(c) + fg([12, 14, 22]) + BOLD + `  ${label}  ` + RESET
+        : dim(`[ ${label} ]`));
+      const L = [
+        topline(2, inner), '', dim('Review your choices'), '',
+        kv('Target', C.text(TARGETS[state.target].title)),
+        kv('Modules', ''),
+        ...wrapTokens(modTokens, inner - 4).map((l) => '   ' + l),
+        kv('Pipeline', dim(`${stages.length} steps`)),
+        ...wrapTokens(pipe, inner - 4, dim(' › ')).map((l) => '   ' + l),
+      ];
+      if (tid === 'local' && state.modules[2]) L.push(' ' + C.amber('! Tunnel step is skipped on a Local target.'));
+      L.push('', center(btn('Deploy', state.btn === 0, GREEN) + '   ' + btn('Back', state.btn === 1, [150, 150, 170]), inner),
+        '', hint([['←→', 'choose'], ['enter', 'confirm'], ['y', 'deploy'], ['esc', 'back']], inner));
+      return L;
+    },
+    key(s, k) {
+      const back = () => go(state.mode === 'custom' ? 'modules' : 'menu');
+      if (k.name === 'left' || k.name === 'right' || k.name === 'tab') state.btn = 1 - state.btn;
+      else if (s === 'y' || s === 'Y') startInstall();
+      else if (k.name === 'return') { if (state.btn === 0) startInstall(); else back(); }
+      else if (k.name === 'escape' || k.name === 'backspace') back();
+      else if (s === 'q') shutdown(0);
+    },
+  },
+
+  install: { render: installView, key() {} },
+
+  failed: {
+    render: (inner) => installView(inner, true),
+    key(s, k) {
+      if (s === 'r') retry();
+      else if (s === 'q') shutdown(1, 'Stopped. Run the installer again to resume.');
+    },
+  },
+
+  done: {
+    render(inner) {
+      const H = 3;
+      if (!state.confetti) {
+        state.confetti = Array.from({ length: 44 }, () => ({
+          x: Math.random(), y: Math.random() * H, vy: 1.2 + Math.random() * 2.4,
+          ch: CONFETTI[Math.floor(Math.random() * CONFETTI.length)], h: Math.random() * 360,
+        }));
+      }
+      const grid = Array.from({ length: H }, () => new Array(inner).fill(' '));
+      for (const p of state.confetti) {
+        const gx = Math.floor(p.x * inner), gy = Math.floor(p.y);
+        if (gy >= 0 && gy < H && gx >= 0 && gx < inner) grid[gy][gx] = hsl(p.h + state.t * 90, 0.9, 0.65) + p.ch + RESET;
+      }
+
+      const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
+      const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
+      const url = state.publicUrl || 'not captured · set LW_URL';
+      const isCloud = TARGETS[state.target].id === 'cloud';
+      const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
+      const label = (k) => C.accent(pad(k, 12));
+
+      const ipFx = typeFx(ip, 0.7, 26);
+      const urlFx = typeFx(url, 1.5, 36);
+      const cur = (fx) => (fx && !fx.done ? C.accent('▌') : '');
+      const ipLine = ipFx ? ` ${label('Public IP')} ${C.text(ipFx.shown)}${C.accent(ipFx.pending)}${cur(ipFx)}` : '';
+
+      let urlLine = '';
+      if (urlFx) {
+        let body;
+        if (!urlFx.done) body = BOLD + C.text(urlFx.shown) + C.accent(urlFx.pending) + cur(urlFx);
+        else if (urlFx.since < 0.45) body = BOLD + fg([255, 255, 255]) + url + RESET;
+        else body = `${E}4m` + gtext(url, true);
+        urlLine = vlen(url) + 14 > inner ? [` ${label('Public URL')}`, '   ' + body] : [` ${label('Public URL')} ${body}`];
+      }
+      const rest = urlFx && urlFx.done && urlFx.since > 0.3;
+      const tl = state.toast && state.t < state.toast.until ? C.amber(state.toast.text) : '';
+      return [
+        ...grid.map((r) => r.join('')),
+        center(green('✔ ') + gtext('Installation complete', true), inner),
+        center(dim(`built in ${secs}s · ${state.stages.length} steps · ${enabledCount()} modules`), inner), '',
+        ipLine,
+        ...(Array.isArray(urlLine) ? urlLine : [urlLine]),
+        '',
+        rest ? ` ${label('Local')} ${C.text(local)}` : '',
+        rest ? ` ${label('Target')} ${C.text(TARGETS[state.target].title)}` : '',
+        rest ? ` ${label('Login')} ${C.text('admin / admin (or credentials in .env)')}` : '',
+        center(tl, inner),
+        hint([['c', 'copy url'], ['enter', 'exit']], inner),
+      ];
+    },
+    key(s, k) {
+      if (k.name === 'return' || s === 'q') finish();
+      else if (s === 'c') {
+        if (state.publicUrl) {
+          out.write(`\x1b]52;c;${Buffer.from(state.publicUrl).toString('base64')}\x07`); // OSC 52 clipboard
+          toast('URL sent to clipboard (if your terminal supports it)');
+        }
+      }
+    },
+  },
+};
+
+function installView(inner, failed = false) {
+  const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
+  const elapsed = (((state.finishedAt || Date.now()) - state.started) / 1000).toFixed(1);
   const pct = String(Math.round(state.shown * 100)).padStart(3);
-  L.push(`  ${C.accent(reel)} ${bold(C.text('INSTALLING LESSWATCH'))}  ${C.faint('·')}  ${C.muted(elapsed + 's')}`);
-  L.push(`  ${bar(state.shown, Math.max(10, W - 12))} ${bold(C.accent(pct + '%'))}`);
+  const title = failed ? C.red('✖ ') + BOLD + C.red('INSTALL FAILED')
+    : state.pendingDone ? green('✔ ') + BOLD + green('ALL STEPS COMPLETE')
+    : C.accent(spin) + ' ' + BOLD + C.text('INSTALLING LESSWATCH');
+  const L = [topline(3, inner), '', `${title}  ${dim('·')}  ${C.muted(elapsed + 's')}`,
+    `${bar(state.shown, Math.max(10, inner - 7), !state.pendingDone && !failed)} ${BOLD}${C.accent(pct + '%')}${RESET}`, ''];
+
+  const bw = clamp(inner - 3 - 28 - 1 - 5, 8, 22);
+  state.stages.forEach((s) => {
+    const icon = { pending: C.faint('○'), running: C.accent(spin), done: green('✔'), failed: C.red('✖') }[s.status];
+    const name = { pending: C.faint, running: (t) => BOLD + C.text(t), done: C.muted, failed: C.red }[s.status](s.label.padEnd(28));
+    let right = '';
+    if (s.status === 'running') right = bar(s.progress / 100, bw) + C.muted(` ${String(Math.round(s.progress)).padStart(3)}%`);
+    else if (s.status === 'done') right = green(`${(s.ms / 1000).toFixed(1)}s`);
+    L.push(` ${icon} ${name} ${right}`);
+  });
   L.push('');
-  state.stages.forEach((s) => L.push(stageLine(s)));
-  L.push('');
 
-  const logH = 7;
-  const tail = state.logs.slice(-logH);
-  while (tail.length < logH) tail.unshift('');
-  L.push(...boxed(tail.map((l) => C.muted(fit(l, W - 6))), W));
+  // CPU / RAM oscilloscope
+  const R = (out.rows || 24) >= 28 ? 4 : 3;
+  const cwid = Math.floor((inner - 2) / 2);
+  const cpu = chart(state.cpu, cwid, R, heat);
+  const mem = chart(state.mem, cwid, R, cool);
+  for (let r = 0; r < R; r++) L.push(cpu[r] + '  ' + mem[r]);
+  const cpuNow = state.cpu.at(-1) ?? 0, memNow = state.mem.at(-1) ?? 0;
+  const peak = Math.max(...state.cpu.slice(-60));
+  const l1 = `${C.muted('CPU')} ${heat(cpuNow)}${BOLD}${String(Math.round(cpuNow * 100)).padStart(3)}%${RESET} ${dim('peak ' + Math.round(peak * 100) + '%')}`;
+  const l2 = `${C.muted('RAM')} ${cool(memNow)}${BOLD}${String(Math.round(memNow * 100)).padStart(3)}%${RESET}`;
+  L.push(pad(l1, cwid) + '  ' + l2);
 
-  const pal = getPal();
-  const cpuNow = state.cpu.at(-1) ?? 0.1;
-  const memNow = state.mem.at(-1) ?? 0.15;
-  L.push(
-    `  ${C.muted('CPU')} ${hsl(pal.h0, 0.9, 0.6)}${spark(state.cpu, 16)}${RESET} ${C.muted(String(Math.round(cpuNow * 100)).padStart(3) + '%')}` +
-    `    ${C.muted('RAM')} ${hsl(pal.h0 + 60, 0.9, 0.6)}${spark(state.mem, 16)}${RESET} ${C.muted(String(Math.round(memNow * 100)).padStart(3) + '%')}`
-  );
-  return L;
-}
-
-function confettiLines(W, H = 3) {
-  if (!state.confetti) {
-    state.confetti = Array.from({ length: 48 }, () => ({
-      x: Math.random(),
-      y: Math.random() * H,
-      vy: 0.02 + Math.random() * 0.05,
-      ch: CONFETTI[Math.floor(Math.random() * CONFETTI.length)],
-      h: Math.random() * 360,
-    }));
-  }
-  const grid = Array.from({ length: H }, () => new Array(W).fill(' '));
-  for (const p of state.confetti) {
-    p.y += p.vy;
-    if (p.y >= H) { p.y = 0; p.x = Math.random(); }
-    const gx = Math.floor(p.x * W);
-    const gy = Math.floor(p.y);
-    if (gy >= 0 && gy < H && gx >= 0 && gx < W) grid[gy][gx] = hsl(p.h + state.tick * 0.8, 0.9, 0.65) + p.ch + RESET;
-  }
-  return grid.map((r) => '  ' + r.join(''));
-}
-
-function thanksView(W) {
-  const pal = getPal();
-  const L = [];
-  if (cols() >= 84) {
-    L.push(...bigBanner('THANK YOU', pal, getFill()).map((l) => '  ' + l));
+  if (failed) {
+    const e = wrap(state.error, inner - 2);
+    L.push(' ' + C.red(e[0] || ''), ' ' + C.red(e[1] || ''), hint([['r', 'retry step'], ['q', 'quit']], inner));
   } else {
-    L.push(...boxed([bold(grad('THANK YOU!', state.tick * 0.04))], W));
-  }
-  L.push(...confettiLines(Math.min(W + 2, cols() - 4), 3));
-  L.push('');
-
-  const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
-  const comps = state.modules.map((on, i) => (on ? MODULES[i].title : null)).filter(Boolean);
-  const urlColor = hsl(pal.h0 + pal.span * ((state.tick % 180) / 180), 0.95, 0.7);
-  const url = state.publicUrl || 'not captured · set LW_URL';
-  const isCloud = TARGETS[state.target].id === 'cloud';
-  const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
-
-  L.push(...boxed([
-    bold(C.amber('YOUR PUBLIC URL')) + (REAL ? '' : C.faint('  (demo)')),
-    `${urlColor}\x1b[4m${bold(url)}\x1b[24m${RESET}`,
-    '',
-    `${C.accent('Local')}       ${C.text(local)}`,
-    `${C.accent('Target')}      ${C.text(TARGETS[state.target].title)}`,
-    `${C.accent('Components')}  ${C.text(comps.length ? comps.join(', ') : 'none')}`,
-    `${C.accent('Built in')}    ${C.text(`${secs}s · ${state.stages.length} steps`)}`,
-    `${C.accent('Login')}       ${C.text('admin / admin (or credentials in .env)')}`,
-    '',
-    C.muted('Open the URL on any device · logs: docker compose logs -f'),
-  ], W));
-
-  const blink = state.tick % 60 < 35;
-  L.push('', '  ' + (blink ? bold(C.green('▌ PRESS ENTER TO EXIT ▐')) : C.faint('                    ')));
-  return L;
-}
-
-function buildScreen(W) {
-  const s = state.screen;
-  const L = header(W);
-
-  if (s === 'modules') {
-    L.push(...renderCheckboxModules(W));
-    return L;
-  }
-
-  if (s === 'target') {
-    L.push('  ' + bold(C.text('WHERE ARE YOU DEPLOYING?')), '');
-    TARGETS.forEach((t, i) => {
-      const isSel = i === state.cursor;
-      const mark = i === state.target ? C.green('◉') : C.faint('○');
-      const label = isSel ? bold(grad(t.title, state.tick * 0.04)) : C.muted(t.title);
-      L.push(`  ${isSel ? C.accent('▸') : ' '} ${mark} ${label}`);
-    });
-    L.push('');
-    const cur = TARGETS[state.cursor];
-    L.push(...boxed([bold(C.accent(cur.title)), C.muted(cur.desc)], W));
-    L.push('', '  ' + C.faint('↑/↓ move · Enter select · Esc back to modules'));
-    return L;
-  }
-
-  if (s === 'done') return [...L, ...thanksView(W)];
-
-  L.push(...installView(W));
-  if (s === 'failed') {
-    L.push('', ...boxed([bold(C.red('Step failed')), C.text(fit(state.error, W - 6))], W));
-    L.push('', '  ' + C.faint('r retry this step · q quit'));
+    const tail = state.logs.slice(-2);
+    while (tail.length < 2) tail.unshift('');
+    L.push(...tail.map((l) => ' ' + dim(fit(l, inner - 2))), center(dim('Ctrl+C to abort'), inner));
   }
   return L;
 }
 
-// ─── Render loop (Silky 60 FPS Engine) ──────────────────────────────────────
+// ─── Render loop ────────────────────────────────────────────────────────────
+let lastT = 0;
 function frame() {
-  state.tick++;
-  if (state.tick % 10 === 0) sampleCpu();
-  state.shown += (overall() - state.shown) * 0.06;
-  const W = Math.min(cols() - 4, 76);
-  const lines = buildScreen(W).slice(0, rows());
-  out('\x1b[H' + lines.map((l) => l + '\x1b[K').join('\n') + '\x1b[J');
+  state.t = (Date.now() - t0) / 1000;
+  const dt = Math.min(0.1, state.t - lastT);
+  lastT = state.t;
+  state.frame++;
+  state.sa = state.t - state.screenT;
+  state.shown += (overall() - state.shown) * (1 - Math.exp(-dt * 6));
+  state.hl += (state.cursor - state.hl) * (1 - Math.exp(-dt * 14));
+  if (state.t - state.lastSample >= 0.1) { state.lastSample = state.t; sample(); }
+  if (state.confetti) for (const p of state.confetti) { p.y += p.vy * dt; if (p.y >= 3) { p.y = 0; p.x = Math.random(); } }
+
+  if (state.screen === 'splash' && state.sa > 3.4 && ipReady) go('menu');
+  if (state.pendingDone && state.screen === 'install') {
+    state.doneT += dt;
+    if (state.shown > 0.985 && state.doneT > 0.9) { state.pendingDone = false; go('done'); }
+  }
+  draw();
 }
 
-// ─── Input ──────────────────────────────────────────────────────────────────
-function onMenuKey(name, str) {
-  const isModules = state.screen === 'modules';
-  const isTarget = state.screen === 'target';
-  const count = isModules ? MODULES.length : TARGETS.length;
-  const move = (d) => { state.cursor = (state.cursor + d + count) % count; };
-
-  const isUp = name === 'up' || name === 'k' || str === '\x1b[A';
-  const isDown = name === 'down' || name === 'j' || name === 'tab' || str === '\x1b[B' || str === '\t';
-  const isConfirm = name === 'return' || name === 'enter' || str === '\r' || str === '\n';
-  const isSpace = name === 'space' || str === ' ';
-  const isBack = name === 'escape' || name === 'b' || str === '\x1b';
-
-  if (isUp) move(-1);
-  else if (isDown) move(1);
-  else if (str && /^[1-6]$/.test(str) && isModules) {
-    const idx = Number(str) - 1;
-    state.cursor = idx;
-    state.modules[idx] = !state.modules[idx];
+function draw() {
+  const cols = out.columns || 80, rows = out.rows || 24;
+  if (cols < 60 || rows < 22) {
+    out.write(E + 'H' + C.amber(`Terminal too small (${cols}x${rows}). Need at least 60x22.`) + E + 'K\n' + E + 'J');
+    return;
   }
-  else if (str === 'a' || str === 'A') {
-    if (isModules) {
-      const anyOff = state.modules.some(v => !v);
-      state.modules = state.modules.map(() => anyOff);
-    }
-  }
-  else if ((str === 't' || str === 'T') && isModules) {
-    state.screen = 'target';
-    state.cursor = state.target;
-  }
-  else if (isBack && isTarget) {
-    state.screen = 'modules';
-    state.cursor = 0;
-  }
-  else if (name === 'q') shutdown(0, 'Cancelled.');
-  else if (isSpace && isModules) {
-    state.modules[state.cursor] = !state.modules[state.cursor];
-  }
-  else if (isConfirm) {
-    if (isModules) {
-      startInstall();
-    } else if (isTarget) {
-      state.target = state.cursor;
-      state.screen = 'modules';
-      state.cursor = 0;
-    }
-  }
-}
-
-function onKey(str, key = {}) {
-  const name = key.name;
-  if (key.ctrl && name === 'c') return shutdown(130, 'Installation aborted.');
-  if (state.screen === 'modules' || state.screen === 'target') return onMenuKey(name, str);
-  if (state.screen === 'failed') {
-    if (name === 'r') return retry();
-    if (name === 'q') return shutdown(1, 'Stopped. Run the installer again to resume.');
-  }
-  if (state.screen === 'done' && (name === 'return' || name === 'enter' || str === '\r' || str === '\n')) finish();
+  const W = Math.min(cols - 2, 74);
+  const inner = W - 4;
+  let lines = screens[state.screen].render(inner);
+  const reveal = Math.floor(state.sa * 80) + 1;       // staggered line reveal on every screen change
+  if (reveal < lines.length) lines = lines.map((l, i) => (i < reveal ? l : ''));
+  const framed = box(lines, W, state.screen === 'splash' ? '' : 'lesswatch');
+  const left = ' '.repeat(Math.floor((cols - W) / 2));
+  const all = ['', ...framed].slice(0, rows - 1);
+  out.write(E + 'H' + all.map((l) => left + l + E + 'K').join('\n') + E + 'J');
 }
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────
+let loop = null;
 function leaveScreen() {
-  if (leftScreen) return;
+  if (leftScreen || !isTTY) return;
   leftScreen = true;
-  out('\x1b[?1049l\x1b[?25h\x1b[0m');
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  out.write(E + '?25h' + E + '?1049l' + E + '0m');
+  try { inp.setRawMode(false); } catch {}
 }
-
 function shutdown(code, msg) {
+  state.quitting = true;
   clearInterval(loop);
   activeChild?.kill('SIGTERM');
   leaveScreen();
-  if (msg) out(`\n  ${C.amber(msg)}\n\n`);
+  if (msg) out.write(`\n  ${C.amber(msg)}\n\n`);
+  else if (code) out.write(`\n  ${C.amber('Installation aborted.')}\n\n`);
   process.exit(code);
 }
-
 function finish() {
   clearInterval(loop);
   leaveScreen();
   const url = state.publicUrl || '(not captured, see the tunnel step output)';
   const isCloud = TARGETS[state.target].id === 'cloud';
   const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
+  const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
   const card = box([
-    bold(C.green('LESSWATCH is live')),
-    '',
-    `${C.accent('Public URL')}  ${bold(url)}`,
-    `${C.accent('Local')}       ${local}`,
-    `${C.accent('Login')}       admin / admin`,
-    '',
+    BOLD + green('LESSWATCH is live') + RESET, '',
+    `${C.accent('Public IP ')}  ${ip}`,
+    `${C.accent('Public URL')}  ${BOLD}${url}${RESET}`,
+    `${C.accent('Local     ')}  ${local}`,
+    `${C.accent('Login     ')}  admin / admin`, '',
     C.muted('docker compose ps  ·  docker compose logs -f'),
-  ], 70);
-  out('\n' + card.map((l) => '  ' + l).join('\n') + '\n\n');
+  ], 76, '');
+  out.write('\n' + card.map((l) => '  ' + l).join('\n') + '\n\n');
   process.exit(0);
 }
 
 process.on('exit', leaveScreen);
 process.on('SIGTERM', () => shutdown(143));
+process.on('SIGINT', () => shutdown(130));
 process.on('uncaughtException', (err) => {
   leaveScreen();
   console.error(err);
   process.exit(1);
 });
 
-function main() {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+async function main() {
+  if (!isTTY) {
     console.log('Non-interactive terminal detected. Running automated installation pipeline...');
-    state.target = isCloudShell ? 0 : (detectedPublicIP !== '127.0.0.1' ? 1 : 2);
-    startInstall();
-    return;
+    state.plain = true;
+    await ipPromise;
+    state.target = defaultTarget();
+    await startInstall();
+    if (state.screen === 'failed') { console.error(`✖ ${state.error}`); process.exit(1); }
+    console.log(`✔ LESSWATCH installed${state.publicUrl ? ' · ' + state.publicUrl : ''}`);
+    process.exit(0);
   }
-  out('\x1b[?1049h\x1b[?25l\x1b[2J');
-  readline.emitKeypressEvents(process.stdin);
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
-  process.stdin.on('keypress', onKey);
-  process.stdout.on('resize', () => out('\x1b[2J'));
-  sampleCpu();
-  loop = setInterval(frame, 16); // True 60 FPS
+  readline.emitKeypressEvents(inp);
+  inp.setRawMode(true);
+  inp.resume();
+  out.write(E + '?1049h' + E + '?25l' + E + '2J');
+  out.on('resize', () => out.write(E + '2J'));
+  inp.on('keypress', (s, k = {}) => {
+    if (k.ctrl && k.name === 'c') return shutdown(130);
+    screens[state.screen].key?.(s, k);
+  });
+  loop = setInterval(frame, 16);   // ~60 FPS, all animation is time-based
 }
 
 main();
