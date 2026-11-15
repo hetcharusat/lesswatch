@@ -140,7 +140,9 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
   onHideSelf,
   onCollapse,
   onHideWebcam,
-  onResizeStart
+  onResizeStart,
+  brightness = 100,
+  contrast = 100
 }) {
   const videoRef = useRef(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
@@ -234,7 +236,10 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
         playsInline
         muted
         className="wt-pip-video"
-        style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+        style={{
+          transform: isLocal ? 'scaleX(-1)' : 'none',
+          filter: isLocal ? `brightness(${brightness}%) contrast(${contrast}%)` : undefined
+        }}
       />
 
       {(!isVideoReady && !isLocal) && (
@@ -398,7 +403,9 @@ const PartyWebcamOrb = memo(function PartyWebcamOrb({
   isSpeaking,
   onExpand,
   onHideWebcam,
-  wasJustDraggedRef
+  wasJustDraggedRef,
+  brightness = 100,
+  contrast = 100
 }) {
   const videoRef = useRef(null);
 
@@ -457,7 +464,10 @@ const PartyWebcamOrb = memo(function PartyWebcamOrb({
           playsInline
           muted
           className="wt-pip-orb-video"
-          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+          style={{
+            transform: isLocal ? 'scaleX(-1)' : 'none',
+            filter: isLocal ? `brightness(${brightness}%) contrast(${contrast}%)` : undefined
+          }}
         />
 
         {/* Hover action overlay */}
@@ -650,6 +660,124 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [cameraBrightness, setCameraBrightness] = useState(() => parseInt(localStorage.getItem('wt_cam_brightness') || '100', 10));
   const [cameraContrast, setCameraContrast] = useState(() => parseInt(localStorage.getItem('wt_cam_contrast') || '100', 10));
   const [cameraQuality, setCameraQuality] = useState(() => localStorage.getItem('wt_cam_quality') || '720p');
+  const cameraQualityRef = useRef(cameraQuality);
+  cameraQualityRef.current = cameraQuality;
+
+  const applyHardwareCameraFilter = useCallback((bVal, cVal) => {
+    const rawTrack = localVideoTrackRef.current?.mediaStreamTrack || (localVideoTrackRef.current instanceof MediaStreamTrack ? localVideoTrackRef.current : null);
+    if (rawTrack && typeof rawTrack.applyConstraints === 'function') {
+      try {
+        const capabilities = typeof rawTrack.getCapabilities === 'function' ? rawTrack.getCapabilities() : {};
+        const advanced = {};
+        if (capabilities.brightness) {
+          const min = capabilities.brightness.min ?? 0;
+          const max = capabilities.brightness.max ?? 255;
+          advanced.brightness = min + ((bVal / 100) * (max - min) * 0.5);
+        }
+        if (capabilities.contrast) {
+          const min = capabilities.contrast.min ?? 0;
+          const max = capabilities.contrast.max ?? 255;
+          advanced.contrast = min + ((cVal / 100) * (max - min) * 0.5);
+        }
+        if (Object.keys(advanced).length > 0) {
+          rawTrack.applyConstraints({ advanced: [advanced] }).catch(() => {});
+        }
+      } catch {}
+    }
+  }, []);
+
+  async function applyCameraQuality(q) {
+    setCameraQuality(q);
+    localStorage.setItem('wt_cam_quality', q);
+    cameraQualityRef.current = q;
+
+    if (!isCameraEnabledRef.current || !localVideoTrackRef.current) {
+      showToast(`Camera Preset: ${q.toUpperCase()}`, <Video size={15} color="var(--pink-primary)" />);
+      return;
+    }
+
+    const target = q === '1080p'
+      ? { lk: VideoPresets.h1080, width: 1920, height: 1080, fps: 30 }
+      : q === '480p'
+        ? { lk: VideoPresets.h360, width: 854, height: 480, fps: 24 }
+        : { lk: VideoPresets.h720, width: 1280, height: 720, fps: 30 };
+
+    const rawTrack = localVideoTrackRef.current?.mediaStreamTrack || (localVideoTrackRef.current instanceof MediaStreamTrack ? localVideoTrackRef.current : null);
+    let appliedInPlace = false;
+    if (rawTrack && typeof rawTrack.applyConstraints === 'function') {
+      try {
+        await rawTrack.applyConstraints({
+          width: { ideal: target.width },
+          height: { ideal: target.height },
+          frameRate: { ideal: target.fps }
+        });
+        appliedInPlace = true;
+        showToast(`Camera Quality: ${q.toUpperCase()}`, <Video size={15} color="var(--pink-primary)" />);
+      } catch (cErr) {
+        console.warn('applyConstraints quality update failed, restarting camera track:', cErr);
+      }
+    }
+
+    if (!appliedInPlace) {
+      try {
+        let newTrack = null;
+        try {
+          newTrack = await createLocalVideoTrack({
+            facingMode: 'user',
+            resolution: target.lk,
+            deviceId: selectedVideoInput || undefined,
+          });
+        } catch (lkErr) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user',
+              width: { ideal: target.width },
+              height: { ideal: target.height },
+              frameRate: { ideal: target.fps },
+              deviceId: selectedVideoInput ? { ideal: selectedVideoInput } : undefined
+            }
+          });
+          newTrack = new LocalVideoTrack(stream.getVideoTracks()[0]);
+        }
+
+        if (newTrack) {
+          const oldTrack = localVideoTrackRef.current;
+          localVideoTrackRef.current = newTrack;
+          setLocalVideoTrack(newTrack);
+
+          if (livekitRoomRef.current?.localParticipant) {
+            const pub = Array.from(livekitRoomRef.current.localParticipant.videoTrackPublications.values())[0];
+            if (pub?.track) {
+              await pub.track.replaceTrack(newTrack.mediaStreamTrack, true).catch(() => {});
+            }
+          }
+
+          const rawNewTrack = newTrack.mediaStreamTrack || (newTrack instanceof MediaStreamTrack ? newTrack : null);
+          if (rawNewTrack) {
+            localStreamRef.current.getVideoTracks().forEach((t) => localStreamRef.current.removeTrack(t));
+            localStreamRef.current.addTrack(rawNewTrack);
+
+            p2pConnectionsRef.current.forEach((conn) => {
+              if (conn.videoTransceiver?.sender) {
+                conn.videoTransceiver.sender.replaceTrack(rawNewTrack).catch(() => {});
+              } else if (conn.pc && conn.pc.signalingState !== 'closed') {
+                const sender = conn.pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+                if (sender) sender.replaceTrack(rawNewTrack).catch(() => {});
+              }
+            });
+          }
+
+          if (oldTrack && oldTrack !== newTrack) {
+            try { oldTrack.stop(); } catch {}
+          }
+          applyHardwareCameraFilter(cameraBrightness, cameraContrast);
+          showToast(`Camera Quality: ${q.toUpperCase()}`, <Video size={15} color="var(--pink-primary)" />);
+        }
+      } catch (rebuildErr) {
+        console.warn('Failed to switch camera quality:', rebuildErr);
+      }
+    }
+  }
 
   async function switchVideoInput(devId) {
     setSelectedVideoInput(devId);
@@ -1138,19 +1266,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
     }
 
-    const constraints = {
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: Boolean(echoCancellation),
-        // Avoid double-filtering when our AudioWorklet suppressor is active; fallback to browser NS if worklet failed
-        noiseSuppression: wantsSuppressor && !supNode,
-        autoGainControl: true,
-        channelCount: 1,
-      },
-      video: false,
+    const audioConstraints = {
+      echoCancellation: Boolean(echoCancellation),
+      noiseSuppression: Boolean(wantsSuppressor),
+      autoGainControl: true,
+      channelCount: 1,
     };
 
-    const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+    let rawStream = null;
+    try {
+      rawStream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { ...audioConstraints, deviceId: { ideal: deviceId } } : audioConstraints,
+        video: false,
+      });
+    } catch (devErr) {
+      console.warn('Microphone capture with deviceId failed, retrying with default input:', devErr);
+      rawStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
+    }
     rawHardwareStreamRef.current = rawStream;
 
     const source = ctx.createMediaStreamSource(rawStream);
@@ -1185,7 +1320,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       throw new Error('Failed to create processed audio stream track');
     }
 
-    return { track: processedTrack, analyser, ctx, constraints: constraints.audio };
+    return { track: processedTrack, analyser, ctx, constraints: audioConstraints };
   }
 
   async function rebuildLiveProcessedMicTrack({
@@ -1193,10 +1328,45 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     mode = noiseSuppressionModeRef.current || 'rnnoise',
     echoCancellation = isEchoCancellationEnabledRef.current,
   } = {}) {
-    if (!isVoiceConnectedRef.current || !localAudioTrackRef.current) return;
-    const processed = await buildProcessedLocalAudio({ deviceId, mode, echoCancellation });
-    await localAudioTrackRef.current.replaceTrack(processed.track, true);
-    setupAnalyser(processed.analyser);
+    if (!isVoiceConnectedRef.current && !localAudioTrackRef.current) return;
+
+    try {
+      const processed = await buildProcessedLocalAudio({ deviceId, mode, echoCancellation });
+      const rawAudioTrack = processed.track;
+
+      // 1. Update LiveKit LocalAudioTrack
+      if (localAudioTrackRef.current) {
+        try {
+          await localAudioTrackRef.current.replaceTrack(rawAudioTrack, true);
+        } catch (lkErr) {
+          console.warn('LiveKit audio replaceTrack error:', lkErr);
+        }
+      } else {
+        localAudioTrackRef.current = new LocalAudioTrack(rawAudioTrack, processed.constraints, true, processed.ctx);
+      }
+
+      // 2. Sync to P2P WebRTC mesh stream & peer connections
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((t) => localStreamRef.current.removeTrack(t));
+        localStreamRef.current.addTrack(rawAudioTrack);
+      }
+
+      p2pConnectionsRef.current.forEach((conn) => {
+        if (conn.audioTransceiver?.sender) {
+          conn.audioTransceiver.sender.replaceTrack(rawAudioTrack).catch(() => {});
+        } else if (conn.pc && conn.pc.signalingState !== 'closed') {
+          const sender = conn.pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+          if (sender) {
+            sender.replaceTrack(rawAudioTrack).catch(() => {});
+          }
+        }
+      });
+
+      // 3. Reset audio analyser with the new pipeline analyser
+      setupAnalyser(processed.analyser);
+    } catch (err) {
+      console.warn('rebuildLiveProcessedMicTrack error:', err);
+    }
   }
 
   function setupAnalyser(analyserOrTrack) {
@@ -1329,13 +1499,25 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     setNoiseSuppressionMode(newMode);
     noiseSuppressionModeRef.current = newMode;
     localStorage.setItem('wt_noise_supp_mode', newMode);
-    if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
+
+    const wantsSuppressor = newMode !== 'raw' && newMode !== 'bypass' && newMode !== 'off';
+    if (rawHardwareStreamRef.current) {
+      rawHardwareStreamRef.current.getAudioTracks().forEach((t) => {
+        if (typeof t.applyConstraints === 'function') {
+          t.applyConstraints({ noiseSuppression: wantsSuppressor }).catch(() => {});
+        }
+      });
+    }
+
+    if (isVoiceConnectedRef.current) {
       try {
         await rebuildLiveProcessedMicTrack({ mode: newMode });
         showToast(`Noise Suppression: ${newMode.toUpperCase()}`, <ShieldCheck size={15} color="var(--pink-primary)" />);
       } catch (err) {
         console.warn('Failed to update noise suppression mode:', err);
       }
+    } else {
+      showToast(`Noise Suppression: ${newMode.toUpperCase()}`, <ShieldCheck size={15} color="var(--pink-primary)" />);
     }
   }
 
@@ -1344,6 +1526,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     setNoiseIntensity(num);
     noiseIntensityRef.current = num;
     localStorage.setItem('wt_noise_intensity', String(num));
+
+    const activeCtx = audioContextRef.current;
+    const gateNode = audioNodesRef.current?.gateGain;
+    if (num === 0) {
+      setIsNoiseGateOpen(true);
+      if (gateNode && activeCtx && activeCtx.state !== 'closed') {
+        gateNode.gain.setTargetAtTime(1, activeCtx.currentTime, 0.01);
+      }
+    }
   }
 
   function handleMicGainChange(val) {
@@ -1364,13 +1555,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     setIsEchoCancellationEnabled(nextVal);
     isEchoCancellationEnabledRef.current = nextVal;
     localStorage.setItem('wt_echo_cancellation', String(nextVal));
-    if (isVoiceConnectedRef.current && localAudioTrackRef.current) {
+
+    if (rawHardwareStreamRef.current) {
+      rawHardwareStreamRef.current.getAudioTracks().forEach((t) => {
+        if (typeof t.applyConstraints === 'function') {
+          t.applyConstraints({ echoCancellation: nextVal }).catch(() => {});
+        }
+      });
+    }
+
+    if (isVoiceConnectedRef.current) {
       try {
         await rebuildLiveProcessedMicTrack({ echoCancellation: nextVal });
         showToast(nextVal ? 'Echo Cancellation Active' : 'Echo Cancellation Disabled', <ShieldCheck size={15} color="var(--pink-primary)" />);
       } catch (err) {
         console.warn('Error applying echo cancellation change:', err);
       }
+    } else {
+      showToast(nextVal ? 'Echo Cancellation Active' : 'Echo Cancellation Disabled', <ShieldCheck size={15} color="var(--pink-primary)" />);
     }
   }
 
@@ -2260,12 +2462,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           } catch { }
         }
 
-        // 2. Capture local webcam video track
+        // 2. Capture local webcam video track with active quality preset
+        const q = cameraQualityRef.current || '720p';
+        const targetResolution = q === '1080p'
+          ? { lk: VideoPresets.h1080, width: 1920, height: 1080, fps: 30 }
+          : q === '480p'
+            ? { lk: VideoPresets.h360, width: 854, height: 480, fps: 24 }
+            : { lk: VideoPresets.h720, width: 1280, height: 720, fps: 30 };
+
         let vTrack = null;
         try {
           vTrack = await createLocalVideoTrack({
             facingMode: 'user',
-            resolution: VideoPresets.h540,
+            resolution: targetResolution.lk,
             deviceId: selectedVideoInput || undefined,
           });
         } catch (trkErr) {
@@ -2273,9 +2482,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: 'user',
-              width: { ideal: 960 },
-              height: { ideal: 540 },
-              deviceId: selectedVideoInput ? { exact: selectedVideoInput } : undefined
+              width: { ideal: targetResolution.width },
+              height: { ideal: targetResolution.height },
+              frameRate: { ideal: targetResolution.fps },
+              deviceId: selectedVideoInput ? { ideal: selectedVideoInput } : undefined
             }
           });
           const rawVideoTrack = stream.getVideoTracks()[0];
@@ -2284,6 +2494,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
         localVideoTrackRef.current = vTrack;
         setLocalVideoTrack(vTrack);
+        applyHardwareCameraFilter(cameraBrightness, cameraContrast);
 
         // Sync local video track to P2P mesh
         const rawVideoTrack = vTrack?.mediaStreamTrack || (vTrack instanceof MediaStreamTrack ? vTrack : null);
@@ -5168,6 +5379,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 avatar={currentProfile?.avatar}
                 isMuted={isMuted}
                 isSpeaking={isLocalSpeaking}
+                brightness={cameraBrightness}
+                contrast={cameraContrast}
                 onExpand={() => setIsWebcamCollapsed(false)}
                 onHideWebcam={() => setIsWebcamHidden(true)}
                 wasJustDraggedRef={wasJustDraggedRef}
@@ -5223,6 +5436,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 avatar={currentProfile?.avatar}
                 isMuted={isMuted}
                 isSpeaking={isLocalSpeaking}
+                brightness={cameraBrightness}
+                contrast={cameraContrast}
                 onCollapse={() => setIsWebcamCollapsed(true)}
                 onHideWebcam={() => setIsWebcamHidden(true)}
                 onToggleCamera={toggleCamera}
@@ -5961,9 +6176,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   onChange={(e) => {
                     const v = parseInt(e.target.value, 10);
                     setCameraBrightness(v);
-                    localStorage.setItem('wt_cam_brightness', v);
+                    localStorage.setItem('wt_cam_brightness', String(v));
+                    applyHardwareCameraFilter(v, cameraContrast);
                   }}
                   className="vs-range"
+                  style={{ '--pct': `${Math.round(((cameraBrightness - 50) / 100) * 100)}%` }}
+                  aria-label="Camera Brightness"
                 />
               </div>
 
@@ -5980,9 +6198,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   onChange={(e) => {
                     const v = parseInt(e.target.value, 10);
                     setCameraContrast(v);
-                    localStorage.setItem('wt_cam_contrast', v);
+                    localStorage.setItem('wt_cam_contrast', String(v));
+                    applyHardwareCameraFilter(cameraBrightness, v);
                   }}
                   className="vs-range"
+                  style={{ '--pct': `${Math.round(((cameraContrast - 50) / 100) * 100)}%` }}
+                  aria-label="Camera Contrast"
                 />
               </div>
             </div>
@@ -5998,13 +6219,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   <button
                     key={q}
                     type="button"
-                    onClick={() => {
-                      setCameraQuality(q);
-                      localStorage.setItem('wt_cam_quality', q);
-                      if (isCameraEnabled) {
-                        toggleCamera().then(() => setTimeout(() => toggleCamera(), 180));
-                      }
-                    }}
+                    onClick={() => applyCameraQuality(q)}
                     className={`vs-seg-btn ${cameraQuality === q ? 'is-on' : ''}`}
                   >
                     {q}
@@ -6886,23 +7101,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 style={{ display: 'none' }}
                 onChange={handleCustomSubtitleUpload}
               />
-
-              {isVoiceConnected && (
-                <span
-                  onClick={() => setShowVoiceSettings(true)}
-                  className="amb-status-pill"
-                  style={{
-                    background: isMuted ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)',
-                    border: isMuted ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(16, 185, 129, 0.35)',
-                    color: isMuted ? '#f87171' : 'var(--emerald-accent)',
-                    cursor: 'pointer'
-                  }}
-                  title="Click to open Voice Hardware Settings"
-                >
-                  <span className="status-dot" style={{ background: isMuted ? '#ef4444' : 'var(--emerald-accent)' }}></span>
-                  <span className="amb-status-text">{isMuted ? 'Muted' : 'Voice'}</span>
-                </span>
-              )}
 
               {Array.from(remotePeers.entries()).map(([pId, p]) => {
                 const peerVol = peerVolumes.get(pId) ?? 100;
