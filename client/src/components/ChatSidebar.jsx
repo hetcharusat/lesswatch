@@ -362,7 +362,6 @@ export function ChatSidebar({
             </div>
           </div>
         )}
-        {showQuickEmojiManager && renderQuickStudioOverlay()}
       </>
     );
   }
@@ -597,6 +596,7 @@ export function ChatSidebar({
 
       <div className="wchat-dock">
         <div className={`qeb-shell ${isDarkTheme ? 'qeb-is-dark' : 'qeb-is-light'}`}>
+          {renderQuickStudioOverlay()}
           <div className="qeb-strip">
             {quickEmojis.map((emoji) => (
               <button key={emoji} type="button" className="qeb-emoji-btn" onClick={() => handleInsertEmoji(emoji)}>

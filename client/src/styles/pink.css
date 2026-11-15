@@ -5284,6 +5284,7 @@ body.in-chit-chat-mode header {
 
 .qeb-shell {
   position: relative;
+  overflow: visible;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -5375,26 +5376,20 @@ body.in-chit-chat-mode header {
 
 .qeb-studio-card {
   position: absolute;
-  bottom: 84px;
+  bottom: calc(100% + 6px);
   left: 8px;
   right: 8px;
-  padding: 12px;
+  padding: 11px;
   border-radius: 16px;
   background: rgba(16, 11, 26, 0.98);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid rgba(244, 114, 182, 0.36);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.88), 0 0 20px rgba(236, 72, 153, 0.15);
+  border: 1px solid rgba(244, 114, 182, 0.32);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.84);
   color: #fdf2f8;
-  z-index: 250;
+  z-index: 160;
   display: flex;
   flex-direction: column;
   gap: 9px;
   animation: qebPopoverIn 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.qeb-shell .qeb-studio-card {
-  bottom: calc(100% + 6px);
 }
 
 .qeb-shell.qeb-is-light .qeb-studio-card {
@@ -5813,26 +5808,21 @@ body.in-chit-chat-mode header {
   position: absolute;
   inset: auto 0 0 0;
   z-index: 50;
-  padding: 38px 24px 18px;
-  background: linear-gradient(to top, rgba(8, 6, 13, 0.92) 0%, rgba(8, 6, 13, 0.52) 58%, transparent 100%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  mask-image: linear-gradient(to top, black 65%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to top, black 65%, transparent 100%);
+  padding: 26px 24px 16px;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   pointer-events: auto;
   visibility: visible;
-  transition: visibility 0ms linear 0ms, opacity 260ms ease;
+  transition: visibility 0ms linear 0ms;
 }
 
 .pouf-hud-overlay.a4-hud.is-hidden {
   pointer-events: none;
   visibility: hidden;
-  opacity: 0;
-  transition: visibility 0ms linear 820ms, opacity 400ms ease;
+  transition: visibility 0ms linear 820ms;
 }
 
 .pouf-hud-overlay.a4-hud .a4-timeline {
@@ -5946,13 +5936,17 @@ body.in-chit-chat-mode header {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  padding: 7px 16px;
+  padding: 8px 18px;
   border-radius: 9999px;
-  background: linear-gradient(160deg, rgba(255, 224, 240, 0.12) 0%, rgba(18, 10, 20, 0.58) 100%);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid rgba(255, 224, 240, 0.22);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 245, 250, 0.25);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.05) 45%, rgba(14, 8, 22, 0.45) 100%);
+  backdrop-filter: blur(16px) saturate(190%);
+  -webkit-backdrop-filter: blur(16px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.4),
+    0 2px 10px rgba(236, 72, 153, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   opacity: 1;
   filter: blur(0px);
   transform: translate3d(0, 0, 0) scale(1);
@@ -7256,22 +7250,26 @@ body.in-chit-chat-mode header {
 .wfb-p3,
 .wfb-v1 {
   position: absolute;
-  bottom: 0;
+  bottom: 5px;
   left: 0;
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 428px;
-  max-width: calc(100vw - 40px);
-  padding: 5px 7px;
+  gap: 8px;
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  padding: 6px 12px;
   border-radius: 9999px;
   pointer-events: auto;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14) 0%, rgba(19, 12, 29, 0.65) 42%, rgba(11, 8, 19, 0.8) 100%);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.45) 100%);
+  backdrop-filter: blur(16px) saturate(190%);
+  -webkit-backdrop-filter: blur(16px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.38),
+    0 2px 10px rgba(236, 72, 153, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   transform-origin: bottom left;
   animation: wfbMorphIn 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
@@ -7285,29 +7283,29 @@ body.in-chit-chat-mode header {
 .wfb-p3 .jojo-avatar,
 .wfb-v1 .jojo-avatar {
   box-shadow: none !important;
-  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.4) !important;
 }
 
 .wfb-p3 .wfb-emoji-rack,
 .wfb-v1 .wfb-emoji-rack {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 1px 3px;
+  gap: 3px;
+  padding: 2px 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   flex-shrink: 0;
 }
 
 .wfb-p3 .wfb-emoji-chip,
 .wfb-v1 .wfb-emoji-chip {
-  width: 24px;
-  height: 24px;
+  width: 25px;
+  height: 25px;
   border-radius: 999px;
   border: none;
   background: transparent;
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   line-height: 1;
   cursor: pointer;
   display: grid;
@@ -7317,14 +7315,14 @@ body.in-chit-chat-mode header {
 
 .wfb-p3 .wfb-emoji-chip:hover,
 .wfb-v1 .wfb-emoji-chip:hover {
-  transform: scale(1.14);
-  background: rgba(244, 114, 182, 0.22);
+  transform: scale(1.15);
+  background: rgba(244, 114, 182, 0.28);
 }
 
 .wfb-p3 .wfb-gif-pill,
 .wfb-v1 .wfb-gif-pill {
   height: 26px;
-  padding: 0 9px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
