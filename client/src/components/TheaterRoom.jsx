@@ -1006,7 +1006,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       livekitRoomRef.current = lkRoom;
 
       // 4. Remote Track Subscriptions with Dual-Ear Stereo Pipeline
-      lkRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      function handleTrackSubscribed(track, publication, participant) {
+        if (!participant || !track) return;
         if (track.kind === Track.Kind.Audio) {
           const audioEl = track.attach();
           audioEl.id = `remote-audio-${participant.identity}`;
@@ -1131,6 +1132,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             return next;
           });
         }
+      }
+
+      lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+
+      lkRoom.on(RoomEvent.TrackPublished, (publication, participant) => {
+        if (publication.track) {
+          handleTrackSubscribed(publication.track, publication, participant);
+        } else if (typeof publication.setSubscribed === 'function') {
+          publication.setSubscribed(true);
+        }
+      });
+
+      lkRoom.on(RoomEvent.ParticipantConnected, (participant) => {
+        participant.trackPublications.forEach((pub) => {
+          if (pub.track) {
+            handleTrackSubscribed(pub.track, pub, participant);
+          } else if (typeof pub.setSubscribed === 'function') {
+            pub.setSubscribed(true);
+          }
+        });
       });
 
       lkRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
@@ -1220,6 +1241,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       // 5. Connect to LiveKit server
       await lkRoom.connect(url, token);
+
+      // Immediately subscribe to and attach all existing participants already streaming in the room
+      lkRoom.remoteParticipants.forEach((participant) => {
+        participant.trackPublications.forEach((publication) => {
+          if (publication.track) {
+            handleTrackSubscribed(publication.track, publication, participant);
+          } else if (publication.isSubscribed === false && typeof publication.setSubscribed === 'function') {
+            publication.setSubscribed(true);
+          }
+        });
+      });
 
       if (publishMic) {
         await publishLocalMic();
@@ -2080,6 +2112,23 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       if (state.users) {
         setConnectedUsers(state.users);
         connectedUsersRef.current = state.users;
+        const myId = s.id;
+        setRemotePeers((prev) => {
+          const next = new Map(prev);
+          state.users.forEach((u) => {
+            if (u.id !== myId && (u.hasVideo || u.inVoice)) {
+              const existing = next.get(u.id) || {
+                username: u.username || 'Partner',
+                avatar: u.avatar || 'jojo-star',
+                color: u.color || '#f472b6',
+                isSpeaking: false,
+                isMuted: !!u.isMuted,
+              };
+              next.set(u.id, { ...existing, hasVideo: !!u.hasVideo });
+            }
+          });
+          return next;
+        });
       }
       if (state.messages) setChatMessages(state.messages);
       if (state.lastSeen) setRoomLastSeen(state.lastSeen);
@@ -2120,6 +2169,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       if (users) {
         setConnectedUsers(users);
         connectedUsersRef.current = users;
+      }
+      if (user?.hasVideo && (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected')) {
+        connectVoiceRoom({ publishMic: false }).catch(() => { });
       }
       showToast(`${user.username} joined`, <Users size={15} color="var(--pink-primary)" />);
     });
@@ -2396,16 +2448,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     s.on('voice:track_state', ({ peerId, isMuted: peerMuted, hasVideo: peerVideo }) => {
       setRemotePeers((prev) => {
         const next = new Map(prev);
-        const peer = next.get(peerId);
-        if (peer) {
-          next.set(peerId, {
-            ...peer,
-            isMuted: typeof peerMuted === 'boolean' ? peerMuted : peer.isMuted,
-            hasVideo: typeof peerVideo === 'boolean' ? peerVideo : peer.hasVideo
-          });
-        }
+        const user = connectedUsersRef.current.find((u) => u.id === peerId);
+        const peer = next.get(peerId) || {
+          username: user?.username || 'Partner',
+          avatar: user?.avatar || 'jojo-star',
+          color: user?.color || '#f472b6',
+          isSpeaking: false,
+          isMuted: false,
+        };
+        next.set(peerId, {
+          ...peer,
+          isMuted: typeof peerMuted === 'boolean' ? peerMuted : peer.isMuted,
+          hasVideo: typeof peerVideo === 'boolean' ? peerVideo : peer.hasVideo
+        });
         return next;
       });
+
+      // Auto-connect to LiveKit room so you immediately receive any remote video track!
+      if (peerVideo && (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected')) {
+        connectVoiceRoom({ publishMic: false }).catch(() => { });
+      }
     });
 
     s.on('voice:peer_left', ({ peerId, username }) => {
@@ -4025,10 +4087,29 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal}
+          muted
           className="wt-pip-video"
           style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
         />
+
+        {!track && !isLocal && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              background: 'linear-gradient(145deg, rgba(22, 14, 30, 0.95) 0%, rgba(10, 5, 16, 0.98) 100%)',
+              zIndex: 1
+            }}
+          >
+            <UserAvatar user={{ name, avatar }} size={38} showBorder={true} />
+            <span style={{ fontSize: '0.68rem', color: '#fbcfe8', fontWeight: 600 }}>Connecting video...</span>
+          </div>
+        )}
 
         {/* Ambient Top Shadow Gradient for Floating Controls */}
         <div className="wt-pip-scrim-top" />
@@ -4176,10 +4257,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   function renderPartyWebcamGrid() {
     const hasLocalVideo = isCameraEnabled && localVideoTrack;
     const hasRemoteVideos = remoteVideoTracks.size > 0;
-    if (!hasLocalVideo && !hasRemoteVideos) return null;
+    const myId = socketRef.current?.id || '';
+    const remotePeersWithVideo = Array.from(remotePeers.entries()).filter(
+      ([pId, peer]) => pId !== myId && (peer.hasVideo || remoteVideoTracks.has(pId))
+    );
+    if (!hasLocalVideo && !hasRemoteVideos && remotePeersWithVideo.length === 0) return null;
 
     const showLocalCard = hasLocalVideo && !isSelfViewHidden;
-    const totalCount = (showLocalCard ? 1 : 0) + remoteVideoTracks.size;
+    const totalCount = (showLocalCard ? 1 : 0) + Math.max(remotePeersWithVideo.length, remoteVideoTracks.size);
 
     // 1. If user chose to Hide: render the tiny floating glass button pill at corner
     if (isWebcamHidden) {
@@ -4305,8 +4390,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 onHideWebcam={() => setIsWebcamHidden(true)}
               />
             )}
-            {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
-              const peer = remotePeers.get(peerId);
+            {remotePeersWithVideo.map(([peerId, peer]) => {
+              const track = remoteVideoTracks.get(peerId);
               const user = connectedUsers.find((u) => u.id === peerId);
               return (
                 <PartyWebcamOrb
@@ -4340,8 +4425,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 onResizeStart={handleResizeStart}
               />
             )}
-            {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
-              const peer = remotePeers.get(peerId);
+            {remotePeersWithVideo.map(([peerId, peer]) => {
+              const track = remoteVideoTracks.get(peerId);
               const user = connectedUsers.find((u) => u.id === peerId);
               return (
                 <PartyWebcamCard
