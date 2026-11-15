@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 🍿 LESSWATCH — ASCII-Motion & Bubble Tea Animation Playground
-# Standalone Testing Harness for Terminal Art, Lipgloss Styling & Motion Canvas
+# LESSWATCH — Animated TUI Installer Test/Demo Harness
+# Usage:
+#   ./test-animation.sh           # demo mode (simulated steps, no real Docker)
+#   ./test-animation.sh --real    # live mode (runs real Docker commands)
 # ==============================================================================
 set -euo pipefail
+
+# ── Locale & terminal encoding ─────────────────────────────────────────────────
+# Cloud Shell tmux sessions often inherit C/POSIX locale which breaks UTF-8 box
+# drawing characters. Force UTF-8 before Node.js starts so it reads the terminal
+# code-page correctly.
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+export TERM="${TERM:-xterm-256color}"
 
 ACTUAL_USER="${SUDO_USER:-$USER}"
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME")
@@ -48,11 +58,13 @@ if [ -z "$NODE_BIN" ]; then
 fi
 
 if [ -z "$NODE_BIN" ]; then
-  echo "✖ Node.js is required to run the interactive 30 FPS animation playground."
-  echo "  Please install node (e.g. nvm install 20) and try again."
+  echo "[FAIL] Node.js is required. Install it with: nvm install 20"
   exit 1
 fi
 
 export PATH="$(dirname "$NODE_BIN"):$PATH"
-exec "$NODE_BIN" scripts/lesswatch-install-v2.mjs "$@"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+exec "$NODE_BIN" "$SCRIPT_DIR/scripts/lesswatch-install-v2.mjs" "$@"
 

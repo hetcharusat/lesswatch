@@ -66,18 +66,18 @@ const TARGETS = [
 ];
 
 const MODULES = [
-  { id: 'neko', icon: '🌐', tag: 'RECOMMENDED', title: 'Shared Chromium Virtual Browser (Neko)',
-    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.', on: true },
-  { id: 'aria', icon: '⚡', tag: 'CORE ENGINE', title: 'Server Media Downloader (aria2c + yt-dlp)',
-    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.', on: true },
-  { id: 'tunnel', icon: '🚀', tag: 'ZERO CONFIG', title: 'Cloudflare Public HTTPS Quick Tunnel',
-    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.', on: true },
-  { id: 'livekit', icon: '🎤', tag: 'SPATIAL AUDIO', title: 'LiveKit Voice & Room SFU Server',
-    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.', on: true },
-  { id: 'storage', icon: '🎬', tag: 'STORAGE', title: 'Media Library & Streaming Transcoder',
-    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.', on: true },
-  { id: 'neko_warm', icon: '💾', tag: 'OPTIONAL', title: 'Always-On Browser Mode (Pre-warmed in RAM)',
-    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).', on: false },
+  { id: 'neko',      icon: '◈', tag: 'RECOMMENDED',  title: 'Shared Chromium Virtual Browser (Neko)',
+    desc: 'Watch together in one shared browser. Auto-sleeps when idle to save 100% of RAM.',          on: true  },
+  { id: 'aria',      icon: '▸', tag: 'CORE ENGINE',  title: 'Server Media Downloader (aria2c + yt-dlp)',
+    desc: 'High-speed torrent daemon with DHT & direct YouTube/web stream extractor into library.',     on: true  },
+  { id: 'tunnel',    icon: '◉', tag: 'ZERO CONFIG',  title: 'Cloudflare Public HTTPS Quick Tunnel',
+    desc: 'Instant shareable public HTTPS link with SSL. No router port-forwarding needed.',            on: true  },
+  { id: 'livekit',   icon: '◎', tag: 'SPATIAL AUDIO', title: 'LiveKit Voice & Room SFU Server',
+    desc: 'Sub-second spatial audio/video party channels with noise suppression & echo cancel.',        on: true  },
+  { id: 'storage',   icon: '▣', tag: 'STORAGE',      title: 'Media Library & Streaming Transcoder',
+    desc: 'Direct streaming for MKV, MP4, HLS, WebM + online subtitle auto-search.',                   on: true  },
+  { id: 'neko_warm', icon: '◇', tag: 'OPTIONAL',     title: 'Always-On Browser Mode (Pre-warmed in RAM)',
+    desc: 'Keeps Neko hot in memory at all times (~600MB permanent RAM instead of sleep mode).',        on: false },
 ];
 const SHORT = {
   neko: 'Neko browser', aria: 'Downloader', tunnel: 'HTTPS tunnel',
@@ -391,11 +391,35 @@ const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Width-aware length: emoji are 2 columns wide, variation selectors / ZWJ are 0.
+// Width-aware length: comprehensive East Asian / emoji width table.
+// All icons in MODULES are now single-width Unicode, so this mainly
+// guards against stray emoji in log lines.
 function cw(ch) {
   const c = ch.codePointAt(0);
-  if (c === 0xfe0f || c === 0x200d) return 0;
-  if ((c >= 0x1f300 && c <= 0x1faff) || c === 0x26a1) return 2;
+  // Zero-width: variation selector, ZWJ, combining marks
+  if (c === 0xfe0f || c === 0x200d || (c >= 0x0300 && c <= 0x036f)) return 0;
+  // Explicitly NOT wide: ◈ ◉ ◎ ▣ ◇ ▸ ▲ ✔ ✖ ○ ● ─ │ ╭ ╮ ╰ ╯ braille blocks
+  // All Basic Multilingual Plane box/block chars: treat as 1
+  if (c < 0x1100) return 1;
+  // CJK / wide East Asian ranges
+  if (
+    (c >= 0x1100 && c <= 0x115f) ||   // Hangul Jamo
+    (c >= 0x2e80 && c <= 0x303e) ||   // CJK Radicals
+    (c >= 0x3041 && c <= 0x33bf) ||   // Hiragana / Katakana / CJK Compat
+    (c >= 0x3400 && c <= 0x4dbf) ||   // CJK Extension A
+    (c >= 0x4e00 && c <= 0xa4cf) ||   // CJK Unified
+    (c >= 0xa960 && c <= 0xa97f) ||   // Hangul Jamo Extended-A
+    (c >= 0xac00 && c <= 0xd7ff) ||   // Hangul Syllables
+    (c >= 0xf900 && c <= 0xfaff) ||   // CJK Compat Ideographs
+    (c >= 0xfe10 && c <= 0xfe6f) ||   // CJK Compat Forms / Small Forms
+    (c >= 0xff00 && c <= 0xff60) ||   // Fullwidth Forms
+    (c >= 0x1b000 && c <= 0x1b2ff) || // Kana Supplement / Extended
+    (c >= 0x1f004 && c <= 0x1f0cf) || // Mahjong / Playing cards
+    (c >= 0x1f200 && c <= 0x1f2ff) || // Enclosed CJK
+    (c >= 0x1f300 && c <= 0x1faff) || // Misc Symbols & Pictographs (most emoji)
+    (c >= 0x20000 && c <= 0x2fffd) || // CJK Extension B+
+    (c >= 0x30000 && c <= 0x3fffd)    // CJK Extension G+
+  ) return 2;
   return 1;
 }
 const vlen = (s) => { let n = 0; for (const ch of s.replace(ANSI_RE, '')) n += cw(ch); return n; };
@@ -835,8 +859,9 @@ const screens = {
     render(inner) {
       const L = [center(gtext('What\u2019s included', true), inner), ''];
       MODULES.forEach((m) => {
-        L.push(` ${green('✔')} ${BOLD}${m.icon}  ${fit(m.title, inner - 10)}${RESET}`);
-        L.push('     ' + dim(fit(m.desc, inner - 6)));
+        // icon is 1-wide now; account for ✔(1) sp(1) icon(1) sp(2) = 5 chars overhead
+        L.push(` ${green('+')} ${BOLD}${m.icon}  ${fit(m.title, inner - 7)}${RESET}`);
+        L.push('      ' + dim(fit(m.desc, inner - 7)));
       });
       L.push('', hint([['enter', 'back'], ['esc', 'back']], inner));
       return L;
@@ -879,7 +904,8 @@ const screens = {
         let note = '';
         if (m.id === 'tunnel' && tid === 'local') note = ' (skipped on Local)';
         if (blocked) note = ' (needs Neko)';
-        const room = Math.max(10, inner - 4 - 4 - 3 - m.tag.length - 3 - note.length);
+        // mark=[✔] = 3, sp=1, icon(1-wide)=1, sp=1, tag=[XX]=tag.length+2, note, padding from selRow=4
+        const room = Math.max(10, inner - 4 - 3 - 1 - 1 - 1 - (m.tag.length + 2) - note.length - 2);
         const title = fit(m.title, room);
         const label = i === state.cursor ? BOLD + title + RESET : (on && !blocked ? C.text(title) : C.faint(title));
         L.push(selRow(i, `${markFor(i)} ${m.icon} ${label} ${C.amber(`[${m.tag}]`)}${C.faint(note)}`, inner));
@@ -888,7 +914,7 @@ const screens = {
       const d = wrap(MODULES[state.cursor].desc, inner - 2);
       L.push(' ' + dim(d[0] || ''), ' ' + dim(d[1] || ''));
       const tl = state.toast && state.t < state.toast.until ? C.amber('! ' + state.toast.text) : dim(`Target: ${TARGETS[state.target].short}`);
-      L.push(' ' + tl, hint([['↑↓', 'move'], ['space', 'toggle'], ['a', 'all'], ['t', 'target'], ['enter', 'next'], ['esc', 'back']], inner));
+      L.push(' ' + tl, hint([['spc', 'toggle [✔]'], ['1-6', 'direct'], ['a', 'all'], ['t', 'target'], ['enter', 'next'], ['esc', 'back']], inner));
       return L;
     },
     key(s, k) {
@@ -1145,19 +1171,27 @@ process.on('uncaughtException', (err) => {
 });
 
 async function main() {
+  // Ensure the terminal is in UTF-8 mode — critical for Cloud Shell tmux sessions
+  // that sometimes inherit a C locale.
+  process.env.LANG = process.env.LANG || 'en_US.UTF-8';
+  process.env.LC_ALL = process.env.LC_ALL || 'en_US.UTF-8';
+  // Tell the terminal to use UTF-8 character set (xterm ESC % G sequence)
+  out.write('\x1b%G');
+
   if (!isTTY) {
     console.log('Non-interactive terminal detected. Running automated installation pipeline...');
     state.plain = true;
     await ipPromise;
     state.target = defaultTarget();
     await startInstall();
-    if (state.screen === 'failed') { console.error(`✖ ${state.error}`); process.exit(1); }
-    console.log(`✔ LESSWATCH installed${state.publicUrl ? ' · ' + state.publicUrl : ''}`);
+    if (state.screen === 'failed') { console.error(`[FAIL] ${state.error}`); process.exit(1); }
+    console.log(`[OK] LESSWATCH installed${state.publicUrl ? ' · ' + state.publicUrl : ''}`);
     process.exit(0);
   }
   readline.emitKeypressEvents(inp);
   inp.setRawMode(true);
   inp.resume();
+  // Enter alternate screen, hide cursor, clear
   out.write(E + '?1049h' + E + '?25l' + E + '2J');
   out.on('resize', () => out.write(E + '2J'));
   inp.on('keypress', (s, k = {}) => {
