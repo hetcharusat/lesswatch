@@ -221,18 +221,33 @@ function buildServices(log, s) {
     const services = ['watch-together'];
     if (livekitOn) services.push('livekit');
 
-    // Fast-start check: If image already exists locally, start immediately without forced rebuild
+    // Fast-start check: If image already exists locally and code has not changed, start immediately (~2s)
     let hasImage = false;
     try {
       execSync('docker image inspect watch-together:latest', { stdio: 'ignore' });
       hasImage = true;
     } catch { }
 
+    let currentCommit = '';
+    try {
+      currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+    } catch { }
+
+    let cachedCommit = '';
+    try {
+      if (fs.existsSync('./data/.build-commit')) {
+        cachedCommit = fs.readFileSync('./data/.build-commit', 'utf-8').trim();
+      }
+    } catch { }
+
+    const isCodeUpdated = currentCommit && (!cachedCommit || currentCommit !== cachedCommit);
     const forceRebuild = process.argv.includes('--force-build') || process.argv.includes('--rebuild');
+    const needsBuild = !hasImage || forceRebuild || isCodeUpdated;
+
     const composeArgs = ['compose', 'up', '-d'];
-    if (!hasImage || forceRebuild) {
+    if (needsBuild) {
       composeArgs.push('--build');
-      log('Building LESSWATCH core services with Docker BuildKit...');
+      log(isCodeUpdated ? `New code detected (${currentCommit.slice(0, 7)}). Building updated container with BuildKit...` : 'Building LESSWATCH core services with Docker BuildKit...');
     } else {
       log('Cached watch-together image found. Starting services (~2s)...');
     }
@@ -254,6 +269,12 @@ function buildServices(log, s) {
       if (settleTimer) clearTimeout(settleTimer);
       if (ticker) clearInterval(ticker);
       activeChild = null;
+      if (currentCommit) {
+        try {
+          if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+          fs.writeFileSync('./data/.build-commit', currentCommit);
+        } catch { }
+      }
       s.progress = 100;
       log('LESSWATCH core services & LiveKit server online.');
       resolve();

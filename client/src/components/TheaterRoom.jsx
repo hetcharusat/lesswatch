@@ -4739,1206 +4739,78 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     );
 
     const popover = (
-      <div data-impeccable-variants="949c7b3c" data-impeccable-variant-count="3" style={{ display: "contents" }}>
-        {/* impeccable-variants-start 949c7b3c */}
-        {/* Original */}
-        <div data-impeccable-variant="original">
-          <div className="pouf-popover-shell voice-studio-deck" onClick={(e) => e.stopPropagation()}>
-            <div className="voice-studio-topbar">
-              <div aria-hidden="true" />
-              <div className="voice-studio-pill-row" role="tablist" aria-label="Voice settings tabs">
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`voice-studio-pill voice-studio-btn ${voiceSettingsTab === 'mic' ? 'active' : ''}`}>
-                  {isVoiceConnected && !isMuted && <span className="vst-live-dot" aria-hidden="true" />}
-                  <span>My Mic</span>
-                </button>
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`voice-studio-pill voice-studio-btn ${voiceSettingsTab === 'peers' ? 'active' : ''}`}>
-                  <span>Member Mics ({otherPeers.length})</span>
+      <div className="vs949-v1" onClick={(e) => e.stopPropagation()}>
+        <div className="vs-head">
+          <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
+            <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
+              {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
+              <span>My Mic</span>
+            </button>
+            <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
+              <span>Member Mics ({otherPeers.length})</span>
+            </button>
+          </div>
+          <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
+            <X size={13} />
+          </button>
+        </div>
+
+        {voiceSettingsTab === 'mic' ? (
+          <div className="vs-cols">
+            <div className="vs-col">
+              <div className="vs-sec-head">
+                <span>Microphone ({audioInputDevices.length || 1})</span>
+                <button type="button" onClick={refreshMediaDevices} className="vs-rescan">
+                  <RotateCcw size={10} /> Rescan
                 </button>
               </div>
-              <button type="button" onClick={() => setShowVoiceSettings(false)} className="voice-studio-close voice-studio-btn" title="Close" aria-label="Close voice settings">
-                <X size={14} />
-              </button>
-            </div>
-
-            {voiceSettingsTab === 'mic' ? (
-              <div className="voice-studio-cols">
-                <div className="voice-studio-col">
-                  <div className="voice-studio-box">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Microphone</span>
-                      <button type="button" onClick={refreshMediaDevices} className="voice-studio-btn" style={{ background: 'transparent', border: 'none', color: '#ec4899', fontSize: '0.69rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
-                        <RotateCcw size={10} /> Rescan
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '115px', overflowY: 'auto' }}>
-                      {audioInputDevices.length === 0 ? (
-                        <div style={{ fontSize: '0.74rem', opacity: 0.75, padding: '4px' }}>Default System Mic</div>
-                      ) : (
-                        audioInputDevices.map((dev, idx) => {
-                          const isSelected = dev.deviceId === selectedAudioInput;
-                          return (
-                            <button
-                              key={dev.deviceId || idx}
-                              type="button"
-                              onClick={() => switchAudioInput(dev.deviceId)}
-                              className="voice-studio-btn"
-                              style={{
-                                textAlign: 'left',
-                                padding: '6px 9px',
-                                borderRadius: '10px',
-                                border: isSelected ? '1.5px solid #ec4899' : '1px solid rgba(244,114,182,0.22)',
-                                background: isSelected ? 'rgba(236, 72, 153, 0.14)' : 'transparent',
-                                color: 'inherit',
-                                fontSize: '0.74rem',
-                                fontWeight: 700,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
-                              {isSelected && <Check size={13} color="#ec4899" />}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="voice-studio-box" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: '0.73rem', fontWeight: 800 }}>Echo Cancellation</div>
-                      <div style={{ fontSize: '0.66rem', opacity: 0.75 }}>{isEchoCancellationEnabled ? 'Speaker safe' : 'Headphones mode'}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleEchoCancellationToggle}
-                      className="voice-studio-btn"
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: '999px',
-                        border: 'none',
-                        background: isEchoCancellationEnabled ? '#ec4899' : 'rgba(148, 163, 184, 0.35)',
-                        color: '#fff',
-                        fontSize: '0.69rem',
-                        fontWeight: 800,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {isEchoCancellationEnabled ? 'On' : 'Off'}
-                    </button>
-                  </div>
-
-                  {isVoiceConnected ? (
-                    <button type="button" onClick={leaveVoiceChat} className="voice-studio-disconnect voice-studio-btn">
-                      <MicOff size={14} /> Disconnect Mic
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => startMicrophone()} className="voice-studio-connect voice-studio-btn">
-                      <Mic size={14} /> Connect Mic
-                    </button>
-                  )}
-                </div>
-
-                <div className="voice-studio-col">
-                  <div className="voice-studio-box">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Suppression Engine</span>
-                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#ec4899' }}>{noiseSuppressionMode.toUpperCase()}</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                      {[
-                        { id: 'rnnoise', label: 'AI Neural' },
-                        { id: 'speex', label: 'Acoustic' },
-                        { id: 'raw', label: 'Bypass' }
-                      ].map((mode) => (
-                        <button
-                          key={mode.id}
-                          type="button"
-                          onClick={() => handleNoiseModeChange(mode.id)}
-                          className="voice-studio-btn"
-                          style={{
-                            padding: '6px 3px',
-                            borderRadius: '9px',
-                            border: noiseSuppressionMode === mode.id ? '1.5px solid #ec4899' : '1px solid rgba(244,114,182,0.25)',
-                            background: noiseSuppressionMode === mode.id ? '#ec4899' : 'transparent',
-                            color: noiseSuppressionMode === mode.id ? '#fff' : 'inherit',
-                            fontSize: '0.69rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {mode.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="voice-studio-box">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Noise Gate</span>
-                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
-                        {noiseIntensity === 0 ? 'Off (Open)' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
-                      </span>
-                    </div>
-                    <div className="voice-gate-meter" title={`Gate threshold: ${noiseIntensity === 0 ? 0 : Math.max(1, Math.round(noiseIntensity * 0.55))}%`}>
-                      <div
-                        className="voice-gate-fill"
-                        style={{
-                          width: `${Math.min(100, micLevel)}%`,
-                          background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
-                          boxShadow: isNoiseGateOpen ? '0 0 8px rgba(16, 185, 129, 0.45)' : 'none',
-                        }}
-                      />
-                      {noiseIntensity > 0 && (
-                        <div
-                          className="voice-gate-threshold"
-                          style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }}
-                        />
-                      )}
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
-                      value={noiseIntensity}
-                      aria-label="Noise Gate threshold"
-                      className="voice-studio-range"
-                      onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
-                    />
-                  </div>
-
-                  <div className="voice-studio-box">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.73rem', fontWeight: 800 }}>Mic Sensitivity</span>
-                      <span style={{ fontSize: '0.69rem', fontWeight: 700, color: '#f472b6' }}>
-                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="200"
-                      step="5"
-                      value={micGain}
-                      aria-label="Mic Sensitivity"
-                      className="voice-studio-range"
-                      onChange={(e) => handleMicGainChange(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="voice-studio-box voice-studio-panel-anim" style={{ maxHeight: '210px', overflowY: 'auto' }}>
-                {otherPeers.length === 0 ? (
-                  <div style={{ textAlign: 'center', fontSize: '0.78rem', padding: '16px', opacity: 0.75 }}>No other members in voice</div>
+              <div className="vs-mic-list">
+                {audioInputDevices.length === 0 ? (
+                  <div style={{ fontSize: '0.71rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
                 ) : (
-                  otherPeers.map((user) => {
-                    const pId = user.id || user.peerId || user.socketId;
-                    const peerVol = peerVolumes.get(pId) ?? 100;
-                    const isMuted = peerVol === 0;
+                  audioInputDevices.map((dev, idx) => {
+                    const isSelected = dev.deviceId === selectedAudioInput;
                     return (
-                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 4px', borderBottom: '1px solid rgba(244,114,182,0.16)' }}>
-                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
-                        <span style={{ fontSize: '0.77rem', fontWeight: 700, flex: 1 }}>{user.username || user.name || 'Friend'}</span>
-                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} style={{ width: '120px', accentColor: '#ec4899' }} />
-                        <span style={{ fontSize: '0.7rem', fontWeight: 800, minWidth: '36px', textAlign: 'right' }}>{peerVol}%</span>
-                        <button type="button" onClick={() => handlePeerVolume(pId, isMuted ? 100 : 0)} className="voice-studio-btn" style={{ background: 'none', border: 'none', color: '#ec4899', cursor: 'pointer', display: 'flex' }}>
-                          {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                        </button>
-                      </div>
+                      <button
+                        key={dev.deviceId || idx}
+                        type="button"
+                        onClick={() => switchAudioInput(dev.deviceId)}
+                        className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
+                        {isSelected && <Check size={12} color="#f472b6" style={{ flexShrink: 0 }} />}
+                      </button>
                     );
                   })
                 )}
               </div>
-            )}
-          </div>
-        </div>
-        {/* Variants: insert below this line */}
-        <style data-impeccable-css="949c7b3c">{`
-          @keyframes vs949Beacon {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
-            50% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
-          }
-          @keyframes vs949Enter {
-            from { opacity: 0; transform: translate3d(-50%, 8px, 0) scale(0.97); }
-            to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
-          }
-
-          @scope ([data-impeccable-variant="1"]) {
-            :scope > .vs949-v1 {
-              position: absolute;
-              bottom: calc(100% + 12px);
-              left: 50%;
-              transform: translate3d(-50%, 0, 0);
-              width: min(444px, calc(100vw - 24px));
-              max-height: 360px;
-              overflow: hidden;
-              padding: 11px 12px;
-              border-radius: 20px;
-              background: linear-gradient(160deg, rgba(255, 182, 222, 0.19) 0%, rgba(88, 20, 60, 0.54) 30%, rgba(20, 8, 22, 0.86) 100%);
-              border: 1px solid rgba(244, 114, 182, 0.36);
-              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.72), 0 0 34px rgba(236, 72, 153, 0.22), inset 0 1px 0 rgba(255, 232, 245, 0.46), inset 0 -1px 0 rgba(236, 72, 153, 0.30);
-              backdrop-filter: blur(16px) saturate(195%);
-              -webkit-backdrop-filter: blur(16px) saturate(195%);
-              color: #fdf2f8;
-              z-index: 1000;
-              display: flex;
-              flex-direction: column;
-              gap: 9px;
-              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
-            }
-            :scope[data-p-shell-tint="deep-noir"] > .vs949-v1 {
-              background: linear-gradient(160deg, rgba(255, 210, 236, 0.09) 0%, rgba(24, 11, 26, 0.88) 100%);
-              border-color: rgba(251, 207, 232, 0.24);
-            }
-            :scope[data-p-compactness="cozy"] > .vs949-v1 {
-              width: min(468px, calc(100vw - 24px));
-              padding: 13px 14px;
-              gap: 11px;
-            }
-
-            :scope > .vs949-v1 .vs-head {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              padding-bottom: 8px;
-              border-bottom: 1px solid rgba(251, 207, 232, 0.16);
-            }
-            :scope > .vs949-v1 .vs-tabs {
-              flex: 1;
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 4px;
-              padding: 3px;
-              border-radius: 11px;
-              background: rgba(255, 226, 242, 0.06);
-              border: 1px solid rgba(251, 207, 232, 0.16);
-            }
-            :scope > .vs949-v1 .vs-tab {
-              border: none;
-              border-radius: 8px;
-              padding: 5px 8px;
-              font-size: 0.72rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 228, 242, 0.72);
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              gap: 6px;
-              transition: background 180ms ease, color 180ms ease, transform 140ms ease;
-            }
-            :scope > .vs949-v1 .vs-tab.is-on {
-              background: rgba(244, 114, 182, 0.28);
-              color: #fdf2f8;
-              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(251, 207, 232, 0.36);
-            }
-            :scope > .vs949-v1 .vs-dot {
-              width: 6px;
-              height: 6px;
-              border-radius: 50%;
-              background: #10b981;
-              animation: vs949Beacon 1.8s ease-in-out infinite;
-            }
-            :scope > .vs949-v1 .vs-close {
-              width: 28px;
-              height: 28px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.22);
-              background: rgba(255, 228, 244, 0.08);
-              color: #fbcfe8;
-              display: grid;
-              place-items: center;
-              cursor: pointer;
-              transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, border-color 160ms ease, color 160ms ease;
-            }
-            :scope > .vs949-v1 .vs-close:hover {
-              background: rgba(236, 72, 153, 0.28);
-              border-color: rgba(251, 207, 232, 0.48);
-              color: #ffffff;
-              transform: rotate(90deg) scale(1.06);
-            }
-            :scope > .vs949-v1 .vs-close:active { transform: rotate(90deg) scale(0.92); }
-
-            :scope > .vs949-v1 .vs-cols {
-              display: grid;
-              grid-template-columns: 1.05fr 1fr;
-              gap: 12px;
-              align-items: stretch;
-            }
-            :scope > .vs949-v1 .vs-col {
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-              min-width: 0;
-            }
-            :scope > .vs949-v1 .vs-col-right {
-              padding-left: 11px;
-              border-left: 1px solid rgba(251, 207, 232, 0.14);
-            }
-            :scope > .vs949-v1 .vs-sec-head {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              font-size: 0.7rem;
-              font-weight: 800;
-              color: #fce7f3;
-            }
-            :scope > .vs949-v1 .vs-rescan {
-              background: transparent;
-              border: none;
-              color: #f472b6;
-              font-size: 0.68rem;
-              font-weight: 700;
-              display: inline-flex;
-              align-items: center;
-              gap: 3px;
-              cursor: pointer;
-              padding: 2px 5px;
-              border-radius: 6px;
-              transition: background 150ms ease, color 150ms ease;
-            }
-            :scope > .vs949-v1 .vs-rescan:hover { background: rgba(244, 114, 182, 0.16); color: #ffffff; }
-
-            :scope > .vs949-v1 .vs-mic-list {
-              display: flex;
-              flex-direction: column;
-              gap: 4px;
-              min-height: 68px;
-              max-height: 112px;
-              overflow-y: auto;
-              padding-right: 2px;
-            }
-            :scope > .vs949-v1 .vs-mic-row {
-              text-align: left;
-              padding: 5px 8px;
-              border-radius: 9px;
-              border: 1px solid rgba(251, 207, 232, 0.14);
-              background: rgba(255, 228, 244, 0.05);
-              color: #fce7f3;
-              font-size: 0.71rem;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              gap: 6px;
-              cursor: pointer;
-              transition: background 150ms ease, border-color 150ms ease, transform 140ms ease;
-            }
-            :scope > .vs949-v1 .vs-mic-row:hover {
-              background: rgba(244, 114, 182, 0.16);
-              border-color: rgba(251, 207, 232, 0.32);
-            }
-            :scope > .vs949-v1 .vs-mic-row.is-on {
-              background: rgba(236, 72, 153, 0.24);
-              border-color: rgba(244, 114, 182, 0.65);
-              color: #ffffff;
-            }
-
-            :scope > .vs949-v1 .vs-action-pair {
-              display: grid;
-              grid-template-columns: 1fr 1.15fr;
-              gap: 6px;
-              margin-top: auto;
-            }
-            :scope > .vs949-v1 .vs-anim-btn {
-              position: relative;
-              height: 30px;
-              padding: 0 9px;
-              border-radius: 10px;
-              border: 1px solid rgba(251, 207, 232, 0.2);
-              background: rgba(255, 228, 244, 0.07);
-              color: #fce7f3;
-              font-size: 0.69rem;
-              font-weight: 800;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              gap: 5px;
-              cursor: pointer;
-              white-space: nowrap;
-              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
-            }
-            :scope > .vs949-v1 .vs-anim-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); border-color: rgba(251, 207, 232, 0.42); }
-            :scope > .vs949-v1 .vs-anim-btn:active { transform: translateY(1px) scale(0.96); }
-            :scope > .vs949-v1 .vs-anim-btn.is-echo-on {
-              background: rgba(236, 72, 153, 0.26);
-              border-color: rgba(244, 114, 182, 0.58);
-              color: #ffffff;
-              box-shadow: 0 4px 12px rgba(236, 72, 153, 0.25);
-            }
-            :scope > .vs949-v1 .vs-anim-btn.is-connect {
-              background: linear-gradient(135deg, #f472b6, #db2777);
-              border-color: rgba(255, 255, 255, 0.35);
-              color: #ffffff;
-              box-shadow: 0 5px 14px rgba(236, 72, 153, 0.36);
-            }
-            :scope > .vs949-v1 .vs-anim-btn.is-disconnect {
-              background: rgba(239, 68, 68, 0.2);
-              border-color: rgba(248, 113, 113, 0.46);
-              color: #fecaca;
-            }
-
-            :scope > .vs949-v1 .vs-seg3 {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 3px;
-              padding: 3px;
-              border-radius: 10px;
-              background: rgba(255, 226, 242, 0.06);
-              border: 1px solid rgba(251, 207, 232, 0.14);
-            }
-            :scope > .vs949-v1 .vs-seg-btn {
-              border: none;
-              border-radius: 7px;
-              padding: 4px 2px;
-              font-size: 0.67rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 232, 243, 0.78);
-              transition: background 150ms ease, color 150ms ease;
-            }
-            :scope > .vs949-v1 .vs-seg-btn.is-on {
-              background: rgba(236, 72, 153, 0.34);
-              color: #ffffff;
-              box-shadow: inset 0 0 0 1px rgba(251, 207, 232, 0.36);
-            }
-
-            :scope > .vs949-v1 .vs-meter {
-              position: relative;
-              width: 100%;
-              height: 5px;
-              border-radius: 9999px;
-              background: rgba(255, 224, 240, 0.14);
-              overflow: visible;
-            }
-            :scope > .vs949-v1 .vs-meter-fill {
-              height: 100%;
-              border-radius: 9999px;
-              transition: width 70ms linear, background 150ms ease;
-            }
-            :scope > .vs949-v1 .vs-meter-mark {
-              position: absolute;
-              top: -2px;
-              bottom: -2px;
-              width: 2px;
-              border-radius: 9999px;
-              background: #fdf2f8;
-              transform: translateX(-50%);
-              pointer-events: none;
-            }
-
-            :scope > .vs949-v1 .vs-range {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 100%;
-              height: 5px;
-              border-radius: 9999px;
-              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
-              outline: none;
-              cursor: pointer;
-            }
-            :scope > .vs949-v1 .vs-range::-webkit-slider-thumb {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 13px;
-              height: 13px;
-              border-radius: 50%;
-              background: #ffffff;
-              border: 2px solid #ec4899;
-              box-shadow: 0 2px 8px rgba(236, 72, 153, 0.55);
-              cursor: pointer;
-              transition: transform 140ms ease, box-shadow 140ms ease;
-            }
-            :scope > .vs949-v1 .vs-range::-webkit-slider-thumb:hover {
-              transform: scale(1.18);
-              box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.28);
-            }
-
-            :scope > .vs949-v1 .vs-peers {
-              max-height: 190px;
-              overflow-y: auto;
-              display: flex;
-              flex-direction: column;
-              gap: 6px;
-            }
-            :scope > .vs949-v1 .vs-peer-row {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              padding: 6px 8px;
-              border-radius: 11px;
-              background: rgba(255, 228, 244, 0.05);
-              border: 1px solid rgba(251, 207, 232, 0.14);
-            }
-            :scope > .vs949-v1 .vs-peer-mute {
-              width: 26px;
-              height: 26px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.18);
-              background: rgba(255, 228, 244, 0.06);
-              color: #f472b6;
-              display: grid;
-              place-items: center;
-              cursor: pointer;
-              transition: background 150ms ease, transform 140ms ease;
-            }
-            :scope > .vs949-v1 .vs-peer-mute:hover { background: rgba(236, 72, 153, 0.22); transform: scale(1.06); }
-          }
-
-          @scope ([data-impeccable-variant="2"]) {
-            :scope > .vs949-v2 {
-              position: absolute;
-              bottom: calc(100% + 12px);
-              left: 50%;
-              transform: translate3d(-50%, 0, 0);
-              width: min(calc(var(--p-drawer-width, 340) * 1px), calc(100vw - 24px));
-              max-height: 410px;
-              overflow-y: auto;
-              padding: 10px 12px;
-              border-radius: 20px;
-              background: linear-gradient(160deg, rgba(255, 182, 222, 0.19) 0%, rgba(88, 20, 60, 0.54) 30%, rgba(20, 8, 22, 0.85) 100%);
-              border: 1px solid rgba(244, 114, 182, 0.36);
-              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.72), 0 0 34px rgba(236, 72, 153, 0.22), inset 0 1px 0 rgba(255, 232, 245, 0.46), inset 0 -1px 0 rgba(236, 72, 153, 0.30);
-              backdrop-filter: blur(calc(var(--p-glass-blur, 16) * 1px)) saturate(195%);
-              -webkit-backdrop-filter: blur(calc(var(--p-glass-blur, 16) * 1px)) saturate(195%);
-              color: #fdf2f8;
-              z-index: 1000;
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
-            }
-            :scope > .vs949-v2 .vs-head {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              padding-bottom: 6px;
-              border-bottom: 1px solid rgba(251, 207, 232, 0.18);
-            }
-            :scope > .vs949-v2 .vs-tabs {
-              flex: 1;
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 4px;
-              padding: 3px;
-              border-radius: 10px;
-              background: rgba(255, 226, 242, 0.06);
-              border: 1px solid rgba(251, 207, 232, 0.16);
-            }
-            :scope > .vs949-v2 .vs-tab {
-              border: none;
-              border-radius: 7px;
-              padding: 4px 6px;
-              font-size: 0.71rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 228, 242, 0.72);
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              gap: 5px;
-              transition: background 160ms ease, color 160ms ease;
-            }
-            :scope > .vs949-v2 .vs-tab.is-on {
-              background: rgba(244, 114, 182, 0.28);
-              color: #fdf2f8;
-              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(251, 207, 232, 0.36);
-            }
-            :scope > .vs949-v2 .vs-dot {
-              width: 6px;
-              height: 6px;
-              border-radius: 50%;
-              background: #10b981;
-              animation: vs949Beacon 1.8s ease-in-out infinite;
-            }
-            :scope > .vs949-v2 .vs-close {
-              width: 26px;
-              height: 26px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.2);
-              background: rgba(255, 228, 244, 0.07);
-              color: #fbcfe8;
-              display: grid;
-              place-items: center;
-              cursor: pointer;
-              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, color 160ms ease;
-            }
-            :scope > .vs949-v2 .vs-close:hover { background: rgba(236, 72, 153, 0.28); color: #ffffff; transform: scale(1.08); }
-            :scope > .vs949-v2 .vs-mic-list {
-              display: flex;
-              flex-direction: column;
-              gap: 4px;
-              max-height: 92px;
-              overflow-y: auto;
-            }
-            :scope > .vs949-v2 .vs-mic-row {
-              padding: 5px 8px;
-              border-radius: 9px;
-              border: 1px solid rgba(251, 207, 232, 0.14);
-              background: rgba(255, 228, 244, 0.05);
-              color: #fce7f3;
-              font-size: 0.71rem;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              cursor: pointer;
-              transition: background 150ms ease, border-color 150ms ease;
-            }
-            :scope > .vs949-v2 .vs-mic-row.is-on {
-              background: rgba(236, 72, 153, 0.24);
-              border-color: rgba(244, 114, 182, 0.62);
-              color: #ffffff;
-            }
-            :scope > .vs949-v2 .vs-pair {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 6px;
-            }
-            :scope > .vs949-v2 .vs-anim-btn {
-              height: 29px;
-              padding: 0 8px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.2);
-              background: rgba(255, 228, 244, 0.07);
-              color: #fce7f3;
-              font-size: 0.69rem;
-              font-weight: 800;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              gap: 5px;
-              cursor: pointer;
-              transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, border-color 160ms ease;
-            }
-            :scope > .vs949-v2 .vs-anim-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); }
-            :scope > .vs949-v2 .vs-anim-btn:active { transform: scale(0.95); }
-            :scope > .vs949-v2 .vs-anim-btn.is-echo-on { background: rgba(236, 72, 153, 0.26); border-color: rgba(244, 114, 182, 0.56); color: #ffffff; }
-            :scope > .vs949-v2 .vs-anim-btn.is-connect { background: linear-gradient(135deg, #f472b6, #db2777); border-color: rgba(255, 255, 255, 0.34); color: #ffffff; }
-            :scope > .vs949-v2 .vs-anim-btn.is-disconnect { background: rgba(239, 68, 68, 0.2); border-color: rgba(248, 113, 113, 0.44); color: #fecaca; }
-
-            :scope > .vs949-v2 .vs-seg3 {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 3px;
-              padding: 3px;
-              border-radius: 9px;
-              background: rgba(255, 226, 242, 0.06);
-              border: 1px solid rgba(251, 207, 232, 0.14);
-            }
-            :scope > .vs949-v2 .vs-seg-btn {
-              border: none;
-              border-radius: 6px;
-              padding: 4px 2px;
-              font-size: 0.67rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 232, 243, 0.76);
-            }
-            :scope > .vs949-v2 .vs-seg-btn.is-on {
-              background: rgba(236, 72, 153, 0.32);
-              color: #ffffff;
-            }
-            :scope > .vs949-v2 .vs-range {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 100%;
-              height: 5px;
-              border-radius: 9999px;
-              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
-              outline: none;
-              cursor: pointer;
-            }
-            :scope > .vs949-v2 .vs-range::-webkit-slider-thumb {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 13px;
-              height: 13px;
-              border-radius: 50%;
-              background: #ffffff;
-              border: 2px solid #ec4899;
-              box-shadow: 0 2px 7px rgba(236, 72, 153, 0.5);
-              cursor: pointer;
-            }
-            :scope > .vs949-v2 .vs-meter {
-              position: relative;
-              width: 100%;
-              height: 4px;
-              border-radius: 9999px;
-              background: rgba(255, 224, 240, 0.14);
-            }
-            :scope > .vs949-v2 .vs-meter-fill { height: 100%; border-radius: 9999px; transition: width 70ms linear; }
-            :scope > .vs949-v2 .vs-meter-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 9999px; background: #fdf2f8; transform: translateX(-50%); }
-          }
-
-          @scope ([data-impeccable-variant="3"]) {
-            :scope > .vs949-v3 {
-              position: absolute;
-              bottom: calc(100% + 12px);
-              left: 50%;
-              transform: translate3d(-50%, 0, 0);
-              width: min(466px, calc(100vw - 24px));
-              max-height: 350px;
-              overflow: hidden;
-              padding: 10px 12px;
-              border-radius: 20px;
-              background: linear-gradient(160deg, rgba(255, 182, 222, 0.16) 0%, rgba(72, 18, 52, 0.56) 34%, rgba(16, 8, 20, 0.88) 100%);
-              border: 1px solid rgba(244, 114, 182, 0.34);
-              box-shadow: 0 24px 56px rgba(0, 0, 0, 0.74), 0 0 calc(36px * var(--p-accent-glow, 0.75)) rgba(236, 72, 153, 0.28), inset 0 1px 0 rgba(255, 232, 245, 0.44);
-              backdrop-filter: blur(16px) saturate(190%);
-              -webkit-backdrop-filter: blur(16px) saturate(190%);
-              color: #fdf2f8;
-              z-index: 1000;
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-              animation: vs949Enter 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
-            }
-            :scope > .vs949-v3 .vs-head {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              gap: 8px;
-            }
-            :scope > .vs949-v3 .vs-tabs {
-              display: inline-flex;
-              align-items: center;
-              gap: 3px;
-              padding: 3px;
-              border-radius: 9999px;
-              background: rgba(255, 226, 242, 0.06);
-              border: 1px solid rgba(251, 207, 232, 0.16);
-            }
-            :scope > .vs949-v3 .vs-tab {
-              border: none;
-              border-radius: 9999px;
-              padding: 4px 12px;
-              font-size: 0.71rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 228, 242, 0.72);
-              display: inline-flex;
-              align-items: center;
-              gap: 5px;
-              transition: background 170ms ease, color 170ms ease;
-            }
-            :scope > .vs949-v3 .vs-tab.is-on {
-              background: rgba(236, 72, 153, 0.34);
-              color: #ffffff;
-              box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 0 0 1px rgba(251, 207, 232, 0.38);
-            }
-            :scope > .vs949-v3 .vs-dot {
-              width: 6px;
-              height: 6px;
-              border-radius: 50%;
-              background: #10b981;
-              animation: vs949Beacon 1.8s ease-in-out infinite;
-            }
-            :scope > .vs949-v3 .vs-close {
-              width: 28px;
-              height: 28px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.2);
-              background: rgba(255, 228, 244, 0.07);
-              color: #fbcfe8;
-              display: grid;
-              place-items: center;
-              cursor: pointer;
-              transition: background 160ms ease, border-color 160ms ease, transform 170ms cubic-bezier(0.22, 1, 0.36, 1), color 160ms ease;
-            }
-            :scope > .vs949-v3 .vs-close:hover {
-              background: rgba(236, 72, 153, 0.28);
-              border-color: rgba(251, 207, 232, 0.5);
-              color: #ffffff;
-              transform: scale(1.08);
-            }
-
-            :scope > .vs949-v3 .vs-split {
-              display: grid;
-              grid-template-columns: 1fr 1.05fr;
-              gap: 10px;
-              align-items: stretch;
-            }
-            :scope > .vs949-v3 .vs-zone {
-              padding: 8px 10px;
-              border-radius: 14px;
-              background: rgba(255, 228, 244, 0.045);
-              border: 1px solid rgba(251, 207, 232, 0.14);
-              display: flex;
-              flex-direction: column;
-              gap: 7px;
-              min-width: 0;
-            }
-            :scope > .vs949-v3 .vs-mic-list {
-              display: flex;
-              flex-direction: column;
-              gap: 4px;
-              min-height: 70px;
-              max-height: 112px;
-              overflow-y: auto;
-            }
-            :scope > .vs949-v3 .vs-mic-row {
-              padding: 5px 8px;
-              border-radius: 8px;
-              border: 1px solid rgba(251, 207, 232, 0.12);
-              background: rgba(255, 255, 255, 0.03);
-              color: #fce7f3;
-              font-size: 0.7rem;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              cursor: pointer;
-              transition: background 140ms ease, border-color 140ms ease;
-            }
-            :scope > .vs949-v3 .vs-mic-row.is-on {
-              background: rgba(236, 72, 153, 0.22);
-              border-color: rgba(244, 114, 182, 0.58);
-              color: #ffffff;
-            }
-
-            :scope > .vs949-v3 .vs-dock-pair {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 6px;
-              margin-top: auto;
-            }
-            :scope > .vs949-v3 .vs-dock-btn {
-              height: 30px;
-              padding: 0 8px;
-              border-radius: 9999px;
-              border: 1px solid rgba(251, 207, 232, 0.18);
-              background: rgba(255, 228, 244, 0.07);
-              color: #fce7f3;
-              font-size: 0.68rem;
-              font-weight: 800;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              gap: 5px;
-              cursor: pointer;
-              transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1), background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
-            }
-            :scope > .vs949-v3 .vs-dock-btn:hover { transform: translateY(-1px); background: rgba(244, 114, 182, 0.18); }
-            :scope > .vs949-v3 .vs-dock-btn:active { transform: scale(0.95); }
-            :scope > .vs949-v3 .vs-dock-btn.is-echo-on {
-              background: rgba(236, 72, 153, 0.24);
-              border-color: rgba(244, 114, 182, 0.56);
-              color: #ffffff;
-            }
-            :scope > .vs949-v3 .vs-dock-btn.is-connect {
-              background: linear-gradient(135deg, #f472b6, #db2777);
-              border-color: rgba(255, 255, 255, 0.34);
-              color: #ffffff;
-              box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
-            }
-            :scope > .vs949-v3 .vs-dock-btn.is-disconnect {
-              background: rgba(239, 68, 68, 0.2);
-              border-color: rgba(248, 113, 113, 0.44);
-              color: #fecaca;
-            }
-
-            :scope > .vs949-v3 .vs-seg3 {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 3px;
-              padding: 3px;
-              border-radius: 9px;
-              background: rgba(255, 226, 242, 0.05);
-              border: 1px solid rgba(251, 207, 232, 0.14);
-            }
-            :scope > .vs949-v3 .vs-seg-btn {
-              border: none;
-              border-radius: 6px;
-              padding: 4px 2px;
-              font-size: 0.66rem;
-              font-weight: 700;
-              cursor: pointer;
-              background: transparent;
-              color: rgba(253, 232, 243, 0.76);
-            }
-            :scope > .vs949-v3 .vs-seg-btn.is-on {
-              background: rgba(236, 72, 153, 0.32);
-              color: #ffffff;
-            }
-
-            :scope > .vs949-v3 .vs-range {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 100%;
-              height: 5px;
-              border-radius: 9999px;
-              background: linear-gradient(90deg, #f472b6 var(--pct, 50%), rgba(255, 224, 240, 0.16) var(--pct, 50%));
-              outline: none;
-              cursor: pointer;
-            }
-            :scope[data-p-slider-style="minimal"] > .vs949-v3 .vs-range {
-              height: 3px;
-              background: rgba(255, 224, 240, 0.2);
-            }
-            :scope > .vs949-v3 .vs-range::-webkit-slider-thumb {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 13px;
-              height: 13px;
-              border-radius: 50%;
-              background: #ffffff;
-              border: 2px solid #ec4899;
-              box-shadow: 0 2px 8px rgba(236, 72, 153, 0.55);
-              cursor: pointer;
-            }
-            :scope > .vs949-v3 .vs-meter {
-              position: relative;
-              width: 100%;
-              height: 5px;
-              border-radius: 9999px;
-              background: rgba(255, 224, 240, 0.14);
-            }
-            :scope > .vs949-v3 .vs-meter-fill { height: 100%; border-radius: 9999px; transition: width 70ms linear; }
-            :scope > .vs949-v3 .vs-meter-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 9999px; background: #fdf2f8; transform: translateX(-50%); }
-          }
-        `}</style>
-
-        <div
-          data-impeccable-variant="1"
-          data-impeccable-params='[{"id":"shell-tint","kind":"steps","default":"rose-obsidian","label":"Glass tint","options":[{"value":"rose-obsidian","label":"Rose Glass"},{"value":"deep-noir","label":"Obsidian"}]},{"id":"compactness","kind":"steps","default":"tight","label":"Density","options":[{"value":"tight","label":"Compact"},{"value":"cozy","label":"Cozy"}]}]'
-        >
-          <div className="vs949-v1" onClick={(e) => e.stopPropagation()}>
-            <div className="vs-head">
-              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
-                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
-                  <span>My Mic</span>
+              <div className="vs-action-pair">
+                <button
+                  type="button"
+                  onClick={handleEchoCancellationToggle}
+                  className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}
+                  title={isEchoCancellationEnabled ? 'Echo Cancellation: On (Speaker safe)' : 'Echo Cancellation: Off (Headphones mode)'}
+                >
+                  <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
                 </button>
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
-                  <span>Member Mics ({otherPeers.length})</span>
-                </button>
-              </div>
-              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
-                <X size={13} />
-              </button>
-            </div>
-
-            {voiceSettingsTab === 'mic' ? (
-              <div className="vs-cols">
-                <div className="vs-col">
-                  <div className="vs-sec-head">
-                    <span>Microphone ({audioInputDevices.length || 1})</span>
-                    <button type="button" onClick={refreshMediaDevices} className="vs-rescan">
-                      <RotateCcw size={10} /> Rescan
-                    </button>
-                  </div>
-                  <div className="vs-mic-list">
-                    {audioInputDevices.length === 0 ? (
-                      <div style={{ fontSize: '0.71rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
-                    ) : (
-                      audioInputDevices.map((dev, idx) => {
-                        const isSelected = dev.deviceId === selectedAudioInput;
-                        return (
-                          <button
-                            key={dev.deviceId || idx}
-                            type="button"
-                            onClick={() => switchAudioInput(dev.deviceId)}
-                            className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}
-                          >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
-                            {isSelected && <Check size={12} color="#f472b6" style={{ flexShrink: 0 }} />}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                  <div className="vs-action-pair">
-                    <button
-                      type="button"
-                      onClick={handleEchoCancellationToggle}
-                      className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}
-                      title={isEchoCancellationEnabled ? 'Echo Cancellation: On (Speaker safe)' : 'Echo Cancellation: Off (Headphones mode)'}
-                    >
-                      <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
-                    </button>
-                    {isVoiceConnected ? (
-                      <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
-                        <MicOff size={12} /> <span>Disconnect</span>
-                      </button>
-                    ) : (
-                      <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
-                        <Mic size={12} /> <span>Connect</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="vs-col vs-col-right">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div className="vs-sec-head">
-                      <span>Suppression</span>
-                      <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
-                    </div>
-                    <div className="vs-seg3">
-                      {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
-                        <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
-                          {mode.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <div className="vs-sec-head">
-                      <span>Noise Gate</span>
-                      <span style={{ fontSize: '0.65rem', color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
-                        {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
-                      </span>
-                    </div>
-                    <div className="vs-meter">
-                      <div
-                        className="vs-meter-fill"
-                        style={{
-                          width: `${Math.min(100, micLevel)}%`,
-                          background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
-                        }}
-                      />
-                      {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
-                    </div>
-                    <input
-                      type="range" min="0" max="100" step="5" value={noiseIntensity}
-                      aria-label="Noise Gate threshold"
-                      className="vs-range"
-                      style={{ '--pct': `${noiseIntensity}%` }}
-                      onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    <div className="vs-sec-head">
-                      <span>Mic Sensitivity</span>
-                      <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>
-                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
-                      </span>
-                    </div>
-                    <input
-                      type="range" min="50" max="200" step="5" value={micGain}
-                      aria-label="Mic Sensitivity"
-                      className="vs-range"
-                      style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }}
-                      onChange={(e) => handleMicGainChange(Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="vs-peers">
-                {otherPeers.length === 0 ? (
-                  <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.72)' }}>
-                    No other members connected in voice yet
-                  </div>
+                {isVoiceConnected ? (
+                  <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
+                    <MicOff size={12} /> <span>Disconnect</span>
+                  </button>
                 ) : (
-                  otherPeers.map((user) => {
-                    const pId = user.id || user.peerId || user.socketId;
-                    const peerVol = peerVolumes.get(pId) ?? 100;
-                    const isPeerMuted = peerVol === 0;
-                    return (
-                      <div key={pId || user.username} className="vs-peer-row">
-                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
-                        <span style={{ fontSize: '0.73rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
-                        <input
-                          type="range" min="0" max="200" step="5" value={peerVol}
-                          onChange={(e) => handlePeerVolume(pId, e.target.value)}
-                          className="vs-range"
-                          style={{ width: '104px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
-                        />
-                        <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
-                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} className="vs-peer-mute" title={isPeerMuted ? 'Unmute member' : 'Mute member'}>
-                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                        </button>
-                      </div>
-                    );
-                  })
+                  <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
+                    <Mic size={12} /> <span>Connect</span>
+                  </button>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-
-        <div
-          data-impeccable-variant="2"
-          style={{ display: 'none' }}
-          data-impeccable-params='[{"id":"drawer-width","kind":"range","min":310,"max":390,"step":20,"default":340,"label":"Panel width (px)"},{"id":"glass-blur","kind":"range","min":10,"max":24,"step":2,"default":16,"label":"Blur (px)"}]'
-        >
-          <div className="vs949-v2" onClick={(e) => e.stopPropagation()}>
-            <div className="vs-head">
-              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
-                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
-                  <span>My Mic</span>
-                </button>
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
-                  <span>Members ({otherPeers.length})</span>
-                </button>
-              </div>
-              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
-                <X size={13} />
-              </button>
             </div>
 
-            {voiceSettingsTab === 'mic' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
-                  <span>Microphone</span>
-                  <button type="button" onClick={refreshMediaDevices} style={{ background: 'none', border: 'none', color: '#f472b6', fontSize: '0.67rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
-                    <RotateCcw size={10} /> Rescan
-                  </button>
+            <div className="vs-col vs-col-right">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="vs-sec-head">
+                  <span>Suppression</span>
+                  <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
                 </div>
-                <div className="vs-mic-list">
-                  {audioInputDevices.length === 0 ? (
-                    <div style={{ fontSize: '0.7rem', opacity: 0.75, padding: '4px' }}>Default System Mic</div>
-                  ) : (
-                    audioInputDevices.map((dev, idx) => {
-                      const isSelected = dev.deviceId === selectedAudioInput;
-                      return (
-                        <button key={dev.deviceId || idx} type="button" onClick={() => switchAudioInput(dev.deviceId)} className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
-                          {isSelected && <Check size={12} color="#f472b6" />}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-
-                <div className="vs-pair">
-                  <button type="button" onClick={handleEchoCancellationToggle} className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}>
-                    <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleCamera}
-                    className={`vs-anim-btn ${isCameraEnabled ? 'is-echo-on' : ''}`}
-                    title={isCameraEnabled ? 'Turn off webcam' : 'Turn on webcam'}
-                  >
-                    {isCameraEnabled ? <Video size={12} /> : <VideoOff size={12} />}
-                    <span>{isCameraEnabled ? 'Cam On' : 'Cam Off'}</span>
-                  </button>
-                  {isVoiceConnected ? (
-                    <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
-                      <MicOff size={12} /> <span>Disconnect</span>
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
-                      <Mic size={12} /> <span>Connect Mic</span>
-                    </button>
-                  )}
-                </div>
-
                 <div className="vs-seg3">
                   {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
                     <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
@@ -5946,184 +4818,82 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     </button>
                   ))}
                 </div>
+              </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 700 }}>
-                    <span>Noise Gate</span>
-                    <span style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
-                      {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
-                    </span>
-                  </div>
-                  <div className="vs-meter">
-                    <div className="vs-meter-fill" style={{ width: `${Math.min(100, micLevel)}%`, background: isNoiseGateOpen ? '#10b981' : '#ec4899' }} />
-                    {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
-                  </div>
-                  <input type="range" min="0" max="100" step="5" value={noiseIntensity} aria-label="Noise Gate threshold" className="vs-range" style={{ '--pct': `${noiseIntensity}%` }} onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <div className="vs-sec-head">
+                  <span>Noise Gate</span>
+                  <span style={{ fontSize: '0.65rem', color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
+                    {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                  </span>
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', fontWeight: 700 }}>
-                    <span>Mic Sensitivity</span>
-                    <span style={{ color: '#f472b6' }}>{micGain}%</span>
-                  </div>
-                  <input type="range" min="50" max="200" step="5" value={micGain} aria-label="Mic Sensitivity" className="vs-range" style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }} onChange={(e) => handleMicGainChange(Number(e.target.value))} />
+                <div className="vs-meter">
+                  <div
+                    className="vs-meter-fill"
+                    style={{
+                      width: `${Math.min(100, micLevel)}%`,
+                      background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
+                    }}
+                  />
+                  {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
                 </div>
+                <input
+                  type="range" min="0" max="100" step="5" value={noiseIntensity}
+                  aria-label="Noise Gate threshold"
+                  className="vs-range"
+                  style={{ '--pct': `${noiseIntensity}%` }}
+                  onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
+                />
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
-                {otherPeers.length === 0 ? (
-                  <div style={{ textAlign: 'center', fontSize: '0.73rem', padding: '16px 8px', opacity: 0.75 }}>No other members in voice</div>
-                ) : (
-                  otherPeers.map((user) => {
-                    const pId = user.id || user.peerId || user.socketId;
-                    const peerVol = peerVolumes.get(pId) ?? 100;
-                    const isPeerMuted = peerVol === 0;
-                    return (
-                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 6px', borderRadius: '9px', background: 'rgba(255,228,244,0.05)' }}>
-                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="18px" />
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
-                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} className="vs-range" style={{ width: '84px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }} />
-                        <span style={{ fontSize: '0.67rem', fontWeight: 800, minWidth: '32px', textAlign: 'right' }}>{peerVol}%</span>
-                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', display: 'flex' }}>
-                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        </div>
 
-        <div
-          data-impeccable-variant="3"
-          style={{ display: 'none' }}
-          data-impeccable-params='[{"id":"accent-glow","kind":"range","min":0,"max":1,"step":0.25,"default":0.75,"label":"Rose glow"},{"id":"slider-style","kind":"steps","default":"filled","label":"Slider style","options":[{"value":"filled","label":"Filled Track"},{"value":"minimal","label":"Minimal Hairline"}]}]'
-        >
-          <div className="vs949-v3" onClick={(e) => e.stopPropagation()}>
-            <div className="vs-head">
-              <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
-                  {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
-                  <span>My Mic</span>
-                </button>
-                <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
-                  <span>Member Mics ({otherPeers.length})</span>
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <div className="vs-sec-head">
+                  <span>Mic Sensitivity</span>
+                  <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>
+                    {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
+                  </span>
+                </div>
+                <input
+                  type="range" min="50" max="200" step="5" value={micGain}
+                  aria-label="Mic Sensitivity"
+                  className="vs-range"
+                  style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }}
+                  onChange={(e) => handleMicGainChange(Number(e.target.value))}
+                />
               </div>
-              <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
-                <X size={13} />
-              </button>
             </div>
-
-            {voiceSettingsTab === 'mic' ? (
-              <div className="vs-split">
-                <div className="vs-zone">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
-                    <span>Microphones</span>
-                    <button type="button" onClick={refreshMediaDevices} style={{ background: 'none', border: 'none', color: '#f472b6', fontSize: '0.67rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
-                      <RotateCcw size={10} /> Rescan
-                    </button>
-                  </div>
-                  <div className="vs-mic-list">
-                    {audioInputDevices.length === 0 ? (
-                      <div style={{ fontSize: '0.7rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
-                    ) : (
-                      audioInputDevices.map((dev, idx) => {
-                        const isSelected = dev.deviceId === selectedAudioInput;
-                        return (
-                          <button key={dev.deviceId || idx} type="button" onClick={() => switchAudioInput(dev.deviceId)} className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
-                            {isSelected && <Check size={12} color="#f472b6" />}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                  <div className="vs-dock-pair">
-                    <button type="button" onClick={handleEchoCancellationToggle} className={`vs-dock-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}>
-                      <span>{isEchoCancellationEnabled ? 'Echo On' : 'Echo Off'}</span>
-                    </button>
-                    {isVoiceConnected ? (
-                      <button type="button" onClick={leaveVoiceChat} className="vs-dock-btn is-disconnect">
-                        <MicOff size={12} /> <span>Leave</span>
-                      </button>
-                    ) : (
-                      <button type="button" onClick={() => startMicrophone()} className="vs-dock-btn is-connect">
-                        <Mic size={12} /> <span>Connect</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="vs-zone">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
-                      <span>Suppression</span>
-                      <span style={{ color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
-                    </div>
-                    <div className="vs-seg3">
-                      {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
-                        <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
-                          {mode.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
-                      <span>Noise Gate</span>
-                      <span style={{ color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
-                        {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
-                      </span>
-                    </div>
-                    <div className="vs-meter">
-                      <div className="vs-meter-fill" style={{ width: `${Math.min(100, micLevel)}%`, background: isNoiseGateOpen ? '#10b981' : '#ec4899' }} />
-                      {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
-                    </div>
-                    <input type="range" min="0" max="100" step="5" value={noiseIntensity} aria-label="Noise Gate threshold" className="vs-range" style={{ '--pct': `${noiseIntensity}%` }} onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))} />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.69rem', fontWeight: 800 }}>
-                      <span>Sensitivity</span>
-                      <span style={{ color: '#f472b6' }}>
-                        {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
-                      </span>
-                    </div>
-                    <input type="range" min="50" max="200" step="5" value={micGain} aria-label="Mic Sensitivity" className="vs-range" style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }} onChange={(e) => handleMicGainChange(Number(e.target.value))} />
-                  </div>
-                </div>
+          </div>
+        ) : (
+          <div className="vs-peers">
+            {otherPeers.length === 0 ? (
+              <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.72)' }}>
+                No other members connected in voice yet
               </div>
             ) : (
-              <div className="vs-zone" style={{ maxHeight: '185px', overflowY: 'auto' }}>
-                {otherPeers.length === 0 ? (
-                  <div style={{ textAlign: 'center', fontSize: '0.73rem', padding: '16px 8px', opacity: 0.72 }}>No other members in voice</div>
-                ) : (
-                  otherPeers.map((user) => {
-                    const pId = user.id || user.peerId || user.socketId;
-                    const peerVol = peerVolumes.get(pId) ?? 100;
-                    const isPeerMuted = peerVol === 0;
-                    return (
-                      <div key={pId || user.username} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 2px', borderBottom: '1px solid rgba(251, 207, 232, 0.12)' }}>
-                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="19px" />
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
-                        <input type="range" min="0" max="200" step="5" value={peerVol} onChange={(e) => handlePeerVolume(pId, e.target.value)} className="vs-range" style={{ width: '108px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }} />
-                        <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
-                        <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', display: 'flex' }}>
-                          {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+              otherPeers.map((user) => {
+                const pId = user.id || user.peerId || user.socketId;
+                const peerVol = peerVolumes.get(pId) ?? 100;
+                const isPeerMuted = peerVol === 0;
+                return (
+                  <div key={pId || user.username} className="vs-peer-row">
+                    <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
+                    <span style={{ fontSize: '0.73rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
+                    <input
+                      type="range" min="0" max="200" step="5" value={peerVol}
+                      onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                      className="vs-range"
+                      style={{ width: '104px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
+                    />
+                    <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
+                    <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} className="vs-peer-mute" title={isPeerMuted ? 'Unmute member' : 'Mute member'}>
+                      {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
-        </div>
-        {/* impeccable-variants-end 949c7b3c */}
+        )}
       </div>
     );
 
