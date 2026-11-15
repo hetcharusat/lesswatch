@@ -179,11 +179,14 @@ function buildServices(log, s) {
     });
     activeChild = child;
     let finished = false;
+    let pollerTimer = null;
+    let settleTimer = null;
 
     const cleanupAndResolve = () => {
       if (finished) return;
       finished = true;
-      if (poller) clearInterval(poller);
+      if (pollerTimer) clearInterval(pollerTimer);
+      if (settleTimer) clearTimeout(settleTimer);
       activeChild = null;
       s.progress = 100;
       log('LESSWATCH core services & LiveKit server online.');
@@ -193,21 +196,22 @@ function buildServices(log, s) {
     const cleanupAndReject = (err) => {
       if (finished) return;
       finished = true;
-      if (poller) clearInterval(poller);
+      if (pollerTimer) clearInterval(pollerTimer);
+      if (settleTimer) clearTimeout(settleTimer);
       activeChild = null;
       reject(err);
     };
 
-    // Poller: detects when watch-together is already Up even if compose pipe is slow
-    const poller = setInterval(() => {
-      try {
-        const psOut = execSync('docker ps --filter "name=watch-together" --format "{{.Status}}"', { encoding: 'utf-8', timeout: 1500 });
-        if (psOut && (psOut.includes('Up') || psOut.includes('running'))) {
+    // Non-blocking async poller: checks if container is running without freezing event loop
+    pollerTimer = setInterval(() => {
+      if (finished) return;
+      exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', { timeout: 6000 }, (err, stdout) => {
+        if (!err && stdout && (stdout.includes('Up') || stdout.includes('running') || stdout.includes('healthy'))) {
           log('Verified watch-together container is Up and operational.');
           cleanupAndResolve();
         }
-      } catch {}
-    }, 2500);
+      });
+    }, 2000);
 
     const feed = (d) => {
       const lines = String(d).split(/\r?\n|\r/);
@@ -220,7 +224,16 @@ function buildServices(log, s) {
         else if (line.includes('Step 4/')) s.progress = 65;
         else if (line.includes('Step 5/')) s.progress = 80;
         else if (line.includes('Step 6/')) s.progress = 90;
-        else if (line.includes('Started') || line.includes('Running')) s.progress = 95;
+        else if (line.includes('Started') || line.includes('Running')) {
+          s.progress = 95;
+          // Once Docker Compose logs "Started" for watch-together, the container is up!
+          // Don't wait for stuck child compose pipes — settle and resolve.
+          if (!settleTimer && (line.includes('watch-together') || line.includes('Started'))) {
+            settleTimer = setTimeout(() => {
+              cleanupAndResolve();
+            }, 2000);
+          }
+        }
       }
     };
 
@@ -230,22 +243,32 @@ function buildServices(log, s) {
     child.on('error', cleanupAndReject);
     child.on('exit', (code) => {
       if (code === 0) cleanupAndResolve();
-      else cleanupAndReject(new Error(`Docker build failed with exit code ${code}`));
+      else {
+        // Compose CLI might return non-zero on pipe disconnect even if container started
+        exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', (err, stdout) => {
+          if (!err && stdout && (stdout.includes('Up') || stdout.includes('running'))) {
+            cleanupAndResolve();
+          } else {
+            cleanupAndReject(new Error(`Docker build failed with exit code ${code}`));
+          }
+        });
+      }
     });
     child.on('close', (code) => {
       if (code === 0) cleanupAndResolve();
     });
 
-    // Safety watchdog: after 45s, if container is running, don't stay blocked
+    // Safety watchdog: after 30s, verify container status
     setTimeout(() => {
-      try {
-        const psOut = execSync('docker ps --filter "name=watch-together" --format "{{.Status}}"', { encoding: 'utf-8', timeout: 1500 });
-        if (psOut && psOut.includes('Up')) {
-          log('Container watch-together active and healthy.');
-          cleanupAndResolve();
-        }
-      } catch {}
-    }, 45000);
+      if (!finished) {
+        exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', (err, stdout) => {
+          if (!err && stdout && (stdout.includes('Up') || stdout.includes('running'))) {
+            log('Container watch-together verified via safety watchdog.');
+            cleanupAndResolve();
+          }
+        });
+      }
+    }, 30000);
   });
 }
 
@@ -261,40 +284,29 @@ async function provisionNeko(log, s) {
 
   log(`Configuring Neko Chromium browser (${nekoWarm ? 'Always-On' : 'On-Demand'} mode)...`);
 
-  let cached = false;
-  try {
-    execSync('docker image inspect m1k1o/neko:chromium', { stdio: 'ignore' });
-    cached = true;
-  } catch {}
-
-  if (cached) {
-    log('Image cached. Provisioning virtual browser container...');
-    if (nekoWarm) {
-      execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
-    } else {
-      execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
-    }
-    s.progress = 100;
-    log(`Neko Chromium browser ready (${nekoWarm ? 'Running' : 'On-Demand sleep mode'}).`);
-  } else {
-    log('Pulling lightweight Chromium virtual browser image...');
-    try {
-      execSync('docker compose --profile neko pull neko', { stdio: 'ignore', timeout: 180000 });
-      if (nekoWarm) {
-        execSync('docker compose --profile neko up -d neko', { stdio: 'ignore' });
+  return new Promise((resolve) => {
+    exec('docker image inspect m1k1o/neko:chromium', (inspectErr) => {
+      if (!inspectErr) {
+        log('Image cached. Provisioning virtual browser container...');
+        const upCmd = nekoWarm ? 'docker compose --profile neko up -d neko' : 'docker compose --profile neko up --no-start neko';
+        exec(upCmd, () => {
+          s.progress = 100;
+          log(`Neko Chromium browser ready (${nekoWarm ? 'Running' : 'On-Demand sleep mode'}).`);
+          resolve();
+        });
       } else {
-        execSync('docker compose --profile neko up --no-start neko', { stdio: 'ignore' });
+        log('Registering Chromium browser for on-demand pull in background...');
+        // Pull in background asynchronously so UI is never blocked
+        spawn('sh', ['-c', 'docker compose --profile neko pull neko >/dev/null 2>&1 && docker compose --profile neko up --no-start neko >/dev/null 2>&1 &'], {
+          stdio: 'ignore',
+          detached: true
+        }).unref();
+        s.progress = 100;
+        log('Chromium browser registered (activates on first room use).');
+        resolve();
       }
-    } catch {
-      // Background fallback pull
-      spawn('sh', ['-c', 'docker compose --profile neko pull neko >/dev/null 2>&1 && docker compose --profile neko up --no-start neko >/dev/null 2>&1 &'], {
-        stdio: 'ignore',
-        detached: true
-      }).unref();
-    }
-    s.progress = 100;
-    log('Chromium browser container registered (ready for room activation).');
-  }
+    });
+  });
 }
 
 async function prepareDownloader(log, s) {
@@ -1114,13 +1126,13 @@ function draw() {
     out.write(E + 'H' + C.amber(`Terminal too small (${cols}x${rows}). Need at least 60x22.`) + E + 'K\n' + E + 'J');
     return;
   }
-  const W = Math.min(cols - 2, 74);
+  const W = Math.min(cols - 4, 76);
   const inner = W - 4;
   let lines = screens[state.screen].render(inner);
   const reveal = Math.floor(state.sa * 80) + 1;       // staggered line reveal on every screen change
   if (reveal < lines.length) lines = lines.map((l, i) => (i < reveal ? l : ''));
   const framed = box(lines, W, state.screen === 'splash' ? '' : 'lesswatch');
-  const left = ' '.repeat(Math.floor((cols - W) / 2));
+  const left = '  '; // Stable left margin — prevents drifting to the right on wide browser windows
   const all = ['', ...framed].slice(0, rows - 1);
   out.write(E + 'H' + all.map((l) => left + l + E + 'K').join('\n') + E + 'J');
 }
