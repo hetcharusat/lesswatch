@@ -1118,15 +1118,20 @@ body {
 
 
 
-/* Floating Overlay Chat — Clean Frosted Liquid Glass Bubbles + PFP Avatars (no drop shadow / no clipped glow) */
+/* Floating Overlay Chat — Clean Frosted Liquid Glass Bubbles + PFP Avatars (Spring-Damped Liquid Motion) */
 @keyframes fcLiquidBubbleIn {
   0% {
     opacity: 0;
-    transform: translate3d(0, 14px, 0) scale(0.92);
-    filter: blur(4px);
+    transform: translate3d(0, 18px, 0) scale(0.86);
+    filter: blur(8px);
   }
-  65% {
-    transform: translate3d(0, -2px, 0) scale(1.02);
+  62% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) scale(1.02);
+    filter: blur(0px);
+  }
+  86% {
+    transform: translate3d(0, 1px, 0) scale(0.995);
   }
   100% {
     opacity: 1;
@@ -1143,19 +1148,19 @@ body {
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -12px, 0) scale(0.92);
-    filter: blur(4px);
+    transform: translate3d(0, -18px, 0) scale(0.86);
+    filter: blur(6px);
   }
 }
 
 @keyframes fcAvPopIn {
   0% {
     opacity: 0;
-    transform: scale(0.72);
+    transform: scale(0.70);
   }
-  72% {
+  70% {
     opacity: 1;
-    transform: scale(1.04);
+    transform: scale(1.06);
   }
   100% {
     opacity: 1;
@@ -1182,7 +1187,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: 0;
   width: 100%;
   pointer-events: none;
 }
@@ -1193,8 +1198,8 @@ body {
   max-width: 100%;
   opacity: 1;
   transition:
-    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    grid-template-rows 340ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @starting-style {
@@ -1209,15 +1214,15 @@ body {
   opacity: 0;
   pointer-events: none;
   transition:
-    grid-template-rows 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    grid-template-rows 360ms cubic-bezier(0.16, 1, 0.3, 1) 40ms,
+    opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .floating-chat-overlay .fc-row-slot-inner {
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 6px;
-  transition: padding-bottom 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+  padding-bottom: 8px;
+  transition: padding-bottom 360ms cubic-bezier(0.16, 1, 0.3, 1) 40ms;
 }
 
 .floating-chat-overlay .fc-row-slot:last-child .fc-row-slot-inner {
@@ -7304,11 +7309,21 @@ body.in-chit-chat-mode header {
 @keyframes wfbMorphIn {
   0% {
     opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.88, 0.82);
+    transform: translate3d(0, 18px, 0) scale(0.90, 0.84);
+    filter: blur(8px);
+  }
+  64% {
+    opacity: 1;
+    transform: translate3d(0, -2.5px, 0) scale(1.018, 1.02);
+    filter: blur(0px);
+  }
+  85% {
+    transform: translate3d(0, 1px, 0) scale(0.996, 0.996);
   }
   100% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1, 1);
+    filter: blur(0px);
   }
 }
 
@@ -7316,10 +7331,42 @@ body.in-chit-chat-mode header {
   0% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1, 1);
+    filter: blur(0px);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, 4px, 0) scale(0.94, 0.88);
+    transform: translate3d(0, 12px, 0) scale(0.92, 0.88);
+    filter: blur(6px);
+  }
+}
+
+@keyframes wfbAvatarPulse {
+  0%, 100% {
+    box-shadow: 0 0 10px 2px rgba(236, 72, 153, 0.8), 0 0 4px rgba(244, 114, 182, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 18px 3px rgba(244, 114, 182, 0.95), 0 0 8px rgba(236, 72, 153, 1);
+  }
+}
+
+@keyframes wfbSendReadyPulse {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(236, 72, 153, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(244, 114, 182, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+}
+
+@keyframes wfbSparkleTwinkle {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3);
+    text-shadow: 0 0 6px #ffffff, 0 0 10px #f472b6;
   }
 }
 
@@ -7350,7 +7397,8 @@ body.in-chit-chat-mode header {
     inset 0 -1px 1px rgba(255, 255, 255, 0.2),
     inset 0 0 20px rgba(255, 255, 255, 0.14);
   transform-origin: bottom left;
-  animation: wfbMorphIn 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: wfbMorphIn 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: box-shadow 200ms ease, border-color 200ms ease;
 }
 
 .wfb-p3::before,
@@ -7391,10 +7439,10 @@ body.in-chit-chat-mode header {
 .wfb-p3.is-closing,
 .wfb-v1.is-closing {
   pointer-events: none;
-  animation: wfbMorphOut 130ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: wfbMorphOut 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Neon Pink Halo for User Avatar */
+/* Neon Pink Halo for User Avatar with Breathing Pulse */
 .wfb-p3 .wfb-avatar-wrap,
 .wfb-v1 .wfb-avatar-wrap {
   position: relative;
@@ -7404,9 +7452,21 @@ body.in-chit-chat-mode header {
   border-radius: 50%;
   padding: 2px;
   background: radial-gradient(circle, rgba(236, 72, 153, 0.45) 0%, transparent 70%);
-  box-shadow: 0 0 12px 2px rgba(236, 72, 153, 0.85), 0 0 4px rgba(244, 114, 182, 0.95);
   border: 1.5px solid #ec4899;
   flex-shrink: 0;
+  animation: wfbAvatarPulse 3.2s ease-in-out infinite;
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+}
+
+.wfb-p3 .wfb-avatar-wrap:hover,
+.wfb-v1 .wfb-avatar-wrap:hover {
+  transform: scale(1.08);
+}
+
+.wfb-p3 .wfb-avatar-wrap:active,
+.wfb-v1 .wfb-avatar-wrap:active {
+  transform: scale(0.94);
 }
 
 .wfb-p3 .wfb-avatar-wrap .jojo-avatar,
@@ -7433,17 +7493,29 @@ body.in-chit-chat-mode header {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.wfb-p3 .wfb-gif-pill:hover,
+.wfb-v1 .wfb-gif-pill:hover {
+  background: rgba(236, 72, 153, 0.35);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  transform: translateY(-1px) scale(1.04);
 }
 
 .wfb-p3 .wfb-gif-pill.active,
-.wfb-p3 .wfb-gif-pill:hover,
-.wfb-v1 .wfb-gif-pill.active,
-.wfb-v1 .wfb-gif-pill:hover {
-  background: rgba(236, 72, 153, 0.4);
-  border-color: rgba(255, 255, 255, 0.5);
+.wfb-v1 .wfb-gif-pill.active {
+  background: #ec4899;
+  border-color: rgba(255, 255, 255, 0.6);
   color: #ffffff;
-  transform: scale(1.04);
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.7);
+  transform: scale(1.02);
+}
+
+.wfb-p3 .wfb-gif-pill:active,
+.wfb-v1 .wfb-gif-pill:active {
+  transform: scale(0.93);
 }
 
 /* Emoji Rack Enclosure */
@@ -7472,13 +7544,18 @@ body.in-chit-chat-mode header {
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1), background 140ms ease;
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), background 140ms ease;
 }
 
 .wfb-p3 .wfb-emoji-chip:hover,
 .wfb-v1 .wfb-emoji-chip:hover {
-  transform: scale(1.22);
-  background: rgba(244, 114, 182, 0.25);
+  transform: translateY(-2px) scale(1.24);
+  background: rgba(244, 114, 182, 0.28);
+}
+
+.wfb-p3 .wfb-emoji-chip:active,
+.wfb-v1 .wfb-emoji-chip:active {
+  transform: scale(0.90);
 }
 
 /* Precision Stylized Vertical Divider with Glowing End Beads */
@@ -7565,12 +7642,13 @@ body.in-chit-chat-mode header {
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 150ms ease;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 160ms ease;
 }
 
 .wfb-p3 .wfb-send svg,
 .wfb-v1 .wfb-send svg {
   filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.6));
+  transition: transform 140ms ease;
 }
 
 .wfb-p3 .wfb-send:hover,
@@ -7581,18 +7659,28 @@ body.in-chit-chat-mode header {
   transform: scale(1.08);
 }
 
+.wfb-p3 .wfb-send:hover svg,
+.wfb-v1 .wfb-send:hover svg {
+  transform: translate(1px, -1px);
+}
+
+.wfb-p3 .wfb-send:active,
+.wfb-v1 .wfb-send:active {
+  transform: scale(0.92);
+}
+
 .wfb-p3 .wfb-send.ready,
 .wfb-v1 .wfb-send.ready {
   background: linear-gradient(135deg, #f472b6, #db2777);
   border-color: rgba(255, 255, 255, 0.5);
   color: #ffffff;
-  box-shadow: 0 0 14px rgba(236, 72, 153, 0.65);
+  animation: wfbSendReadyPulse 2s ease-in-out infinite;
 }
 
 .wfb-p3 .wfb-send.ready:hover,
 .wfb-v1 .wfb-send.ready:hover {
-  transform: scale(1.1);
-  box-shadow: 0 0 18px rgba(236, 72, 153, 0.85);
+  transform: scale(1.12);
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.9);
 }
 
 /* Close 'X' Button with Specular Metallic Finish & Sparkle */
@@ -7613,16 +7701,21 @@ body.in-chit-chat-mode header {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1), background 150ms ease, box-shadow 150ms ease;
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease, box-shadow 150ms ease;
 }
 
 .wfb-p3 .wfb-close:hover,
 .wfb-v1 .wfb-close:hover {
-  transform: scale(1.08);
+  transform: scale(1.08) rotate(5deg);
   background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0%, rgba(235, 235, 245, 0.45) 50%, rgba(195, 195, 215, 0.5) 100%);
   box-shadow:
     0 6px 16px rgba(0, 0, 0, 0.22),
     inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+.wfb-p3 .wfb-close:active,
+.wfb-v1 .wfb-close:active {
+  transform: scale(0.92) rotate(-5deg);
 }
 
 .wfb-close .wfb-sparkle {
@@ -7632,8 +7725,8 @@ body.in-chit-chat-mode header {
   font-size: 7px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.95);
-  text-shadow: 0 0 4px #ffffff;
   pointer-events: none;
+  animation: wfbSparkleTwinkle 2.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

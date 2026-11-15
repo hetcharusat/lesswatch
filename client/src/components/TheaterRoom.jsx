@@ -4165,47 +4165,49 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       >
         <div className="floating-chat-bubbles-stack">
           {recentMessages.map((m) => (
-            m.image ? (
-              <div
-                key={m.id}
-                className={`floating-chat-media-card ${m.fading ? 'fading' : ''}`}
-                onClick={() => {
-                  setIsChatSidebarOpen(true);
-                  setUnreadChatCount(0);
-                }}
-                title="Click to view full chat history in sidebar"
-                style={{ cursor: 'pointer' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
-                  <span className="fc-sender" style={{ fontSize: '0.8rem' }}>
-                    {m.sender}
-                  </span>
-                </div>
-                <img
-                  src={m.image}
-                  alt="GIF"
-                  className="floating-chat-media-img"
-                />
+            <div key={m.id} className={`fc-row-slot ${m.fading ? 'fading' : ''}`}>
+              <div className="fc-row-slot-inner">
+                {m.image ? (
+                  <div
+                    className={`floating-chat-media-card ${m.fading ? 'fading' : ''}`}
+                    onClick={() => {
+                      setIsChatSidebarOpen(true);
+                      setUnreadChatCount(0);
+                    }}
+                    title="Click to view full chat history in sidebar"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
+                      <span className="fc-sender" style={{ fontSize: '0.8rem' }}>
+                        {m.sender}
+                      </span>
+                    </div>
+                    <img
+                      src={m.image}
+                      alt="GIF"
+                      className="floating-chat-media-img"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
+                    onClick={() => {
+                      setIsChatSidebarOpen(true);
+                      setUnreadChatCount(0);
+                    }}
+                    title="Click to view full chat history in sidebar"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
+                    <span className="fc-sender">
+                      {m.sender}:
+                    </span>
+                    <span className="fc-text">{m.text}</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div
-                key={m.id}
-                className={`floating-chat-pill ${m.fading ? 'fading' : ''}`}
-                onClick={() => {
-                  setIsChatSidebarOpen(true);
-                  setUnreadChatCount(0);
-                }}
-                title="Click to view full chat history in sidebar"
-                style={{ cursor: 'pointer' }}
-              >
-                <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
-                <span className="fc-sender">
-                  {m.sender}:
-                </span>
-                <span className="fc-text">{m.text}</span>
-              </div>
-            )
+            </div>
           ))}
         </div>
 
