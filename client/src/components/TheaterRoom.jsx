@@ -865,7 +865,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   useEffect(() => {
     if (!pinnedPeerVolId) return;
     const onPointerDown = (e) => {
-      if (!e.target.closest('.amb-peer-morphed-capsule')) {
+      if (!e.target.closest('.amb-peer-capsule-wrapper')) {
         setPinnedPeerVolId(null);
       }
     };
@@ -1589,6 +1589,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   function attachRemoteP2pAudio(peerId, track) {
     if (!peerId || !track) return;
+    if (peerId === socketRef.current?.id) return;
+    const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
+    const user = connectedUsersRef.current.find((u) => u.id === peerId);
+    const pName = (user?.username || '').trim().toLowerCase();
+    if (pName && myName && pName === myName) return;
+
     const mediaStreamTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
     if (!mediaStreamTrack) return;
 
@@ -1782,8 +1788,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           });
 
           setRemotePeers((prev) => {
+            const myId = socketRef.current?.id || '';
+            const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
+            const pName = (user?.username || '').trim().toLowerCase();
+            if (targetPeerId === myId || (pName && myName && pName === myName)) return prev;
+
             const next = new Map(prev);
-            const peer = next.get(pKey) || next.get(targetPeerId) || {
+            const peer = next.get(targetPeerId) || {
               username: user?.username || 'Partner',
               avatar: user?.avatar || 'jojo-star',
               color: user?.color || '#f472b6',
@@ -1791,7 +1802,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               isMuted: false,
             };
             const updated = { ...peer, hasVideo: isActive };
-            next.set(pKey, updated);
             next.set(targetPeerId, updated);
             return next;
           });
@@ -1940,6 +1950,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       // 4. Remote Track Subscriptions with Dual-Ear Stereo Pipeline
       function handleTrackSubscribed(track, publication, participant) {
         if (!participant || !track) return;
+        if (participant.isLocal || participant.identity === lkRoom.localParticipant?.identity) return;
+        const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
+        const pName = (participant.name || '').trim().toLowerCase();
+        if (pName && myName && pName === myName) return;
         if (track.kind === Track.Kind.Audio) {
           const audioEl = track.attach();
           audioEl.id = `remote-audio-${participant.identity}`;
@@ -2060,14 +2074,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           });
           setRemotePeers((prev) => {
             const next = new Map(prev);
-            const peer = next.get(pKey) || next.get(participant.identity) || {
+            const peer = next.get(participant.identity) || {
               username: participant.name || user?.username || 'Partner',
               avatar: user?.avatar || 'jojo-star',
               color: user?.color || '#f472b6',
               isSpeaking: false,
               isMuted: false,
             };
-            next.set(pKey, { ...peer, hasVideo: true });
             next.set(participant.identity, { ...peer, hasVideo: true });
             return next;
           });
@@ -3132,10 +3145,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setConnectedUsers(state.users);
         connectedUsersRef.current = state.users;
         const myId = s.id;
+        const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
         setRemotePeers((prev) => {
           const next = new Map(prev);
           state.users.forEach((u) => {
-            if (u.id !== myId && (u.hasVideo || u.inVoice)) {
+            const uName = (u.username || '').trim().toLowerCase();
+            if (u.id !== myId && (!myName || uName !== myName) && (u.hasVideo || u.inVoice)) {
               const existing = next.get(u.id) || {
                 username: u.username || 'Partner',
                 avatar: u.avatar || 'jojo-star',
@@ -3211,6 +3226,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       setRemoteVideoTracks((prev) => {
         const next = new Map(prev);
         next.delete(userId);
+        if (username) next.delete(username);
+        return next;
+      });
+      setRemotePeers((prev) => {
+        const next = new Map(prev);
+        next.delete(userId);
+        if (username) {
+          for (const [k, v] of next.entries()) {
+            if (v?.username === username) next.delete(k);
+          }
+        }
         return next;
       });
       showToast(`${username || 'User'} left the lounge`, <LogOut size={15} color="#9ca3af" />);
@@ -3467,6 +3493,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     // LiveKit SFU handles media routing directly
     s.on('voice:speaking', ({ peerId, isSpeaking }) => {
+      if (peerId === s.id) return;
       setRemotePeers((prev) => {
         const next = new Map(prev);
         const peer = next.get(peerId);
@@ -3478,7 +3505,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     });
 
     s.on('voice:track_state', ({ peerId, isMuted: peerMuted, hasVideo: peerVideo }) => {
+      if (peerId === s.id) return;
       const user = connectedUsersRef.current.find((u) => u.id === peerId);
+      const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
+      const pName = (user?.username || '').trim().toLowerCase();
+      if (pName && myName && pName === myName) return;
+
       const pKey = user?.id || peerId;
 
       if (peerVideo === true) {
@@ -3504,7 +3536,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       setRemotePeers((prev) => {
         const next = new Map(prev);
-        const peer = next.get(peerId) || next.get(pKey) || {
+        const peer = next.get(peerId) || {
           username: user?.username || 'Partner',
           avatar: user?.avatar || 'jojo-star',
           color: user?.color || '#f472b6',
@@ -3517,7 +3549,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           hasVideo: typeof peerVideo === 'boolean' ? peerVideo : !!peer.hasVideo
         };
         next.set(peerId, updated);
-        if (pKey) next.set(pKey, updated);
         return next;
       });
 
@@ -5165,12 +5196,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const myId = socketRef.current?.id || '';
 
     // Deduplicate remote peers and strictly only include peers who ACTUALLY have their camera enabled
+    const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
     const seenPeerKeys = new Set();
     const remotePeersWithVideo = [];
     for (const [pId, peer] of remotePeers.entries()) {
       if (pId === myId) continue;
       const user = connectedUsersRef.current.find((u) => u.id === pId || (u.username && u.username === peer?.username));
-      const canonicalId = user?.id || pId;
+      const pName = (peer?.username || user?.username || '').trim().toLowerCase();
+      if (pName && myName && pName === myName) continue;
+      const canonicalId = pName || user?.id || pId;
       if (seenPeerKeys.has(canonicalId)) continue;
 
       const isVideoActive = Boolean(peer?.hasVideo === true || user?.hasVideo === true);
@@ -7102,45 +7136,60 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 onChange={handleCustomSubtitleUpload}
               />
 
-              {Array.from(remotePeers.entries()).map(([pId, p]) => {
-                const peerVol = peerVolumes.get(pId) ?? 100;
-                const isPeerMuted = peerVol === 0;
-                const isFlyoutOpen = pinnedPeerVolId === pId || hoveredPeerVolId === pId;
+              {(() => {
+                const myId = socketRef.current?.id || '';
+                const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
 
-                return (
-                  <div
-                    key={pId}
-                    className={`amb-peer-morphed-capsule ${isFlyoutOpen ? 'is-expanded' : ''} ${p.isSpeaking ? 'is-speaking' : ''} ${isPeerMuted ? 'is-peer-muted' : ''}`}
-                    onMouseEnter={() => {
-                      if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
-                      setHoveredPeerVolId(pId);
-                    }}
-                    onMouseLeave={() => {
-                      if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
-                      if (isDraggingPeerVolRef.current) return;
-                      peerVolLeaveTimerRef.current = setTimeout(() => {
-                        setHoveredPeerVolId(null);
-                      }, 350);
-                    }}
-                    style={{
-                      border: p.isSpeaking
-                        ? `1px solid ${p.color || '#10b981'}`
-                        : isPeerMuted
-                          ? '1px solid rgba(239, 68, 68, 0.45)'
-                          : undefined
-                    }}
-                  >
+                const uniquePeers = [];
+                const seenUsernames = new Set();
+                for (const [pId, p] of remotePeers.entries()) {
+                  if (pId === myId) continue;
+                  const pName = (p?.username || '').trim().toLowerCase();
+                  if (pName && (pName === myName || seenUsernames.has(pName))) continue;
+                  if (pName) seenUsernames.add(pName);
+                  uniquePeers.push([pId, p]);
+                }
+
+                return uniquePeers.map(([pId, p]) => {
+                  const peerVol = peerVolumes.get(pId) ?? 100;
+                  const isPeerMuted = peerVol === 0;
+                  const isFlyoutOpen = pinnedPeerVolId === pId || hoveredPeerVolId === pId;
+
+                  return (
                     <div
-                      className="morphed-identity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPinnedPeerVolId((prev) => (prev === pId ? null : pId));
+                      key={pId}
+                      className={`amb-peer-capsule-wrapper ${isFlyoutOpen ? 'is-expanded' : ''}`}
+                      onMouseEnter={() => {
+                        if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                        setHoveredPeerVolId(pId);
                       }}
-                      title={`${p.username} (${peerVol}%) — Click to keep volume menu open`}
+                      onMouseLeave={() => {
+                        if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                        if (isDraggingPeerVolRef.current) return;
+                        peerVolLeaveTimerRef.current = setTimeout(() => {
+                          setHoveredPeerVolId(null);
+                        }, 350);
+                      }}
                     >
-                      <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={15} showBorder={false} />
-                      <span className="morphed-name">{p.username}</span>
-                      {!isFlyoutOpen && (
+                      {/* Compact Base Pill (Fixed width, never expands horizontally, never shifts peers) */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPinnedPeerVolId((prev) => (prev === pId ? null : pId));
+                        }}
+                        className={`amb-status-pill ${p.isSpeaking ? 'is-speaking' : ''} ${isPeerMuted ? 'is-peer-muted' : ''}`}
+                        style={{
+                          border: p.isSpeaking
+                            ? `1px solid ${p.color || '#10b981'}`
+                            : isPeerMuted
+                              ? '1px solid rgba(239, 68, 68, 0.45)'
+                              : undefined
+                        }}
+                        title={`${p.username} (${peerVol}%) — Click or hover to adjust volume`}
+                      >
+                        <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={15} showBorder={false} />
+                        <span className="amb-status-text">{p.username}</span>
                         <span className="morphed-status-icon">
                           {isPeerMuted ? (
                             <VolumeX size={11} color="#f87171" />
@@ -7152,59 +7201,73 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                             <Mic size={10} color="#fbcfe8" />
                           )}
                         </span>
+                      </button>
+
+                      {/* Vertical Morphed Menu Card (Expands smoothly upward with ZERO layout displacement) */}
+                      {isFlyoutOpen && (
+                        <div
+                          className="amb-peer-vertical-card"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="vmorph-head">
+                            <div className="vmorph-user">
+                              <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={16} showBorder={false} />
+                              <span className="vmorph-name">{p.username}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                                setPinnedPeerVolId(null);
+                                setHoveredPeerVolId(null);
+                              }}
+                              className="vmorph-close-btn"
+                              title="Close menu"
+                              aria-label="Close menu"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+
+                          <div className="vmorph-controls">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePeerVolume(pId, isPeerMuted ? 100 : 0);
+                              }}
+                              className={`vmorph-mute-btn ${isPeerMuted ? 'is-muted' : ''}`}
+                              title={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                              aria-label={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                            >
+                              {isPeerMuted ? <VolumeX size={13} color="#f87171" /> : <Volume2 size={13} color="#fbcfe8" />}
+                            </button>
+
+                            <div className="vmorph-slider-wrap">
+                              <input
+                                type="range"
+                                min="0"
+                                max="200"
+                                step="5"
+                                value={peerVol}
+                                onPointerDown={() => { isDraggingPeerVolRef.current = true; }}
+                                onPointerUp={() => { isDraggingPeerVolRef.current = false; }}
+                                onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                                className="vmorph-range"
+                                style={{ '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
+                                aria-label={`${p.username} volume`}
+                              />
+                            </div>
+
+                            <span className="vmorph-pct">{peerVol}%</span>
+                          </div>
+                        </div>
                       )}
                     </div>
-
-                    {isFlyoutOpen && (
-                      <div className="morphed-controls" onClick={(e) => e.stopPropagation()}>
-                        <div className="morphed-divider" />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePeerVolume(pId, isPeerMuted ? 100 : 0);
-                          }}
-                          className={`morphed-mute-btn ${isPeerMuted ? 'is-muted' : ''}`}
-                          title={isPeerMuted ? 'Unmute member' : 'Mute member'}
-                          aria-label={isPeerMuted ? 'Unmute member' : 'Mute member'}
-                        >
-                          {isPeerMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
-                        </button>
-                        <div className="morphed-slider-wrap">
-                          <input
-                            type="range"
-                            min="0"
-                            max="200"
-                            step="5"
-                            value={peerVol}
-                            onPointerDown={() => { isDraggingPeerVolRef.current = true; }}
-                            onPointerUp={() => { isDraggingPeerVolRef.current = false; }}
-                            onChange={(e) => handlePeerVolume(pId, e.target.value)}
-                            className="morphed-range"
-                            style={{ '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
-                            aria-label={`${p.username} volume`}
-                          />
-                        </div>
-                        <span className="morphed-pct">{peerVol}%</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
-                            setPinnedPeerVolId(null);
-                            setHoveredPeerVolId(null);
-                          }}
-                          className="morphed-close-btn"
-                          title="Close menu"
-                          aria-label="Close menu"
-                        >
-                          <X size={11} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
 
               <button
                 onClick={handleToggleSideChat}

@@ -894,11 +894,34 @@ body {
   gap: 5px;
 }
 
-/* Luxury Morphed Peer Capsule Menu */
-.theater-deck .amb-peer-morphed-capsule {
+/* ==========================================================================
+   LUXURY MORPHED PEER VOLUME MENU (Vertical Floating Card Architecture)
+   ========================================================================== */
+
+/* Outer capsule wrapper: stable layout anchor in flex row (prevents horizontal shifting) */
+.theater-deck .amb-peer-capsule-wrapper {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+}
+
+/* Hover safety cushion for effortless cursor tracking without dead-zones */
+.theater-deck .amb-peer-capsule-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  pointer-events: auto;
+  z-index: -1;
+}
+
+/* Base status pill: fixed compact dimensions, smooth glass aesthetic */
+.theater-deck .amb-peer-capsule-wrapper .amb-status-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 30px;
   padding: 0 10px 0 8px;
   border-radius: 9999px;
@@ -910,76 +933,230 @@ body {
   color: #ffffff;
   cursor: pointer;
   user-select: none;
-  transition: all 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
-  flex-shrink: 0;
-  z-index: 10;
+  outline: none;
 }
 
-/* Invisible safety cushion so cursor never accidentally leaves during micro-movements */
-.theater-deck .amb-peer-morphed-capsule::before {
-  content: '';
-  position: absolute;
-  inset: -8px -6px;
-  border-radius: 9999px;
-  pointer-events: auto;
-  z-index: -1;
-}
-
-.theater-deck .amb-peer-morphed-capsule:hover {
+.theater-deck .amb-peer-capsule-wrapper:hover .amb-status-pill {
   background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(244, 114, 182, 0.4);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(236, 72, 153, 0.2);
+  border-color: rgba(244, 114, 182, 0.45);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(236, 72, 153, 0.25);
 }
 
-.theater-deck .amb-peer-morphed-capsule.is-speaking {
+.theater-deck .amb-peer-capsule-wrapper.is-speaking .amb-status-pill {
   background: rgba(16, 185, 129, 0.22);
   border-color: rgba(16, 185, 129, 0.55);
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
 }
 
-.theater-deck .amb-peer-morphed-capsule.is-peer-muted {
+.theater-deck .amb-peer-capsule-wrapper.is-peer-muted .amb-status-pill {
   background: rgba(239, 68, 68, 0.16);
   border-color: rgba(239, 68, 68, 0.38);
 }
 
-/* Expanded Morphed State */
-.theater-deck .amb-peer-morphed-capsule.is-expanded {
-  background: rgba(18, 10, 26, 0.94);
-  border-color: rgba(244, 114, 182, 0.55);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 20px rgba(236, 72, 153, 0.28);
-  padding: 0 8px 0 8px;
-  gap: 0;
-  z-index: 50;
+.theater-deck .amb-peer-capsule-wrapper.is-open .amb-status-pill {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(244, 114, 182, 0.7);
+  box-shadow: 0 0 16px rgba(244, 114, 182, 0.4);
 }
 
-/* Identity section (Avatar + Name) */
-.theater-deck .amb-peer-morphed-capsule .morphed-identity {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-
-.theater-deck .amb-peer-morphed-capsule .morphed-name {
-  font-size: 0.74rem;
-  font-weight: 700;
-  color: #ffffff;
-  max-width: 75px;
+.theater-deck .amb-peer-capsule-wrapper .amb-pill-name {
+  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #ffffff;
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-status-icon {
-  display: inline-flex;
+/* Vertical Floating Morphed Card */
+.theater-deck .amb-peer-vertical-card {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 204px;
+  padding: 10px 12px;
+  background: rgba(18, 10, 26, 0.94);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(244, 114, 182, 0.38);
+  border-radius: 14px;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.65),
+    0 0 24px rgba(236, 72, 153, 0.22),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  transform-origin: bottom right;
+  animation: vmorphIn 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  user-select: none;
+}
+
+/* Continuous hit bridge connecting pill to card so hover never drops */
+.theater-deck .amb-peer-vertical-card::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: -8px;
+  right: -8px;
+  height: 12px;
+  pointer-events: auto;
+}
+
+@keyframes vmorphIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Card Header: Avatar, Name & Close Action */
+.theater-deck .vmorph-head {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  margin-left: 2px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-/* Divider between identity and controls */
-.theater-deck .amb-peer-morphed-capsule .morphed-divider,
+.theater-deck .vmorph-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.theater-deck .vmorph-name {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #fce7f3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.theater-deck .vmorph-close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  padding: 0;
+}
+
+.theater-deck .vmorph-close-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+/* Card Controls Container */
+.theater-deck .vmorph-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  padding: 5px 8px;
+}
+
+.theater-deck .vmorph-mute-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+  padding: 0;
+  color: #fce7f3;
+}
+
+.theater-deck .vmorph-mute-btn:hover {
+  background: rgba(236, 72, 153, 0.28);
+  border-color: rgba(244, 114, 182, 0.5);
+  color: #ffffff;
+}
+
+.theater-deck .vmorph-mute-btn.is-muted {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #f87171;
+}
+
+.theater-deck .vmorph-slider-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.theater-deck .vmorph-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  outline: none;
+  background: linear-gradient(to right, #ec4899 var(--pct, 50%), rgba(255, 255, 255, 0.22) var(--pct, 50%));
+  cursor: pointer;
+  margin: 0;
+  transition: background 100ms ease;
+}
+
+.theater-deck .vmorph-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #ec4899;
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.8);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.theater-deck .vmorph-range::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 10px rgba(236, 72, 153, 1);
+}
+
+.theater-deck .vmorph-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #ec4899;
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.8);
+  cursor: pointer;
+}
+
+.theater-deck .vmorph-pct {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #fbcfe8;
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Webcam Floating HUD Controls (Supported for wt-pip-badge in Webcam Cards) */
 .wt-pip-badge .morphed-divider {
   width: 1px;
   height: 14px;
@@ -988,27 +1165,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Expanded Controls Container */
-.theater-deck .amb-peer-morphed-capsule .morphed-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  animation: morphedFadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes morphedFadeIn {
-  from {
-    opacity: 0;
-    transform: translateX(4px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-/* Mute Toggle Button */
-.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn,
 .wt-pip-badge .morphed-mute-btn {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1024,28 +1180,18 @@ body {
   padding: 0;
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn:hover,
 .wt-pip-badge .morphed-mute-btn:hover {
   background: rgba(236, 72, 153, 0.32);
   border-color: rgba(244, 114, 182, 0.5);
   color: #ffffff;
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn.is-muted,
 .wt-pip-badge .morphed-mute-btn.is-muted {
   background: rgba(239, 68, 68, 0.24);
   border-color: rgba(239, 68, 68, 0.45);
   color: #f87171;
 }
 
-/* Mini Luxury Slider */
-.theater-deck .amb-peer-morphed-capsule .morphed-slider-wrap {
-  display: inline-flex;
-  align-items: center;
-  width: 72px;
-}
-
-.theater-deck .amb-peer-morphed-capsule .morphed-range,
 .wt-pip-badge .morphed-range {
   -webkit-appearance: none;
   appearance: none;
@@ -1059,7 +1205,6 @@ body {
   transition: background 100ms ease;
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-range::-webkit-slider-thumb,
 .wt-pip-badge .morphed-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -1073,13 +1218,11 @@ body {
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-range::-webkit-slider-thumb:hover,
 .wt-pip-badge .morphed-range::-webkit-slider-thumb:hover {
   transform: scale(1.25);
   box-shadow: 0 0 10px rgba(236, 72, 153, 1);
 }
 
-.theater-deck .amb-peer-morphed-capsule .morphed-range::-moz-range-thumb,
 .wt-pip-badge .morphed-range::-moz-range-thumb {
   width: 12px;
   height: 12px;
@@ -1090,8 +1233,6 @@ body {
   cursor: pointer;
 }
 
-/* Percentage text */
-.theater-deck .amb-peer-morphed-capsule .morphed-pct,
 .wt-pip-badge .morphed-pct {
   font-size: 0.7rem;
   font-weight: 800;
@@ -1099,26 +1240,6 @@ body {
   min-width: 32px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* Close X button */
-.theater-deck .amb-peer-morphed-capsule .morphed-close-btn {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.55);
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  border-radius: 4px;
-  padding: 0;
-  transition: all 120ms ease;
-}
-
-.theater-deck .amb-peer-morphed-capsule .morphed-close-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
 }
 
 .theater-deck .amb-dock-group.v1-unified-scale {
