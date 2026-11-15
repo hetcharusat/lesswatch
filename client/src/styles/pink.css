@@ -894,92 +894,231 @@ body {
   gap: 5px;
 }
 
-.theater-deck .amb-peer-popover-wrap {
+/* Luxury Morphed Peer Capsule Menu */
+.theater-deck .amb-peer-morphed-capsule {
   position: relative;
   display: inline-flex;
-}
-
-.theater-deck .amb-peer-vol-flyout {
-  position: absolute;
-  bottom: calc(100% + 12px);
-  right: 0;
-  width: 220px;
-  padding: 10px 12px;
-  background: rgba(16, 11, 20, 0.98);
-  border: 1px solid rgba(244, 114, 182, 0.35);
-  border-radius: 14px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 16px rgba(236, 72, 153, 0.2);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 1000;
-  animation: vs949Enter 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.theater-deck .amb-peer-vol-flyout .flyout-head {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: #ffffff;
+  cursor: pointer;
+  user-select: none;
+  transition: all 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-user {
-  display: flex;
+/* Invisible safety cushion so cursor never accidentally leaves during micro-movements */
+.theater-deck .amb-peer-morphed-capsule::before {
+  content: '';
+  position: absolute;
+  inset: -8px -6px;
+  border-radius: 9999px;
+  pointer-events: auto;
+  z-index: -1;
+}
+
+.theater-deck .amb-peer-morphed-capsule:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(244, 114, 182, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(236, 72, 153, 0.2);
+}
+
+.theater-deck .amb-peer-morphed-capsule.is-speaking {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+.theater-deck .amb-peer-morphed-capsule.is-peer-muted {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.38);
+}
+
+/* Expanded Morphed State */
+.theater-deck .amb-peer-morphed-capsule.is-expanded {
+  background: rgba(18, 10, 26, 0.94);
+  border-color: rgba(244, 114, 182, 0.55);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 20px rgba(236, 72, 153, 0.28);
+  padding: 0 8px 0 8px;
+  gap: 0;
+  z-index: 50;
+}
+
+/* Identity section (Avatar + Name) */
+.theater-deck .amb-peer-morphed-capsule .morphed-identity {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-name {
+  font-size: 0.74rem;
   font-weight: 700;
-  color: #fff;
+  color: #ffffff;
+  max-width: 75px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-slider-row {
-  display: flex;
+.theater-deck .amb-peer-morphed-capsule .morphed-status-icon {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  margin-left: 2px;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-mute-btn {
+/* Divider between identity and controls */
+.theater-deck .amb-peer-morphed-capsule .morphed-divider,
+.wt-pip-badge .morphed-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 7px;
+  flex-shrink: 0;
+}
+
+/* Expanded Controls Container */
+.theater-deck .amb-peer-morphed-capsule .morphed-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  animation: morphedFadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes morphedFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Mute Toggle Button */
+.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn,
+.wt-pip-badge .morphed-mute-btn {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
+  border-radius: 6px;
   color: #fce7f3;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   cursor: pointer;
   transition: all 120ms ease;
   flex-shrink: 0;
+  padding: 0;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-mute-btn:hover {
-  background: rgba(236, 72, 153, 0.3);
-  color: #fff;
+.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn:hover,
+.wt-pip-badge .morphed-mute-btn:hover {
+  background: rgba(236, 72, 153, 0.32);
+  border-color: rgba(244, 114, 182, 0.5);
+  color: #ffffff;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-mute-btn.is-muted {
+.theater-deck .amb-peer-morphed-capsule .morphed-mute-btn.is-muted,
+.wt-pip-badge .morphed-mute-btn.is-muted {
   background: rgba(239, 68, 68, 0.24);
   border-color: rgba(239, 68, 68, 0.45);
   color: #f87171;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-range {
-  flex: 1;
+/* Mini Luxury Slider */
+.theater-deck .amb-peer-morphed-capsule .morphed-slider-wrap {
+  display: inline-flex;
+  align-items: center;
+  width: 72px;
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-range,
+.wt-pip-badge .morphed-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
   height: 4px;
-  accent-color: #ec4899;
+  border-radius: 9999px;
+  outline: none;
+  background: linear-gradient(to right, #ec4899 var(--pct, 50%), rgba(255, 255, 255, 0.22) var(--pct, 50%));
+  cursor: pointer;
+  margin: 0;
+  transition: background 100ms ease;
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-range::-webkit-slider-thumb,
+.wt-pip-badge .morphed-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #ec4899;
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.8);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-range::-webkit-slider-thumb:hover,
+.wt-pip-badge .morphed-range::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 10px rgba(236, 72, 153, 1);
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-range::-moz-range-thumb,
+.wt-pip-badge .morphed-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #ec4899;
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.8);
   cursor: pointer;
 }
 
-.theater-deck .amb-peer-vol-flyout .flyout-pct {
-  font-size: 0.72rem;
+/* Percentage text */
+.theater-deck .amb-peer-morphed-capsule .morphed-pct,
+.wt-pip-badge .morphed-pct {
+  font-size: 0.7rem;
   font-weight: 800;
   color: #fbcfe8;
-  min-width: 34px;
+  min-width: 32px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Close X button */
+.theater-deck .amb-peer-morphed-capsule .morphed-close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.55);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.theater-deck .amb-peer-morphed-capsule .morphed-close-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
 }
 
 .theater-deck .amb-dock-group.v1-unified-scale {
@@ -10109,8 +10248,22 @@ body.in-chit-chat-mode .wt-webcam-hidden-trigger {
   color: #ffffff;
   font-size: 0.64rem;
   font-weight: 700;
-  pointer-events: none;
-  transition: opacity 180ms ease;
+  pointer-events: auto;
+  cursor: default;
+  transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wt-pip-badge.is-morphed-expanded {
+  background: rgba(18, 10, 24, 0.9);
+  border-color: rgba(244, 114, 182, 0.55);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 16px rgba(236, 72, 153, 0.25);
+}
+
+.wt-pip-badge-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  animation: morphedFadeIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .wt-pip-avatar-ring {

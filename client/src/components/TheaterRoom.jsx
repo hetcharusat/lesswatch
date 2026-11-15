@@ -133,6 +133,9 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
   avatar,
   isMuted,
   isSpeaking,
+  peerId,
+  peerVolume = 100,
+  onPeerVolumeChange,
   onToggleCamera,
   onHideSelf,
   onCollapse,
@@ -143,6 +146,8 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [isHudVisible, setIsHudVisible] = useState(true);
   const hideTimeoutRef = useRef(null);
+  const [isBadgeHovered, setIsBadgeHovered] = useState(false);
+  const badgeLeaveTimerRef = useRef(null);
 
   // Auto-hide name tag & action buttons after 10 seconds of inactivity
   useEffect(() => {
@@ -259,11 +264,54 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
         className={`wt-pip-hud-top ${!isHudVisible ? 'is-autohidden' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="wt-pip-badge">
+        <div
+          className={`wt-pip-badge ${!isLocal && onPeerVolumeChange && isBadgeHovered ? 'is-morphed-expanded' : ''}`}
+          onMouseEnter={() => {
+            if (badgeLeaveTimerRef.current) clearTimeout(badgeLeaveTimerRef.current);
+            if (!isLocal && onPeerVolumeChange) setIsBadgeHovered(true);
+          }}
+          onMouseLeave={() => {
+            if (badgeLeaveTimerRef.current) clearTimeout(badgeLeaveTimerRef.current);
+            badgeLeaveTimerRef.current = setTimeout(() => {
+              setIsBadgeHovered(false);
+            }, 350);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          title={!isLocal && onPeerVolumeChange ? `${name} (${peerVolume}%) — Hover to adjust volume` : name}
+        >
           <span className="wt-pip-avatar-ring">
             <UserAvatar user={{ name, avatar }} size={15} showBorder={false} />
           </span>
           <span className="wt-pip-name">{name}</span>
+
+          {!isLocal && onPeerVolumeChange && isBadgeHovered && (
+            <div className="wt-pip-badge-controls" onClick={(e) => e.stopPropagation()}>
+              <div className="morphed-divider" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPeerVolumeChange(peerVolume === 0 ? 100 : 0);
+                }}
+                className={`morphed-mute-btn ${peerVolume === 0 ? 'is-muted' : ''}`}
+                title={peerVolume === 0 ? 'Unmute' : 'Mute'}
+              >
+                {peerVolume === 0 ? <VolumeX size={10} /> : <Volume2 size={10} />}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="200"
+                step="5"
+                value={peerVolume}
+                onChange={(e) => onPeerVolumeChange(e.target.value)}
+                className="morphed-range"
+                style={{ '--pct': `${Math.round((peerVolume / 200) * 100)}%`, width: '56px' }}
+                aria-label={`${name} volume`}
+              />
+              <span className="morphed-pct">{peerVolume}%</span>
+            </div>
+          )}
         </div>
 
         <div className="wt-pip-actions">
@@ -671,6 +719,40 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [peerVolumes, setPeerVolumes] = useState(new Map()); // peerId -> volume (0 to 200)
   const [hoveredPeerVolId, setHoveredPeerVolId] = useState(null);
   const [pinnedPeerVolId, setPinnedPeerVolId] = useState(null);
+  const peerVolLeaveTimerRef = useRef(null);
+  const isDraggingPeerVolRef = useRef(false);
+
+  useEffect(() => {
+    const onGlobalPointerUp = () => {
+      isDraggingPeerVolRef.current = false;
+    };
+    window.addEventListener('pointerup', onGlobalPointerUp);
+    window.addEventListener('pointercancel', onGlobalPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', onGlobalPointerUp);
+      window.removeEventListener('pointercancel', onGlobalPointerUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pinnedPeerVolId) return;
+    const onPointerDown = (e) => {
+      if (!e.target.closest('.amb-peer-morphed-capsule')) {
+        setPinnedPeerVolId(null);
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setPinnedPeerVolId(null);
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [pinnedPeerVolId]);
   const peerGainNodesRef = useRef(new Map()); // peerId -> { ctx, gainNode }
   const [voiceSettingsTab, setVoiceSettingsTab] = useState('mic'); // 'mic' | 'peers'
   const [isHoveringExitChitChat, setIsHoveringExitChitChat] = useState(false);
@@ -5175,12 +5257,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               return (
                 <PartyWebcamCard
                   key={peerId}
+                  peerId={peerId}
                   track={track}
                   isLocal={false}
                   name={peer?.username || user?.username || 'Partner'}
                   avatar={peer?.avatar || user?.avatar}
                   isMuted={peer?.isMuted}
                   isSpeaking={peer?.isSpeaking}
+                  peerVolume={peerVolumes.get(peerId) ?? 100}
+                  onPeerVolumeChange={(vol) => handlePeerVolume(peerId, vol)}
                   onCollapse={() => setIsWebcamCollapsed(true)}
                   onHideWebcam={() => setIsWebcamHidden(true)}
                   onResizeStart={handleResizeStart}
@@ -6827,87 +6912,96 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 return (
                   <div
                     key={pId}
-                    className="amb-peer-popover-wrap"
-                    onMouseEnter={() => setHoveredPeerVolId(pId)}
-                    onMouseLeave={() => setHoveredPeerVolId(null)}
+                    className={`amb-peer-morphed-capsule ${isFlyoutOpen ? 'is-expanded' : ''} ${p.isSpeaking ? 'is-speaking' : ''} ${isPeerMuted ? 'is-peer-muted' : ''}`}
+                    onMouseEnter={() => {
+                      if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                      setHoveredPeerVolId(pId);
+                    }}
+                    onMouseLeave={() => {
+                      if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                      if (isDraggingPeerVolRef.current) return;
+                      peerVolLeaveTimerRef.current = setTimeout(() => {
+                        setHoveredPeerVolId(null);
+                      }, 350);
+                    }}
+                    style={{
+                      border: p.isSpeaking
+                        ? `1px solid ${p.color || '#10b981'}`
+                        : isPeerMuted
+                          ? '1px solid rgba(239, 68, 68, 0.45)'
+                          : undefined
+                    }}
                   >
-                    <button
-                      type="button"
+                    <div
+                      className="morphed-identity"
                       onClick={(e) => {
                         e.stopPropagation();
                         setPinnedPeerVolId((prev) => (prev === pId ? null : pId));
                       }}
-                      className="amb-status-pill"
-                      style={{
-                        background: p.isSpeaking
-                          ? 'rgba(16, 185, 129, 0.24)'
-                          : isPeerMuted
-                            ? 'rgba(239, 68, 68, 0.18)'
-                            : 'rgba(255, 255, 255, 0.09)',
-                        border: p.isSpeaking
-                          ? `1px solid ${p.color || '#10b981'}`
-                          : isPeerMuted
-                            ? '1px solid rgba(239, 68, 68, 0.4)'
-                            : '1px solid rgba(255, 255, 255, 0.16)',
-                        color: '#fff',
-                        cursor: 'pointer'
-                      }}
-                      title={`${p.username} (${peerVol}%) — Click or hover to adjust volume`}
+                      title={`${p.username} (${peerVol}%) — Click to keep volume menu open`}
                     >
-                      <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={14} showBorder={false} />
-                      <span className="amb-status-text">{p.username}</span>
-                      {isPeerMuted ? (
-                        <VolumeX size={11} color="#f87171" />
-                      ) : p.isMuted ? (
-                        <MicOff size={10} color="#f87171" />
-                      ) : p.isSpeaking ? (
-                        <Radio size={10} color="#10b981" />
-                      ) : (
-                        <Mic size={10} color="#fbcfe8" />
+                      <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={15} showBorder={false} />
+                      <span className="morphed-name">{p.username}</span>
+                      {!isFlyoutOpen && (
+                        <span className="morphed-status-icon">
+                          {isPeerMuted ? (
+                            <VolumeX size={11} color="#f87171" />
+                          ) : p.isMuted ? (
+                            <MicOff size={10} color="#f87171" />
+                          ) : p.isSpeaking ? (
+                            <Radio size={10} color="#10b981" />
+                          ) : (
+                            <Mic size={10} color="#fbcfe8" />
+                          )}
+                        </span>
                       )}
-                    </button>
+                    </div>
 
                     {isFlyoutOpen && (
-                      <div
-                        className="amb-peer-vol-flyout"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flyout-head">
-                          <div className="flyout-user">
-                            <UserAvatar user={{ name: p.username, avatar: p.avatar }} size={16} showBorder={false} />
-                            <span>{p.username}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setPinnedPeerVolId(null)}
-                            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}
-                            title="Close"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-
-                        <div className="flyout-slider-row">
-                          <button
-                            type="button"
-                            onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)}
-                            className={`flyout-mute-btn ${isPeerMuted ? 'is-muted' : ''}`}
-                            title={isPeerMuted ? 'Unmute member' : 'Mute member'}
-                          >
-                            {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                          </button>
+                      <div className="morphed-controls" onClick={(e) => e.stopPropagation()}>
+                        <div className="morphed-divider" />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePeerVolume(pId, isPeerMuted ? 100 : 0);
+                          }}
+                          className={`morphed-mute-btn ${isPeerMuted ? 'is-muted' : ''}`}
+                          title={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                          aria-label={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                        >
+                          {isPeerMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                        </button>
+                        <div className="morphed-slider-wrap">
                           <input
                             type="range"
                             min="0"
                             max="200"
                             step="5"
                             value={peerVol}
+                            onPointerDown={() => { isDraggingPeerVolRef.current = true; }}
+                            onPointerUp={() => { isDraggingPeerVolRef.current = false; }}
                             onChange={(e) => handlePeerVolume(pId, e.target.value)}
-                            className="flyout-range"
+                            className="morphed-range"
+                            style={{ '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
                             aria-label={`${p.username} volume`}
                           />
-                          <span className="flyout-pct">{peerVol}%</span>
                         </div>
+                        <span className="morphed-pct">{peerVol}%</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (peerVolLeaveTimerRef.current) clearTimeout(peerVolLeaveTimerRef.current);
+                            setPinnedPeerVolId(null);
+                            setHoveredPeerVolId(null);
+                          }}
+                          className="morphed-close-btn"
+                          title="Close menu"
+                          aria-label="Close menu"
+                        >
+                          <X size={11} />
+                        </button>
                       </div>
                     )}
                   </div>
