@@ -8,14 +8,18 @@ import {
   Track,
   ParticipantEvent,
   createLocalAudioTrack,
+  createLocalVideoTrack,
   LocalAudioTrack,
+  LocalVideoTrack,
   AudioPresets,
+  VideoPresets,
 } from 'livekit-client';
 import {
   Play, Pause, Zap, MessageSquare, Maximize, Minimize,
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
-  RotateCcw, Power, Sliders, ChevronDown, ChevronLeft, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward
+  RotateCcw, Power, Sliders, ChevronDown, ChevronLeft, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward,
+  Video, VideoOff
 } from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';
@@ -260,6 +264,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const socketRef = useRef(null);
   const livekitRoomRef = useRef(null);             // LiveKitRoom instance
   const localAudioTrackRef = useRef(null);         // LocalAudioTrack (livekit-client)
+  const localVideoTrackRef = useRef(null);         // LocalVideoTrack (livekit-client)
+  const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  const [isCameraStarting, setIsCameraStarting] = useState(false);
+  const [localVideoTrack, setLocalVideoTrack] = useState(null);
+  const [remoteVideoTracks, setRemoteVideoTracks] = useState(new Map()); // participantIdentity -> Track
   const remoteAudioElementsRef = useRef(new Map()); // participantIdentity -> HTMLAudioElement
   const audioContextRef = useRef(null);
   const audioAnalyserIntervalRef = useRef(null);
@@ -1035,11 +1044,44 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             });
             return next;
           });
+        } else if (track.kind === Track.Kind.Video) {
+          setRemoteVideoTracks((prev) => {
+            const next = new Map(prev);
+            next.set(participant.identity, track);
+            return next;
+          });
+          setRemotePeers((prev) => {
+            const next = new Map(prev);
+            const user = connectedUsersRef.current.find((u) => u.id === participant.identity);
+            const peer = next.get(participant.identity) || {
+              username: participant.name || user?.username || 'Partner',
+              avatar: user?.avatar || 'jojo-star',
+              color: user?.color || '#f472b6',
+              isSpeaking: false,
+              isMuted: false,
+            };
+            next.set(participant.identity, { ...peer, hasVideo: true });
+            return next;
+          });
         }
       });
 
       lkRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
         track.detach();
+        if (track.kind === Track.Kind.Video) {
+          setRemoteVideoTracks((prev) => {
+            const next = new Map(prev);
+            next.delete(participant.identity);
+            return next;
+          });
+          setRemotePeers((prev) => {
+            const next = new Map(prev);
+            const peer = next.get(participant.identity);
+            if (peer) next.set(participant.identity, { ...peer, hasVideo: false });
+            return next;
+          });
+          return;
+        }
         const el = remoteAudioElementsRef.current.get(participant.identity);
         if (el) {
           try {
@@ -1196,6 +1238,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       try { localAudioTrackRef.current.stop(); } catch { }
       localAudioTrackRef.current = null;
     }
+    if (localVideoTrackRef.current) {
+      try { localVideoTrackRef.current.stop(); } catch { }
+      localVideoTrackRef.current = null;
+    }
+    setLocalVideoTrack(null);
+    setIsCameraEnabled(false);
+    setRemoteVideoTracks(new Map());
     remoteAudioElementsRef.current.forEach((el) => {
       try {
         el.pause();
@@ -1253,9 +1302,82 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         await localAudioTrackRef.current.unmute().catch(() => { });
       }
     }
-    socketRef.current?.emit('voice:track_state', { isMuted: nextMuted, hasVideo: false });
+    socketRef.current?.emit('voice:track_state', { isMuted: nextMuted, hasVideo: !!isCameraEnabledRef.current });
     playAudioChirp(nextMuted ? 'mute' : 'unmute');
     showToast(nextMuted ? 'Microphone Muted' : 'Microphone Live', nextMuted ? <MicOff size={15} color="#ef4444" /> : <Mic size={15} color="var(--pink-primary)" />);
+  }
+
+  const isCameraEnabledRef = useRef(false);
+  isCameraEnabledRef.current = isCameraEnabled;
+
+  // Toggle Camera / Webcam Live Video
+  async function toggleCamera() {
+    if (isCameraStarting) return;
+    if (isCameraEnabled) {
+      setIsCameraStarting(true);
+      try {
+        if (localVideoTrackRef.current) {
+          if (livekitRoomRef.current?.localParticipant) {
+            try {
+              await livekitRoomRef.current.localParticipant.unpublishTrack(localVideoTrackRef.current);
+            } catch (unpubErr) {
+              console.warn('Error unpublishing camera track:', unpubErr);
+            }
+          }
+          localVideoTrackRef.current.stop();
+          localVideoTrackRef.current = null;
+        }
+        setLocalVideoTrack(null);
+        setIsCameraEnabled(false);
+        socketRef.current?.emit('voice:track_state', { isMuted: isMutedRef.current, hasVideo: false });
+        showToast('Webcam turned off', <VideoOff size={15} color="#9ca3af" />);
+      } catch (err) {
+        console.warn('Error turning off camera:', err);
+      } finally {
+        setIsCameraStarting(false);
+      }
+    } else {
+      setIsCameraStarting(true);
+      try {
+        if (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected') {
+          await publishLocalMic();
+        }
+
+        const lkRoom = livekitRoomRef.current;
+        if (!lkRoom || lkRoom.state !== 'connected') {
+          throw new Error('Voice & Video room is not connected.');
+        }
+
+        const vTrack = await createLocalVideoTrack({
+          facingMode: 'user',
+          resolution: VideoPresets.h540,
+        });
+
+        localVideoTrackRef.current = vTrack;
+        setLocalVideoTrack(vTrack);
+
+        await lkRoom.localParticipant.publishTrack(vTrack, {
+          simulcast: true,
+          videoCodec: 'vp8',
+        });
+
+        setIsCameraEnabled(true);
+        socketRef.current?.emit('voice:track_state', { isMuted: isMutedRef.current, hasVideo: true });
+        showToast('Webcam live', <Video size={15} color="var(--pink-primary)" />);
+      } catch (err) {
+        console.warn('Camera start error:', err);
+        if (localVideoTrackRef.current) {
+          try { localVideoTrackRef.current.stop(); } catch { }
+          localVideoTrackRef.current = null;
+        }
+        setLocalVideoTrack(null);
+        setIsCameraEnabled(false);
+        const denied = err.name === 'NotAllowedError' || (err.message && err.message.toLowerCase().includes('permission'));
+        showToast(denied ? 'Camera permission blocked in browser' : 'Unable to access camera', <AlertCircle size={15} color="#ef4444" />);
+      } finally {
+        setIsCameraStarting(false);
+      }
+    }
   }
 
   function handleMicButtonClick() {
@@ -3760,6 +3882,86 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     return `${m}:${remS.toString().padStart(2, '0')}`;
   }
 
+  // Floating Party Webcam Video Tile
+  function PartyWebcamCard({ track, isLocal, name, avatar, isMuted, isSpeaking, onToggleCamera }) {
+    const videoRef = useRef(null);
+
+    useEffect(() => {
+      if (!track || !videoRef.current) return;
+      const el = videoRef.current;
+      track.attach(el);
+      return () => {
+        try { track.detach(el); } catch { }
+      };
+    }, [track]);
+
+    return (
+      <div className={`wt-webcam-card ${isSpeaking ? 'is-speaking' : ''}`}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={isLocal}
+          className="wt-webcam-video"
+          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+        />
+        <div className="wt-webcam-badge">
+          <UserAvatar user={{ name, avatar }} size={16} showBorder={false} />
+          <span className="wt-webcam-name">{name}</span>
+          {isMuted && <MicOff size={11} color="#fca5a5" />}
+        </div>
+        {isLocal && onToggleCamera && (
+          <button
+            type="button"
+            onClick={onToggleCamera}
+            className="wt-webcam-close-btn"
+            title="Turn off webcam"
+          >
+            <X size={11} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Floating Party Webcam Grid Dock
+  function renderPartyWebcamGrid() {
+    const hasLocalVideo = isCameraEnabled && localVideoTrack;
+    const hasRemoteVideos = remoteVideoTracks.size > 0;
+    if (!hasLocalVideo && !hasRemoteVideos) return null;
+
+    return (
+      <div className="wt-webcam-dock" onClick={(e) => e.stopPropagation()}>
+        {hasLocalVideo && (
+          <PartyWebcamCard
+            track={localVideoTrack}
+            isLocal={true}
+            name={currentProfile?.name || 'You'}
+            avatar={currentProfile?.avatar}
+            isMuted={isMuted}
+            isSpeaking={isLocalSpeaking}
+            onToggleCamera={toggleCamera}
+          />
+        )}
+        {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
+          const peer = remotePeers.get(peerId);
+          const user = connectedUsers.find((u) => u.id === peerId);
+          return (
+            <PartyWebcamCard
+              key={peerId}
+              track={track}
+              isLocal={false}
+              name={peer?.username || user?.username || 'Partner'}
+              avatar={peer?.avatar || user?.avatar}
+              isMuted={peer?.isMuted}
+              isSpeaking={peer?.isSpeaking}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   // Floating in-video chat overlay (hidden if chat sidebar is open)
   function renderChatOverlay() {
     const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
@@ -3790,7 +3992,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={18} showBorder={false} />
-                  <span style={{ color: 'var(--pink-primary)', fontWeight: 800, fontSize: '0.78rem' }}>
+                  <span className="fc-sender" style={{ fontSize: '0.8rem' }}>
                     {m.sender}
                   </span>
                 </div>
@@ -3812,10 +4014,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 style={{ cursor: 'pointer' }}
               >
                 <UserAvatar user={{ name: m.sender, avatar: m.avatar }} size={20} showBorder={false} />
-                <span style={{ color: 'var(--pink-primary)', fontWeight: 800 }}>
+                <span className="fc-sender">
                   {m.sender}:
                 </span>
-                <span>{m.text}</span>
+                <span className="fc-text">{m.text}</span>
               </div>
             )
           ))}
@@ -5524,7 +5726,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
                 <div className="vs-pair">
                   <button type="button" onClick={handleEchoCancellationToggle} className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}>
-                    <span>{isEchoCancellationEnabled ? 'Echo Cancel: On' : 'Echo Cancel: Off'}</span>
+                    <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    className={`vs-anim-btn ${isCameraEnabled ? 'is-echo-on' : ''}`}
+                    title={isCameraEnabled ? 'Turn off webcam' : 'Turn on webcam'}
+                  >
+                    {isCameraEnabled ? <Video size={12} /> : <VideoOff size={12} />}
+                    <span>{isCameraEnabled ? 'Cam On' : 'Cam Off'}</span>
                   </button>
                   {isVoiceConnected ? (
                     <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
@@ -6019,6 +6230,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 isHost={isHost}
                 canControl={true}
                 isChitChatMode={isChitChatMode}
+                isCameraEnabled={isCameraEnabled}
+                onToggleCamera={toggleCamera}
                 onToggleChat={handleToggleSideChat}
                 onToggleFullscreen={toggleVideoFullscreen}
                 onEnterChat={() => {
@@ -6033,12 +6246,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 }}
               >
                 {renderChatOverlay()}
+                {renderPartyWebcamGrid()}
               </PoufPlayer>
             </div>
           )}
 
           {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
           {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
+          {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderPartyWebcamGrid()}
 
           {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
           {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (

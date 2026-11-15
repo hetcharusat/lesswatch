@@ -1122,22 +1122,29 @@ body {
 @keyframes fcLiquidBubbleIn {
   0% {
     opacity: 0;
-    transform: translate3d(-10px, 10px, 0) scale(0.88, 0.84);
+    transform: translate3d(0, 14px, 0) scale(0.92);
+    filter: blur(4px);
+  }
+  65% {
+    transform: translate3d(0, -2px, 0) scale(1.02);
   }
   100% {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1, 1);
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
   }
 }
 
 @keyframes fcLiquidBubbleOut {
   0% {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1, 1);
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
   }
   100% {
     opacity: 0;
-    transform: translate3d(-8px, -8px, 0) scale(0.88, 0.82);
+    transform: translate3d(0, -12px, 0) scale(0.92);
+    filter: blur(4px);
   }
 }
 
@@ -1169,12 +1176,13 @@ body {
 
 .floating-chat-bubbles-stack {
   position: absolute;
-  bottom: 48px;
+  bottom: 52px;
   left: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 10px;
   width: 100%;
   pointer-events: none;
 }
@@ -1223,25 +1231,26 @@ body {
 .floating-chat-pill,
 .floating-chat-media-card {
   width: fit-content;
-  max-width: min(428px, calc(100vw - 48px));
+  max-width: min(440px, calc(100vw - 48px));
   pointer-events: auto;
   cursor: pointer;
   position: relative;
   overflow: hidden;
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.24);
-  backdrop-filter: blur(6px) saturate(160%);
-  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(26, 14, 38, 0.68) 50%, rgba(14, 8, 22, 0.82) 100%);
+  backdrop-filter: blur(8px) saturate(175%);
+  -webkit-backdrop-filter: blur(8px) saturate(175%);
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 2px 10px rgba(236, 72, 153, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.15),
-    inset 0 0 20px 2px rgba(255, 255, 255, 0.2);
+    0 8px 30px rgba(0, 0, 0, 0.32),
+    0 2px 10px rgba(236, 72, 153, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 16px 2px rgba(255, 255, 255, 0.1);
   transform-origin: bottom left;
-  animation: fcLiquidBubbleIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fcLiquidBubbleIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  margin-bottom: 2px;
 }
 
 .floating-chat-pill::before,
@@ -1282,35 +1291,37 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 14px 7px 8px;
+  padding: 8px 16px 8px 10px;
   border-radius: 22px;
   font-size: 0.875rem;
-  line-height: 1.32;
+  line-height: 1.35;
 }
 
 .floating-chat-media-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 7px 9px 8px;
-  border-radius: 16px;
+  padding: 8px 10px 9px;
+  border-radius: 18px;
 }
 
 .floating-chat-pill:hover,
 .floating-chat-media-card:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.34) 0%, rgba(32, 18, 46, 0.72) 50%, rgba(18, 10, 28, 0.86) 100%);
   border-color: rgba(255, 255, 255, 0.55);
   box-shadow:
-    0 10px 34px rgba(0, 0, 0, 0.16),
+    0 10px 34px rgba(0, 0, 0, 0.36),
     0 0 16px rgba(244, 114, 182, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    inset 0 0 20px 4px rgba(255, 255, 255, 0.28);
+    inset 0 0 20px 4px rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
 }
 
+.floating-chat-pill.fading,
+.floating-chat-media-card.fading,
 .floating-chat-overlay .fc-row-slot.fading .floating-chat-pill,
 .floating-chat-overlay .fc-row-slot.fading .floating-chat-media-card {
-  animation: fcLiquidBubbleOut 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: fcLiquidBubbleOut 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
   pointer-events: none;
 }
 
@@ -1326,8 +1337,8 @@ body {
   justify-content: center;
   flex-shrink: 0;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
   animation: fcAvPopIn 320ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
 }
 
@@ -1337,18 +1348,23 @@ body {
 }
 
 .floating-chat-overlay .fc-sender {
-  color: #f9a8d4;
+  color: #f472b6;
   font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
   flex-shrink: 0;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.7);
 }
 
 .floating-chat-overlay .fc-text {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: rgba(253, 242, 248, 0.96);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.75);
 }
 
 .floating-chat-media-img {
@@ -5423,22 +5439,22 @@ body.in-chit-chat-mode header {
 
 .qeb-studio-card {
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
   left: 8px;
   right: 8px;
   padding: 12px;
   border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(18, 10, 28, 0.82) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 45%, rgba(18, 10, 28, 0.94) 100%);
   backdrop-filter: blur(20px) saturate(190%);
   -webkit-backdrop-filter: blur(20px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.35);
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.38),
-    0 2px 12px rgba(236, 72, 153, 0.18),
-    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    0 18px 44px rgba(0, 0, 0, 0.5),
+    0 2px 12px rgba(236, 72, 153, 0.24),
+    inset 0 1px 1px rgba(255, 255, 255, 0.7),
     inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   color: #fdf2f8;
-  z-index: 160;
+  z-index: 220;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -7142,29 +7158,29 @@ body.in-chit-chat-mode header {
 
 .wchat-v2 .wchat-popover-anchor {
   position: absolute;
-  bottom: 74px;
+  bottom: calc(100% + 8px);
   left: 10px;
   right: 10px;
-  z-index: 150;
+  z-index: 200;
 }
 
 .wchat-v2 .wchat-emoji-popover {
   position: absolute;
-  bottom: 74px;
+  bottom: calc(100% + 8px);
   left: 10px;
   right: 10px;
   padding: 12px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(18, 10, 28, 0.82) 100%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 45%, rgba(18, 10, 28, 0.92) 100%);
   border: 1px solid rgba(255, 255, 255, 0.32);
   border-radius: 18px;
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.38),
-    0 2px 12px rgba(236, 72, 153, 0.18),
-    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    0 18px 44px rgba(0, 0, 0, 0.45),
+    0 2px 12px rgba(236, 72, 153, 0.22),
+    inset 0 1px 1px rgba(255, 255, 255, 0.7),
     inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(20px) saturate(190%);
   -webkit-backdrop-filter: blur(20px) saturate(190%);
-  z-index: 150;
+  z-index: 200;
 }
 
 .wchat-v2.wchat-light .wchat-emoji-popover {
@@ -9249,6 +9265,137 @@ body.in-chit-chat-mode header {
     box-shadow: 0 6px 20px 2px rgba(236, 72, 153, 0.55), 0 0 10px rgba(244, 114, 182, 0.4);
   }
 }
+
+/* ============================================================
+   PARTY WEBCAM VIDEO CALLING DOCK & GLASS CARDS
+   ============================================================ */
+@keyframes wtWebcamIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.wt-webcam-dock {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-height: calc(100% - 120px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.wt-webcam-dock::-webkit-scrollbar {
+  display: none;
+}
+
+.wt-webcam-card {
+  position: relative;
+  width: 172px;
+  height: 104px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(18, 10, 26, 0.78);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease, border-color 220ms ease;
+  animation: wtWebcamIn 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.wt-webcam-card:hover {
+  transform: translateY(-2px) scale(1.02);
+  border-color: rgba(244, 114, 182, 0.5);
+}
+
+.wt-webcam-card.is-speaking {
+  border-color: #f472b6;
+  box-shadow:
+    0 0 0 2px #ec4899,
+    0 0 18px rgba(236, 72, 153, 0.65),
+    0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.wt-webcam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #0d0714;
+}
+
+.wt-webcam-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(12, 6, 18, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.wt-webcam-name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-webcam-close-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(18, 10, 26, 0.7);
+  backdrop-filter: blur(6px);
+  color: #fce7f3;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.wt-webcam-close-btn:hover {
+  background: #ec4899;
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.a4-btn.is-camera-on {
+  background: rgba(236, 72, 153, 0.28) !important;
+  border-color: #f472b6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.45) !important;
+}
+
 
 
 

@@ -526,7 +526,16 @@ export function ChatSidebar({
 
       <div className="wchat-stage">
         {activeTab === 'chat' ? (
-          <div ref={chatContainerRef} className="wchat-feed" onScroll={handleFeedScroll}>
+          <div
+            ref={chatContainerRef}
+            className="wchat-feed"
+            onScroll={handleFeedScroll}
+            onClick={() => {
+              if (showEmojiPicker) setShowEmojiPicker(false);
+              if (showGiphy) setShowGiphy(false);
+              if (showQuickEmojiManager) setShowQuickEmojiManager(false);
+            }}
+          >
             {messages.length === 0 ? (
               <div className="wchat-users-empty">
                 <ClayHeart size={32} />
@@ -592,9 +601,8 @@ export function ChatSidebar({
         )}
       </div>
 
-      {renderFloatingPickers()}
-
       <div className="wchat-dock">
+        {renderFloatingPickers()}
         <div className={`qeb-shell ${isDarkTheme ? 'qeb-is-dark' : 'qeb-is-light'}`}>
           {renderQuickStudioOverlay()}
           <div className="qeb-strip">
