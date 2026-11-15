@@ -60,10 +60,45 @@ const ipPromise = new Promise((resolve) => {
 
 // ─── Config & Modules Checklist ─────────────────────────────────────────────
 const TARGETS = [
-  { id: 'cloud', short: 'Cloud Shell',    title: 'Google Cloud Shell / Web Sandbox', desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080 with Web Preview.' },
-  { id: 'vps',   short: 'Cloud VM / VPS', title: 'Linux Cloud VM / Dedicated VPS',   desc: 'Always-on 24/7 hosting with direct UDP for WebRTC.' },
-  { id: 'local', short: 'Local / Docker', title: 'Local Workstation / Docker',       desc: 'Local testing on your PC workstation.' },
+  {
+    id: 'cloud',
+    short: 'Cloud Shell',
+    icon: '◆',
+    tag: 'DETECTED',
+    title: 'Google Cloud Shell / Web Sandbox',
+    defaultPort: 8080,
+    desc: 'Browser sandbox. Zero port forwarding needed, binds to :8080 with Google Web Preview.',
+    netMode: 'Cloudflare Tunnel + Web Preview',
+    webrtc: 'TCP-Mux on :52000 (HTTP fallback)',
+  },
+  {
+    id: 'vps',
+    short: 'Cloud VM / VPS',
+    icon: '▲',
+    tag: 'DEDICATED',
+    title: 'Linux Cloud VM / Dedicated VPS',
+    defaultPort: 3000,
+    desc: 'Always-on 24/7 cloud server with high-performance direct UDP for spatial WebRTC streaming.',
+    netMode: 'Direct Public IP or Cloudflare Tunnel',
+    webrtc: 'Direct UDP 50000-50200 + TCP-Mux',
+  },
+  {
+    id: 'local',
+    short: 'Local / Docker',
+    icon: '■',
+    tag: 'LOCAL',
+    title: 'Local Workstation / Docker Desktop',
+    defaultPort: 3000,
+    desc: 'Local testing on your PC or Mac workstation. Ideal for offline media playback.',
+    netMode: 'http://localhost:3000',
+    webrtc: 'Local loopback ICE candidates',
+  },
 ];
+
+function defaultPort() {
+  if (state.port) return state.port;
+  return TARGETS[state.target]?.defaultPort || (TARGETS[state.target]?.id === 'cloud' ? 8080 : 3000);
+}
 
 const MODULES = [
   { id: 'neko',      icon: '◈', tag: 'RECOMMENDED',  title: 'Shared Chromium Virtual Browser (Neko)',
@@ -126,8 +161,7 @@ async function generateEnvironment(log, s) {
     }
   };
 
-  const isCloud = TARGETS[state.target].id === 'cloud';
-  const targetPort = isCloud ? 8080 : 3000;
+  const targetPort = defaultPort();
 
   setEnvVar('PORT', targetPort);
   setEnvVar('LIVEKIT_API_KEY', 'watchtogether');
@@ -326,8 +360,7 @@ async function prepareDownloader(log, s) {
 
 async function startTunnel(log, s) {
   const tunnelOn = state.modules[2] ?? true;
-  const isCloud = TARGETS[state.target].id === 'cloud';
-  const targetPort = isCloud ? 8080 : 3000;
+  const targetPort = defaultPort();
 
   if (!tunnelOn) {
     state.publicUrl = `http://${detectedPublicIP}:${targetPort}`;
@@ -385,7 +418,7 @@ const BLOCKS = ' ▁▂▃▄▅▆▇█';
 const PARTIAL = ' ▏▎▍▌▋▊▉';
 const CONFETTI = ['✦', '✧', '*', '•', '◆', '▲', '✶'];
 const SCRAMBLE = '▓▒░#%&@$*+=?';
-const WIZARD = ['Target', 'Modules', 'Review', 'Install'];
+const WIZARD = ['Target', 'Port', 'Modules', 'Review', 'Install'];
 
 const A = (code) => (COLOR ? `${E}${code}m` : '');
 const RESET = A(0), BOLD = A(1), DIM = A(2);
@@ -466,7 +499,9 @@ function truncateAnsi(str, maxLen) {
 function pad(s, w) {
   const len = vlen(s);
   if (len > w) {
-    return truncateAnsi(s, w);
+    const t = truncateAnsi(s, w);
+    const tl = vlen(t);
+    return tl < w ? t + ' '.repeat(w - tl) : t;
   }
   return s + ' '.repeat(w - len);
 }
@@ -535,6 +570,7 @@ function gtext(s, bold = false) {
 }
 const green = C.green;
 const dim = (s) => DIM + s + RESET;
+const bold = (s) => BOLD + s + RESET;
 
 function hsl(h, s, l) {
   if (!COLOR) return '';
@@ -565,7 +601,7 @@ function stepper(active, inner) {
 // Express flow has no wizard steps, so it gets a title line instead.
 const topline = (active, inner) =>
   state.mode === 'express'
-    ? gtext('EXPRESS INSTALL', true) + dim(`  ·  ${TARGETS[state.target].short}`)
+    ? gtext('EXPRESS INSTALL', true) + dim(`  ·  ${TARGETS[state.target].short} :${defaultPort()}`)
     : stepper(active, inner);
 
 // Selectable row with a soft highlight that glides between rows.
@@ -620,6 +656,7 @@ const state = {
   mode: 'express',                 // express | custom
   cursor: 0, hl: 0, lastMenu: 0, btn: 0,
   target: defaultTarget(), targetTouched: false,
+  port: null, portCursor: 0, editingCustomPort: false, customPortInput: '',
   modules: MODULES.map((m) => m.on),
   flash: {}, toast: null,
   stages: [], current: 0, shown: 0, logs: [], started: 0, finishedAt: 0,
@@ -639,7 +676,11 @@ function go(next) {
   state.sa = 0;
   if (next === 'menu') state.cursor = state.lastMenu;
   if (next === 'target') state.cursor = state.target;
-  if (next === 'modules') state.cursor = prev === 'target' ? 0 : clamp(state.cursor, 0, MODULES.length - 1);
+  if (next === 'port') {
+    state.cursor = state.portCursor;
+    state.editingCustomPort = false;
+  }
+  if (next === 'modules') state.cursor = (prev === 'target' || prev === 'port') ? 0 : clamp(state.cursor, 0, MODULES.length - 1);
   if (next === 'review') state.btn = 0;
   if (next === 'done') state.confetti = null;
   state.hl = state.cursor;
@@ -859,10 +900,10 @@ function markFor(i) {
 }
 
 const menuItems = () => [
-  { label: 'Express install', desc: `auto · ${TARGETS[defaultTarget()].short} · recommended`,
-    run: () => { state.mode = 'express'; state.target = defaultTarget(); state.modules = MODULES.map((m) => m.on); go('review'); } },
-  { label: 'Custom install', desc: 'choose target & modules',
-    run: () => { state.mode = 'custom'; if (!state.targetTouched) state.target = defaultTarget(); go('target'); } },
+  { label: 'Express install', desc: `auto · ${TARGETS[defaultTarget()].short} :${TARGETS[defaultTarget()].defaultPort} · recommended`,
+    run: () => { state.mode = 'express'; state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; state.modules = MODULES.map((m) => m.on); go('review'); } },
+  { label: 'Custom install', desc: 'choose target, port & modules',
+    run: () => { state.mode = 'custom'; if (!state.targetTouched) state.target = defaultTarget(); state.port = TARGETS[state.target].defaultPort; go('target'); } },
   { label: 'What\u2019s included', desc: 'see every module', run: () => go('about') },
   { label: 'Quit', desc: 'exit installer', run: () => shutdown(0) },
 ];
@@ -884,14 +925,20 @@ const screens = {
       const tag = 'stream together · self-hosted · watch in sync';
       const typed = tag.slice(0, Math.floor(Math.max(0, state.sa - 0.5) * 34));
       const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
-      const ind = ' '.repeat(Math.max(2, Math.floor((inner - 44) / 2)));
-      const row = (at, k, v, ok) => (state.sa >= at ? `${ind}${ok ? green('✔') : C.accent(spin)} ${C.accent(k.padEnd(12))} ${C.text(v)}` : '');
+      const ind = ' '.repeat(Math.max(2, Math.floor((inner - 48) / 2)));
+      const row = (at, k, v, ok) => (state.sa >= at ? `${ind}${ok ? green('✔') : C.accent(spin)} ${C.accent(k.padEnd(13))} ${C.text(v)}` : '');
       const prompt = Math.floor(state.t * 1.6) % 2 ? BOLD + green('▌ PRESS ANY KEY TO CONTINUE ▐') : dim('  PRESS ANY KEY TO CONTINUE  ');
+
+      const netLabel = isCloudShell ? 'Access Mode' : 'Public IP';
+      const netVal = isCloudShell
+        ? 'Private NAT Sandbox (Cloudflare Tunnel enabled)'
+        : (ipReady ? (detectedPublicIP === '127.0.0.1' ? 'Local loopback only' : detectedPublicIP) : 'detecting…');
+
       return [
         '', ...logo, '',
         center(dim(typed) + (Math.floor(state.t * 3) % 2 ? dim('▌') : ' '), inner), '',
         row(0.6, 'Environment', envName(), true),
-        row(0.9, 'Public IP', ipReady ? (detectedPublicIP === '127.0.0.1' ? 'none (local only)' : detectedPublicIP) : 'detecting…', ipReady),
+        row(0.9, netLabel, netVal, isCloudShell || ipReady),
         row(1.2, 'Resources', sysInfo(), true),
         '',
         state.sa > 1.5 ? center(prompt, inner) : '',
@@ -941,33 +988,185 @@ const screens = {
 
   target: {
     render(inner) {
-      const L = [topline(0, inner), '', dim('Where are you deploying?'), ''];
+      const L = [topline(0, inner), '', dim('Where are you deploying LESSWATCH?'), ''];
       TARGETS.forEach((t, i) => {
+        const isSel = i === state.cursor;
         const mark = i === state.target ? green('◉') : C.faint('○');
-        const det = i === defaultTarget() ? C.amber('  [DETECTED]') : '';
-        L.push(selRow(i, `${mark} ${i === state.cursor ? BOLD : ''}${t.title}${RESET}${det}`, inner));
+        const isDet = (isCloudShell && t.id === 'cloud') || (!isCloudShell && detectedPublicIP !== '127.0.0.1' && t.id === 'vps');
+        const badge = isDet ? C.amber(' [AUTO-DETECTED]') : (t.tag ? C.faint(` [${t.tag}]`) : '');
+        const titleText = `${t.icon}  ${t.title}${badge}`;
+        const label = isSel ? BOLD + C.accent(titleText) : C.text(titleText);
+        L.push(selRow(i, `${mark} ${label}`, inner));
       });
       L.push('');
-      const d = wrap(TARGETS[state.cursor].desc, inner - 2);
-      L.push(' ' + dim(d[0] || ''), ' ' + dim(d[1] || ''));
-      L.push('', hint([['↑↓', 'move'], ['space', 'select'], ['enter', 'next'], ['esc', 'back']], inner));
+      const cur = TARGETS[state.cursor];
+      L.push(
+        dim('─'.repeat(Math.max(8, inner))),
+        ` ${C.accent(BOLD + cur.title + RESET)}  ${C.amber(`[${cur.short}]`)}`,
+        ` ${dim(cur.desc)}`,
+        ` ${C.faint('Network Mode: ')} ${C.text(cur.netMode)}  ${dim('·')}  ${C.faint('Port: ')}${C.green(String(cur.defaultPort))}`,
+        ` ${C.faint('WebRTC Sync:  ')} ${C.text(cur.webrtc)}`,
+      );
+      L.push('', hint([['↑↓', 'move'], ['space', 'select'], ['1-3', 'direct'], ['enter', 'next (port)'], ['esc', 'menu']], inner));
       return L;
     },
     key(s, k) {
       const n = TARGETS.length;
       if (k.name === 'up' || s === 'k') state.cursor = (state.cursor + n - 1) % n;
       else if (k.name === 'down' || s === 'j') state.cursor = (state.cursor + 1) % n;
-      else if (s === ' ') { state.target = state.cursor; state.targetTouched = true; }
-      else if (k.name === 'return' || k.name === 'right') { state.target = state.cursor; state.targetTouched = true; go('modules'); }
+      else if (/^[1-3]$/.test(s)) {
+        state.cursor = Number(s) - 1;
+        state.target = state.cursor;
+        state.targetTouched = true;
+        state.port = TARGETS[state.target].defaultPort;
+      }
+      else if (s === ' ') {
+        state.target = state.cursor;
+        state.targetTouched = true;
+        state.port = TARGETS[state.target].defaultPort;
+      }
+      else if (k.name === 'return' || k.name === 'right') {
+        state.target = state.cursor;
+        state.targetTouched = true;
+        if (!state.port) state.port = TARGETS[state.target].defaultPort;
+        go('port');
+      }
       else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') go('menu');
       else if (s === 'q') shutdown(0);
     },
   },
 
+  port: {
+    render(inner) {
+      const isCloud = TARGETS[state.target].id === 'cloud';
+      const curPort = defaultPort();
+      const L = [topline(1, inner), '', dim('Choose HTTP network port for LESSWATCH:'), ''];
+
+      const presets = [
+        {
+          port: 8080,
+          tag: isCloud ? 'RECOMMENDED' : 'WEB PREVIEW',
+          title: 'Port 8080 (Cloud Shell Web Preview)',
+          desc: 'Direct integration with Google Cloud Shell Web Preview. Zero firewall config needed.'
+        },
+        {
+          port: 3000,
+          tag: !isCloud ? 'RECOMMENDED' : 'STANDARD',
+          title: 'Port 3000 (Standard Node Server)',
+          desc: 'Standard default LESSWATCH server port for VPS, dedicated servers, and local Docker.'
+        },
+        {
+          port: 80,
+          tag: 'STANDARD HTTP',
+          title: 'Port 80 (Standard Web HTTP)',
+          desc: 'Binds directly to port 80. Accessible at http://<ip> without typing a port. Requires root/sudo.'
+        },
+        {
+          port: 'custom',
+          tag: 'CUSTOM',
+          title: state.editingCustomPort
+            ? `Custom Port: ${state.customPortInput ? bold(C.accent(state.customPortInput)) : C.amber('_')} `
+            : `Custom Port... ${state.port && ![8080, 3000, 80].includes(state.port) ? C.accent(`(${state.port})`) : ''}`,
+          desc: 'Specify any custom numeric port (e.g. 5000, 8000, 8888, 9000).'
+        }
+      ];
+
+      presets.forEach((p, i) => {
+        const isSel = i === state.cursor;
+        const isCurrent = p.port === 'custom'
+          ? (state.port && ![8080, 3000, 80].includes(state.port))
+          : curPort === p.port;
+        const mark = isCurrent ? green('◉') : C.faint('○');
+        const badge = p.tag ? C.amber(` [${p.tag}]`) : '';
+        const titleText = `${p.title}${badge}`;
+        const label = isSel ? BOLD + C.accent(titleText) : C.text(titleText);
+        L.push(selRow(i, `${mark} ${label}`, inner));
+      });
+
+      L.push('');
+      const cur = presets[state.cursor];
+      const descText = state.editingCustomPort
+        ? 'Type numeric port digits (1-65535). Press [Enter] to confirm, [Esc] to cancel.'
+        : cur.desc;
+
+      L.push(
+        dim('─'.repeat(Math.max(8, inner))),
+        ` ${C.accent(BOLD + cur.title + RESET)}`,
+        ` ${dim(descText)}`,
+        ` ${C.faint('Active Configuration: ')} ${C.green(String(curPort))} ${C.faint(`(bound on target ${TARGETS[state.target].short})`)}`
+      );
+
+      const hintText = state.editingCustomPort
+        ? [['0-9', 'type digits'], ['enter', 'confirm'], ['esc', 'cancel']]
+        : [['↑↓', 'move'], ['space', 'select'], ['1-4', 'direct'], ['enter', 'next'], ['esc', 'back']];
+
+      L.push('', hint(hintText, inner));
+      return L;
+    },
+    key(s, k) {
+      if (state.editingCustomPort) {
+        if (/^[0-9]$/.test(s)) {
+          if (state.customPortInput.length < 5) {
+            state.customPortInput += s;
+          }
+        } else if (k.name === 'backspace') {
+          state.customPortInput = state.customPortInput.slice(0, -1);
+        } else if (k.name === 'return') {
+          const val = parseInt(state.customPortInput, 10);
+          if (val > 0 && val <= 65535) {
+            state.port = val;
+            state.editingCustomPort = false;
+            toast(`Port set to ${val}`);
+            go('modules');
+          } else {
+            toast('Invalid port! Must be between 1 and 65535.');
+          }
+        } else if (k.name === 'escape') {
+          state.editingCustomPort = false;
+        }
+        return;
+      }
+
+      const presets = [8080, 3000, 80, 'custom'];
+      const n = presets.length;
+      if (k.name === 'up' || s === 'k') state.cursor = (state.cursor + n - 1) % n;
+      else if (k.name === 'down' || s === 'j') state.cursor = (state.cursor + 1) % n;
+      else if (/^[1-3]$/.test(s)) {
+        const idx = Number(s) - 1;
+        state.cursor = idx;
+        state.port = presets[idx];
+        toast(`Port set to ${presets[idx]}`);
+        go('modules');
+      } else if (s === '4') {
+        state.cursor = 3;
+        state.editingCustomPort = true;
+        state.customPortInput = String(state.port || defaultPort());
+      } else if (s === ' ') {
+        if (state.cursor === 3) {
+          state.editingCustomPort = true;
+          state.customPortInput = String(state.port || defaultPort());
+        } else {
+          state.port = presets[state.cursor];
+          toast(`Port set to ${presets[state.cursor]}`);
+        }
+      } else if (k.name === 'return' || k.name === 'right') {
+        if (state.cursor === 3) {
+          state.editingCustomPort = true;
+          state.customPortInput = String(state.port || defaultPort());
+        } else {
+          state.port = presets[state.cursor];
+          go('modules');
+        }
+      } else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') {
+        go('target');
+      } else if (s === 'q') shutdown(0);
+    }
+  },
+
   modules: {
     render(inner) {
       const tid = TARGETS[state.target].id;
-      const L = [topline(1, inner), '', `${dim('Pick what to install')}  ${C.accent(`${enabledCount()} of ${MODULES.length} enabled`)}`, ''];
+      const L = [topline(2, inner), '', `${dim('Pick what to install')}  ${C.accent(`${enabledCount()} of ${MODULES.length} enabled`)}`, ''];
       MODULES.forEach((m, i) => {
         const on = state.modules[i];
         const blocked = m.id === 'neko_warm' && !state.modules[0];
@@ -983,8 +1182,8 @@ const screens = {
       L.push('');
       const d = wrap(MODULES[state.cursor].desc, inner - 2);
       L.push(' ' + dim(d[0] || ''), ' ' + dim(d[1] || ''));
-      const tl = state.toast && state.t < state.toast.until ? C.amber('! ' + state.toast.text) : dim(`Target: ${TARGETS[state.target].short}`);
-      L.push(' ' + tl, hint([['spc', 'toggle [✔]'], ['1-6', 'direct'], ['a', 'all'], ['t', 'target'], ['enter', 'next'], ['esc', 'back']], inner));
+      const tl = state.toast && state.t < state.toast.until ? C.amber('! ' + state.toast.text) : dim(`Target: ${TARGETS[state.target].short}  ·  Port: ${defaultPort()}`);
+      L.push(' ' + tl, hint([['spc', 'toggle [✔]'], ['1-6', 'direct'], ['a', 'all'], ['p', 'port'], ['enter', 'next'], ['esc', 'back']], inner));
       return L;
     },
     key(s, k) {
@@ -997,9 +1196,12 @@ const screens = {
         const anyOff = state.modules.some((v) => !v);
         MODULES.forEach((m, i) => { if (state.modules[i] !== anyOff) { state.modules[i] = anyOff; state.flash[i] = state.t; } });
       }
+      else if (s === 'p' || s === 'P') go('port');
       else if (s === 't' || s === 'T') go('target');
       else if (k.name === 'return' || k.name === 'right') go('review');
-      else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') go('target');
+      else if (k.name === 'escape' || k.name === 'backspace' || k.name === 'left') {
+        go(state.mode === 'custom' ? 'port' : 'menu');
+      }
       else if (s === 'q') shutdown(0);
     },
   },
@@ -1008,32 +1210,37 @@ const screens = {
     render(inner) {
       const stages = enabledStages();
       const tid = TARGETS[state.target].id;
+      const curPort = defaultPort();
       const modTokens = MODULES.map((m, i) => {
         const on = state.modules[i] && !(m.id === 'neko_warm' && !state.modules[0]);
         return on ? green('✔ ') + C.text(SHORT[m.id]) : C.faint('✖ ' + SHORT[m.id]);
       });
       const pipe = stages.map((s, i) => C.muted(`${i + 1}.`) + C.text(s.id));
-      const kv = (k, v) => ` ${dim(pad(k, 10))}${v}`;
+      const kv = (k, v) => ` ${dim(pad(k, 12))}${v}`;
       const btn = (label, on, c) => (on
         ? bgc(c) + fg([12, 14, 22]) + BOLD + `  ${label}  ` + RESET
         : dim(`[ ${label} ]`));
       const L = [
-        topline(2, inner), '', dim('Review your choices'), '',
-        kv('Target', C.text(TARGETS[state.target].title)),
-        kv('Modules', ''),
+        topline(3, inner), '', dim('Review deployment configuration:'), '',
+        kv('Target', C.text(TARGETS[state.target].title) + dim(' [press t to change]')),
+        kv('HTTP Port', BOLD + C.accent(String(curPort)) + dim(' [press p to change]')),
+        kv('Modules', `${enabledCount()} of ${MODULES.length} enabled` + dim(' [press m to change]')),
         ...wrapTokens(modTokens, inner - 4).map((l) => '   ' + l),
-        kv('Pipeline', dim(`${stages.length} steps`)),
+        kv('Pipeline', dim(`${stages.length} stages`)),
         ...wrapTokens(pipe, inner - 4, dim(' › ')).map((l) => '   ' + l),
       ];
       if (tid === 'local' && state.modules[2]) L.push(' ' + C.amber('! Tunnel step is skipped on a Local target.'));
       L.push('', center(btn('Deploy', state.btn === 0, GREEN) + '   ' + btn('Back', state.btn === 1, [150, 150, 170]), inner),
-        '', hint([['←→', 'choose'], ['enter', 'confirm'], ['y', 'deploy'], ['esc', 'back']], inner));
+        '', hint([['←→', 'choose'], ['enter', 'confirm'], ['y', 'deploy'], ['p', 'port'], ['t', 'target'], ['esc', 'back']], inner));
       return L;
     },
     key(s, k) {
       const back = () => go(state.mode === 'custom' ? 'modules' : 'menu');
       if (k.name === 'left' || k.name === 'right' || k.name === 'tab') state.btn = 1 - state.btn;
       else if (s === 'y' || s === 'Y') startInstall();
+      else if (s === 'p' || s === 'P') go('port');
+      else if (s === 't' || s === 'T') go('target');
+      else if (s === 'm' || s === 'M') go('modules');
       else if (k.name === 'return') { if (state.btn === 0) startInstall(); else back(); }
       else if (k.name === 'escape' || k.name === 'backspace') back();
       else if (s === 'q') shutdown(0);
@@ -1070,17 +1277,17 @@ const screens = {
         if (gy >= 0 && gy < H && gx >= 0 && gx < inner) grid[gy][gx] = hsl(p.h + state.t * 90, 0.9, 0.65) + p.ch + RESET;
       }
 
-      const secs = ((state.finishedAt - state.started) / 1000).toFixed(1);
-      const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
-      const url = state.publicUrl || 'not captured · set LW_URL';
       const isCloud = TARGETS[state.target].id === 'cloud';
-      const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
+      const ip = isCloud ? 'NAT Sandbox (tunnel active)' : (detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)');
+      const ipKey = isCloud ? 'Access Mode' : 'Public IP';
+      const url = state.publicUrl || 'not captured · set LW_URL';
+      const local = process.env.LW_LOCAL || `http://localhost:${defaultPort()}`;
       const label = (k) => C.accent(pad(k, 12));
 
       const ipFx = typeFx(ip, 0.7, 26);
       const urlFx = typeFx(url, 1.5, 36);
       const cur = (fx) => (fx && !fx.done ? C.accent('▌') : '');
-      const ipLine = ipFx ? ` ${label('Public IP')} ${C.text(ipFx.shown)}${C.accent(ipFx.pending)}${cur(ipFx)}` : '';
+      const ipLine = ipFx ? ` ${label(ipKey)} ${C.text(ipFx.shown)}${C.accent(ipFx.pending)}${cur(ipFx)}` : '';
 
       let urlLine = '';
       if (urlFx) {
@@ -1207,8 +1414,9 @@ function draw() {
     out.write(E + 'H' + C.amber(`Terminal too small (${cols}x${rows}). Need at least 60x22.`) + E + 'K\n' + E + 'J');
     return;
   }
-  // Adaptive width: standard 86-94 for modern terminals, ensures full URL readability
-  const W = Math.max(76, Math.min(cols - 4, 92));
+  // Adaptive width: clean, responsive sizing that never exceeds terminal column bounds
+  const maxW = Math.max(60, cols - 4);
+  const W = Math.min(maxW, 88);
   const inner = W - 4;
   const left = ' '.repeat(Math.max(0, Math.floor((cols - W) / 2)));
 
@@ -1257,18 +1465,31 @@ function finish() {
   leaveScreen();
   const url = state.publicUrl || '(not captured, see the tunnel step output)';
   const isCloud = TARGETS[state.target].id === 'cloud';
-  const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
-  const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
+  const local = process.env.LW_LOCAL || `http://localhost:${defaultPort()}`;
+  const ip = isCloud ? 'NAT Sandbox (Cloudflare tunnel active)' : (detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)');
   const cols = out.columns || 80;
-  const cardW = Math.max(86, Math.min(cols - 4, 94));
-  const card = box([
+  const cardW = Math.max(60, Math.min(cols - 4, 88));
+  const inner = cardW - 4;
+
+  const lines = [
     BOLD + green('LESSWATCH is live') + RESET, '',
-    `${C.accent('Public IP ')}  ${ip}`,
-    `${C.accent('Public URL')}  ${BOLD}${C.text(url)}${RESET}`,
-    `${C.accent('Local     ')}  ${local}`,
-    `${C.accent('Login     ')}  admin / admin`, '',
+    isCloud ? `${C.accent('Access Mode ')}  ${ip}` : `${C.accent('Public IP   ')}  ${ip}`,
+  ];
+
+  if (vlen(url) + 14 > inner) {
+    lines.push(`${C.accent('Public URL  ')}`);
+    lines.push(`  ${BOLD}${C.text(url)}${RESET}`);
+  } else {
+    lines.push(`${C.accent('Public URL  ')}  ${BOLD}${C.text(url)}${RESET}`);
+  }
+
+  lines.push(
+    `${C.accent('Local       ')}  ${local}`,
+    `${C.accent('Login       ')}  admin / admin`, '',
     C.muted('docker compose ps  ·  docker compose logs -f'),
-  ], cardW, '');
+  );
+
+  const card = box(lines, cardW, '');
   const left = ' '.repeat(Math.max(0, Math.floor((cols - cardW) / 2)));
   out.write('\n' + card.map((l) => left + l).join('\n') + '\n\n');
   process.exit(0);
