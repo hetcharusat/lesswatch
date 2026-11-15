@@ -391,7 +391,7 @@ app.use('/neko', async (req, res, next) => {
 });
 
 app.use('/livekit', (req, res, next) => {
-  if (!appConfig?.modules?.livekit) {
+  if (appConfig?.modules?.livekit === false) {
     return res.status(403).json({ error: 'LiveKit Voice SFU is disabled on this server.' });
   }
   livekitProxy(req, res, next);
@@ -4925,7 +4925,7 @@ server.on('upgrade', async (req, socket, head) => {
     req.url = cleanUrl;
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
-    if (!appConfig?.modules?.livekit) {
+    if (appConfig?.modules?.livekit === false) {
       socket.destroy();
       return;
     }
