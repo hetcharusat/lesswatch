@@ -19,7 +19,7 @@ import {
   Link as LinkIcon, Send, X, Film, Folder, Sparkles, Volume2, VolumeX, Users,
   Check, Upload, Type, Mic, MicOff, Settings, Radio, Headphones,
   RotateCcw, Power, Sliders, ChevronDown, ChevronLeft, Smile, AlertCircle, Globe, LogOut, ShieldCheck, FastForward,
-  Video, VideoOff
+  Video, VideoOff, Eye, EyeOff, GripHorizontal, Minimize2, Maximize2
 } from 'lucide-react';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';
@@ -269,6 +269,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [isCameraStarting, setIsCameraStarting] = useState(false);
   const [localVideoTrack, setLocalVideoTrack] = useState(null);
   const [remoteVideoTracks, setRemoteVideoTracks] = useState(new Map()); // participantIdentity -> Track
+  const [isWebcamCollapsed, setIsWebcamCollapsed] = useState(false);
+  const [isSelfViewHidden, setIsSelfViewHidden] = useState(false);
+  const [isCinemaDimmed, setIsCinemaDimmed] = useState(false);
+  const [webcamPosition, setWebcamPosition] = useState({ x: 0, y: 0 });
+  const [isWebcamDragging, setIsWebcamDragging] = useState(false);
+  const webcamDragStartRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+  const cinemaDimTimeoutRef = useRef(null);
   const remoteAudioElementsRef = useRef(new Map()); // participantIdentity -> HTMLAudioElement
   const audioContextRef = useRef(null);
   const audioAnalyserIntervalRef = useRef(null);
@@ -406,6 +413,30 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       window.removeEventListener('wt_quick_emojis_updated', syncTopEmojis);
     };
   }, []);
+
+  // Cinema Immersion: Auto-dim webcam ribbon during quiet movie playback (instantly wakes on voice or activity)
+  useEffect(() => {
+    function handleCinemaActivity() {
+      setIsCinemaDimmed(false);
+      if (cinemaDimTimeoutRef.current) clearTimeout(cinemaDimTimeoutRef.current);
+      if (roomPlaybackState.isPlaying) {
+        cinemaDimTimeoutRef.current = setTimeout(() => {
+          setIsCinemaDimmed(true);
+        }, 3500);
+      }
+    }
+
+    window.addEventListener('mousemove', handleCinemaActivity, { passive: true });
+    window.addEventListener('keydown', handleCinemaActivity, { passive: true });
+    window.addEventListener('pointerdown', handleCinemaActivity, { passive: true });
+
+    return () => {
+      window.removeEventListener('mousemove', handleCinemaActivity);
+      window.removeEventListener('keydown', handleCinemaActivity);
+      window.removeEventListener('pointerdown', handleCinemaActivity);
+      if (cinemaDimTimeoutRef.current) clearTimeout(cinemaDimTimeoutRef.current);
+    };
+  }, [roomPlaybackState.isPlaying]);
 
   useEffect(() => {
     if (chatOpen) {
@@ -3883,7 +3914,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   // Floating Party Webcam Video Tile
-  function PartyWebcamCard({ track, isLocal, name, avatar, isMuted, isSpeaking, onToggleCamera }) {
+  function PartyWebcamCard({ track, isLocal, name, avatar, isMuted, isSpeaking, onToggleCamera, onHideSelf }) {
     const videoRef = useRef(null);
 
     useEffect(() => {
@@ -3896,7 +3927,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }, [track]);
 
     return (
-      <div className={`wt-webcam-card ${isSpeaking ? 'is-speaking' : ''}`}>
+      <div className={`wt-webcam-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}>
         <video
           ref={videoRef}
           autoPlay
@@ -3910,15 +3941,65 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           <span className="wt-webcam-name">{name}</span>
           {isMuted && <MicOff size={11} color="#fca5a5" />}
         </div>
-        {isLocal && onToggleCamera && (
-          <button
-            type="button"
-            onClick={onToggleCamera}
-            className="wt-webcam-close-btn"
-            title="Turn off webcam"
-          >
-            <X size={11} />
-          </button>
+        {isLocal && (
+          <div className="wt-webcam-card-actions">
+            {onHideSelf && (
+              <button
+                type="button"
+                onClick={onHideSelf}
+                className="wt-webcam-action-btn"
+                title="Hide self-view (others still see you)"
+              >
+                <EyeOff size={11} />
+              </button>
+            )}
+            {onToggleCamera && (
+              <button
+                type="button"
+                onClick={onToggleCamera}
+                className="wt-webcam-action-btn is-close"
+                title="Turn off webcam"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Collapsed Micro Reaction Orb (36px circular live webcam)
+  function PartyWebcamOrb({ track, isLocal, name, avatar, isMuted, isSpeaking, onExpand }) {
+    const videoRef = useRef(null);
+
+    useEffect(() => {
+      if (!track || !videoRef.current) return;
+      const el = videoRef.current;
+      track.attach(el);
+      return () => {
+        try { track.detach(el); } catch { }
+      };
+    }, [track]);
+
+    return (
+      <div
+        className={`wt-webcam-orb ${isSpeaking ? 'is-speaking' : ''}`}
+        title={`${name} ${isSpeaking ? '(Speaking)' : ''} · Click to expand`}
+        onClick={onExpand}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={isLocal}
+          className="wt-webcam-orb-video"
+          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+        />
+        {isMuted && (
+          <span className="wt-webcam-orb-muted">
+            <MicOff size={8} color="#fca5a5" />
+          </span>
         )}
       </div>
     );
@@ -3930,34 +4011,139 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const hasRemoteVideos = remoteVideoTracks.size > 0;
     if (!hasLocalVideo && !hasRemoteVideos) return null;
 
+    const showLocalCard = hasLocalVideo && !isSelfViewHidden;
+    const totalCount = (showLocalCard ? 1 : 0) + remoteVideoTracks.size;
+
+    const handleWebcamPointerDown = (e) => {
+      if (e.target.closest('button, video')) return;
+      setIsWebcamDragging(true);
+      webcamDragStartRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        initialX: webcamPosition.x,
+        initialY: webcamPosition.y,
+      };
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    };
+
+    const handleWebcamPointerMove = (e) => {
+      if (!isWebcamDragging) return;
+      const dx = e.clientX - webcamDragStartRef.current.startX;
+      const dy = e.clientY - webcamDragStartRef.current.startY;
+      setWebcamPosition({
+        x: webcamDragStartRef.current.initialX + dx,
+        y: webcamDragStartRef.current.initialY + dy,
+      });
+    };
+
+    const handleWebcamPointerUp = (e) => {
+      setIsWebcamDragging(false);
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+    };
+
     return (
-      <div className="wt-webcam-dock" onClick={(e) => e.stopPropagation()}>
-        {hasLocalVideo && (
-          <PartyWebcamCard
-            track={localVideoTrack}
-            isLocal={true}
-            name={currentProfile?.name || 'You'}
-            avatar={currentProfile?.avatar}
-            isMuted={isMuted}
-            isSpeaking={isLocalSpeaking}
-            onToggleCamera={toggleCamera}
-          />
+      <div
+        className={`wt-webcam-dock ${isCinemaDimmed && !isWebcamDragging ? 'is-cinema-dimmed' : ''} ${isWebcamCollapsed ? 'is-collapsed' : ''} ${isWebcamDragging ? 'is-dragging' : ''}`}
+        style={{
+          transform: `translate3d(${webcamPosition.x}px, ${webcamPosition.y}px, 0)`
+        }}
+        onPointerDown={handleWebcamPointerDown}
+        onPointerMove={handleWebcamPointerMove}
+        onPointerUp={handleWebcamPointerUp}
+        onPointerCancel={handleWebcamPointerUp}
+        onDoubleClick={() => setWebcamPosition({ x: 0, y: 0 })}
+        onClick={(e) => e.stopPropagation()}
+        title={isWebcamDragging ? 'Dragging webcam dock' : 'Double click header to reset position'}
+      >
+        <div className="wt-webcam-header-bar">
+          <GripHorizontal size={12} className="wt-webcam-grip-icon" />
+          <span className="wt-webcam-header-label">
+            Webcam {totalCount > 0 ? `(${totalCount})` : ''}
+          </span>
+
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: 'auto' }}>
+            {hasLocalVideo && isSelfViewHidden && (
+              <button
+                type="button"
+                className="wt-webcam-unhide-chip"
+                onClick={() => setIsSelfViewHidden(false)}
+                title="Show your own camera preview"
+              >
+                <Eye size={10} /> <span>Show Me</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="wt-webcam-ctrl-btn"
+              onClick={() => setIsWebcamCollapsed((prev) => !prev)}
+              title={isWebcamCollapsed ? 'Expand to 16:9 cards' : 'Collapse to micro-reaction orbs'}
+            >
+              {isWebcamCollapsed ? <Maximize2 size={11} /> : <Minimize2 size={11} />}
+            </button>
+          </div>
+        </div>
+
+        {isWebcamCollapsed ? (
+          <div className="wt-webcam-orbs-rack">
+            {showLocalCard && (
+              <PartyWebcamOrb
+                track={localVideoTrack}
+                isLocal={true}
+                name={currentProfile?.name || 'You'}
+                avatar={currentProfile?.avatar}
+                isMuted={isMuted}
+                isSpeaking={isLocalSpeaking}
+                onExpand={() => setIsWebcamCollapsed(false)}
+              />
+            )}
+            {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
+              const peer = remotePeers.get(peerId);
+              const user = connectedUsers.find((u) => u.id === peerId);
+              return (
+                <PartyWebcamOrb
+                  key={peerId}
+                  track={track}
+                  isLocal={false}
+                  name={peer?.username || user?.username || 'Partner'}
+                  avatar={peer?.avatar || user?.avatar}
+                  isMuted={peer?.isMuted}
+                  isSpeaking={peer?.isSpeaking}
+                  onExpand={() => setIsWebcamCollapsed(false)}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div className="wt-webcam-cards-stack">
+            {showLocalCard && (
+              <PartyWebcamCard
+                track={localVideoTrack}
+                isLocal={true}
+                name={currentProfile?.name || 'You'}
+                avatar={currentProfile?.avatar}
+                isMuted={isMuted}
+                isSpeaking={isLocalSpeaking}
+                onToggleCamera={toggleCamera}
+                onHideSelf={() => setIsSelfViewHidden(true)}
+              />
+            )}
+            {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
+              const peer = remotePeers.get(peerId);
+              const user = connectedUsers.find((u) => u.id === peerId);
+              return (
+                <PartyWebcamCard
+                  key={peerId}
+                  track={track}
+                  isLocal={false}
+                  name={peer?.username || user?.username || 'Partner'}
+                  avatar={peer?.avatar || user?.avatar}
+                  isMuted={peer?.isMuted}
+                  isSpeaking={peer?.isSpeaking}
+                />
+              );
+            })}
+          </div>
         )}
-        {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
-          const peer = remotePeers.get(peerId);
-          const user = connectedUsers.find((u) => u.id === peerId);
-          return (
-            <PartyWebcamCard
-              key={peerId}
-              track={track}
-              isLocal={false}
-              name={peer?.username || user?.username || 'Partner'}
-              avatar={peer?.avatar || user?.avatar}
-              isMuted={peer?.isMuted}
-              isSpeaking={peer?.isSpeaking}
-            />
-          );
-        })}
       </div>
     );
   }

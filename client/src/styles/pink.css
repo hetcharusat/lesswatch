@@ -9267,12 +9267,12 @@ body.in-chit-chat-mode header {
 }
 
 /* ============================================================
-   PARTY WEBCAM VIDEO CALLING DOCK & GLASS CARDS
+   PARTY WEBCAM VIDEO CALLING DOCK & GLASS CARDS (Impeccable UX)
    ============================================================ */
 @keyframes wtWebcamIn {
   from {
     opacity: 0;
-    transform: translate3d(0, -8px, 0) scale(0.94);
+    transform: translate3d(0, -10px, 0) scale(0.92);
   }
   to {
     opacity: 1;
@@ -9280,54 +9280,154 @@ body.in-chit-chat-mode header {
   }
 }
 
+@keyframes wtWebcamSpeakingHalo {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #ec4899, 0 0 16px rgba(236, 72, 153, 0.65), 0 10px 28px rgba(0, 0, 0, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 3px #f472b6, 0 0 26px rgba(244, 114, 182, 0.85), 0 12px 32px rgba(0, 0, 0, 0.55);
+  }
+}
+
 .wt-webcam-dock {
   position: absolute;
   top: 18px;
   right: 20px;
-  z-index: 38;
+  z-index: 45;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-  max-height: calc(100% - 120px);
-  overflow-y: auto;
-  scrollbar-width: none;
+  gap: 6px;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  animation: wtWebcamIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.wt-webcam-dock::-webkit-scrollbar {
-  display: none;
+/* Cinema Immersion: Auto-dims during quiet playback, instantly wakes up on hover or when speaking */
+.wt-webcam-dock.is-cinema-dimmed {
+  opacity: 0.35;
+  filter: contrast(0.92);
+}
+
+.wt-webcam-dock.is-cinema-dimmed:hover,
+.wt-webcam-dock.is-dragging,
+.wt-webcam-dock:focus-within {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.wt-webcam-dock.is-dragging {
+  cursor: grabbing !important;
+  transition: none !important;
+}
+
+/* Dock Header Control Bar */
+.wt-webcam-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(18, 10, 26, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+}
+
+.wt-webcam-dock.is-dragging .wt-webcam-header-bar {
+  cursor: grabbing;
+}
+
+.wt-webcam-grip-icon {
+  color: rgba(244, 114, 182, 0.7);
+  flex-shrink: 0;
+}
+
+.wt-webcam-header-label {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fce7f3;
+  text-transform: uppercase;
+}
+
+.wt-webcam-ctrl-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fce7f3;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.wt-webcam-ctrl-btn:hover {
+  background: #ec4899;
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.wt-webcam-unhide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 114, 182, 0.4);
+  background: rgba(236, 72, 153, 0.25);
+  color: #fce7f3;
+  font-size: 0.60rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.wt-webcam-unhide-chip:hover {
+  background: #ec4899;
+  color: #ffffff;
+}
+
+/* Cards Stack (Default Expanded View) */
+.wt-webcam-cards-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .wt-webcam-card {
   position: relative;
-  width: 172px;
+  width: 176px;
   height: 104px;
   border-radius: 16px;
   overflow: hidden;
-  background: rgba(18, 10, 26, 0.78);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(18, 10, 26, 0.82);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.26);
   box-shadow:
     0 10px 28px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
     inset 0 -1px 0 rgba(0, 0, 0, 0.25);
-  pointer-events: auto;
-  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease, border-color 220ms ease;
-  animation: wtWebcamIn 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease, border-color 220ms ease, opacity 200ms ease;
 }
 
 .wt-webcam-card:hover {
   transform: translateY(-2px) scale(1.02);
-  border-color: rgba(244, 114, 182, 0.5);
+  border-color: rgba(244, 114, 182, 0.6);
 }
 
+/* Speaking Halo: Always forces full opacity and vibrant pulsing ring even when dock is dimmed */
 .wt-webcam-card.is-speaking {
-  border-color: #f472b6;
-  box-shadow:
-    0 0 0 2px #ec4899,
-    0 0 18px rgba(236, 72, 153, 0.65),
-    0 10px 28px rgba(0, 0, 0, 0.45);
+  opacity: 1 !important;
+  border-color: #f472b6 !important;
+  animation: wtWebcamSpeakingHalo 1.6s ease-in-out infinite;
 }
 
 .wt-webcam-video {
@@ -9347,33 +9447,39 @@ body.in-chit-chat-mode header {
   gap: 5px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(12, 6, 18, 0.75);
+  background: rgba(12, 6, 18, 0.78);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #ffffff;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
 
 .wt-webcam-name {
-  max-width: 90px;
+  max-width: 85px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wt-webcam-close-btn {
+.wt-webcam-card-actions {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 20px;
-  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wt-webcam-action-btn {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(18, 10, 26, 0.7);
+  background: rgba(18, 10, 26, 0.72);
   backdrop-filter: blur(6px);
   color: #fce7f3;
   display: grid;
@@ -9383,10 +9489,69 @@ body.in-chit-chat-mode header {
   transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
-.wt-webcam-close-btn:hover {
-  background: #ec4899;
+.wt-webcam-action-btn:hover {
+  background: rgba(244, 114, 182, 0.4);
   color: #ffffff;
   transform: scale(1.1);
+}
+
+.wt-webcam-action-btn.is-close:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+/* Collapsed Micro-Reaction Orbs Rack */
+.wt-webcam-orbs-rack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.wt-webcam-orb {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(18, 10, 26, 0.85);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.wt-webcam-orb:hover {
+  transform: scale(1.15);
+  border-color: #f472b6;
+}
+
+.wt-webcam-orb.is-speaking {
+  opacity: 1 !important;
+  border-color: #f472b6 !important;
+  box-shadow: 0 0 0 2px #ec4899, 0 0 16px rgba(236, 72, 153, 0.85);
+  animation: wtWebcamSpeakingHalo 1.6s ease-in-out infinite;
+}
+
+.wt-webcam-orb-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wt-webcam-orb-muted {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1f0b18;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: grid;
+  place-items: center;
 }
 
 .a4-btn.is-camera-on {
@@ -9395,6 +9560,7 @@ body.in-chit-chat-mode header {
   color: #ffffff !important;
   box-shadow: 0 0 12px rgba(236, 72, 153, 0.45) !important;
 }
+
 
 
 
