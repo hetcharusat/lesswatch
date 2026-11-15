@@ -161,6 +161,7 @@ async function generateEnvironment(log, s) {
     }
   };
 
+  const isCloud = TARGETS[state.target]?.id === 'cloud';
   const targetPort = defaultPort();
 
   setEnvVar('PORT', targetPort);
@@ -360,6 +361,7 @@ async function prepareDownloader(log, s) {
 
 async function startTunnel(log, s) {
   const tunnelOn = state.modules[2] ?? true;
+  const isCloud = TARGETS[state.target]?.id === 'cloud';
   const targetPort = defaultPort();
 
   if (!tunnelOn) {
