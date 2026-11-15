@@ -435,8 +435,62 @@ function cw(ch) {
   return 1;
 }
 const vlen = (s) => { let n = 0; for (const ch of s.replace(ANSI_RE, '')) n += cw(ch); return n; };
-const pad = (s, w) => s + ' '.repeat(Math.max(0, w - vlen(s)));
+
+function truncateAnsi(str, maxLen) {
+  const visible = vlen(str);
+  if (visible <= maxLen) return str;
+
+  let currentLen = 0;
+  let result = '';
+  const regex = /(\x1b\[[0-9;?]*[A-Za-z])|([^\x1b]+)/g;
+  let match;
+
+  while ((match = regex.exec(str)) !== null) {
+    if (match[1]) {
+      result += match[1];
+    } else if (match[2]) {
+      for (const ch of match[2]) {
+        const w = cw(ch);
+        if (currentLen + w > maxLen - 1) {
+          result += '…' + RESET;
+          return result;
+        }
+        result += ch;
+        currentLen += w;
+      }
+    }
+  }
+  return result + RESET;
+}
+
+function pad(s, w) {
+  const len = vlen(s);
+  if (len > w) {
+    return truncateAnsi(s, w);
+  }
+  return s + ' '.repeat(w - len);
+}
+
 const center = (s, w) => ' '.repeat(Math.max(0, Math.floor((w - vlen(s)) / 2))) + s;
+
+function formatLogLine(raw, maxLen) {
+  const clean = String(raw).replace(/\s+$/, '');
+  if (!clean) return '';
+  let colored;
+  if (clean.startsWith('$')) {
+    colored = C.accent(BOLD + clean);
+  } else if (clean.includes('Started') || clean.includes('Up') || clean.includes('verified') || clean.includes('online')) {
+    colored = green('✔ ') + C.green(clean);
+  } else if (clean.includes('Starting') || clean.includes('Step') || clean.includes('Building')) {
+    colored = C.amber('▸ ') + C.amber(clean);
+  } else if (clean.includes('fail') || clean.includes('Error') || clean.includes('error')) {
+    colored = C.red('✖ ') + C.red(clean);
+  } else {
+    colored = C.faint('· ') + C.muted(clean);
+  }
+  return ' ' + truncateAnsi(colored, maxLen - 2);
+}
+
 function fit(s, n) {
   let w = 0, r = '';
   for (const ch of String(s).replace(ANSI_RE, '')) {
@@ -982,10 +1036,15 @@ const screens = {
     },
   },
 
-  install: { render: installView, key() {} },
+  install: {
+    renderTop: (inner) => installTop(inner, false),
+    renderLogs: (inner, rows) => installLogs(inner, rows, false),
+    key() {}
+  },
 
   failed: {
-    render: (inner) => installView(inner, true),
+    renderTop: (inner) => installTop(inner, true),
+    renderLogs: (inner, rows) => installLogs(inner, rows, true),
     key(s, k) {
       if (s === 'r') retry();
       else if (s === 'q') shutdown(1, 'Stopped. Run the installer again to resume.');
@@ -1055,7 +1114,7 @@ const screens = {
   },
 };
 
-function installView(inner, failed = false) {
+function installTop(inner, failed = false) {
   const spin = SPINNER[Math.floor(state.t * 14) % SPINNER.length];
   const elapsed = (((state.finishedAt || Date.now()) - state.started) / 1000).toFixed(1);
   const pct = String(Math.round(state.shown * 100)).padStart(3);
@@ -1065,7 +1124,7 @@ function installView(inner, failed = false) {
   const L = [topline(3, inner), '', `${title}  ${dim('·')}  ${C.muted(elapsed + 's')}`,
     `${bar(state.shown, Math.max(10, inner - 7), !state.pendingDone && !failed)} ${BOLD}${C.accent(pct + '%')}${RESET}`, ''];
 
-  const bw = clamp(inner - 3 - 28 - 1 - 5, 8, 22);
+  const bw = clamp(inner - 3 - 28 - 1 - 5, 8, 28);
   state.stages.forEach((s) => {
     const icon = { pending: C.faint('○'), running: C.accent(spin), done: green('✔'), failed: C.red('✖') }[s.status];
     const name = { pending: C.faint, running: (t) => BOLD + C.text(t), done: C.muted, failed: C.red }[s.status](s.label.padEnd(28));
@@ -1077,7 +1136,7 @@ function installView(inner, failed = false) {
   L.push('');
 
   // CPU / RAM oscilloscope
-  const R = (out.rows || 24) >= 28 ? 4 : 3;
+  const R = 3;
   const cwid = Math.floor((inner - 2) / 2);
   const cpu = chart(state.cpu, cwid, R, heat);
   const mem = chart(state.mem, cwid, R, cool);
@@ -1088,14 +1147,32 @@ function installView(inner, failed = false) {
   const l2 = `${C.muted('RAM')} ${cool(memNow)}${BOLD}${String(Math.round(memNow * 100)).padStart(3)}%${RESET}`;
   L.push(pad(l1, cwid) + '  ' + l2);
 
+  return L;
+}
+
+function installLogs(inner, rows, failed = false) {
+  const L = [];
   if (failed) {
     const e = wrap(state.error, inner - 2);
-    L.push(' ' + C.red(e[0] || ''), ' ' + C.red(e[1] || ''), hint([['r', 'retry step'], ['q', 'quit']], inner));
-  } else {
-    const tail = state.logs.slice(-2);
-    while (tail.length < 2) tail.unshift('');
-    L.push(...tail.map((l) => ' ' + dim(fit(l, inner - 2))), center(dim('Ctrl+C to abort'), inner));
+    L.push(' ' + C.red(e[0] || ''), ' ' + C.red(e[1] || ''));
+    L.push('', hint([['r', 'retry step'], ['q', 'quit']], inner));
+    return L;
   }
+
+  // Calculate available rows for log stream (scales dynamically with terminal height)
+  const maxLogs = Math.max(3, Math.min(8, (rows || 24) - 20));
+  const tail = state.logs.slice(-maxLogs);
+  while (tail.length < maxLogs) tail.unshift('');
+
+  for (const raw of tail) {
+    if (!raw) {
+      L.push('');
+      continue;
+    }
+    L.push(formatLogLine(raw, inner));
+  }
+
+  L.push(center(dim('Ctrl+C to abort'), inner));
   return L;
 }
 
@@ -1126,14 +1203,31 @@ function draw() {
     out.write(E + 'H' + C.amber(`Terminal too small (${cols}x${rows}). Need at least 60x22.`) + E + 'K\n' + E + 'J');
     return;
   }
-  const W = Math.min(cols - 4, 76);
+  // Adaptive width: standard 86-94 for modern terminals, ensures full URL readability
+  const W = Math.max(76, Math.min(cols - 4, 92));
   const inner = W - 4;
-  let lines = screens[state.screen].render(inner);
-  const reveal = Math.floor(state.sa * 80) + 1;       // staggered line reveal on every screen change
-  if (reveal < lines.length) lines = lines.map((l, i) => (i < reveal ? l : ''));
-  const framed = box(lines, W, state.screen === 'splash' ? '' : 'lesswatch');
-  const left = '  '; // Stable left margin — prevents drifting to the right on wide browser windows
-  const all = ['', ...framed].slice(0, rows - 1);
+  const left = ' '.repeat(Math.max(0, Math.floor((cols - W) / 2)));
+
+  let rendered;
+  if (state.screen === 'install' || state.screen === 'failed') {
+    const isFail = state.screen === 'failed';
+    const topLines = screens[state.screen].renderTop(inner);
+    const framedTop = box(topLines, W, 'lesswatch');
+
+    const logTitle = isFail ? 'failure diagnostics' : 'live deployment stream';
+    const bottomLines = screens[state.screen].renderLogs(inner, rows);
+    const framedBottom = box(bottomLines, W, logTitle);
+
+    rendered = ['', ...framedTop, ...framedBottom];
+  } else {
+    let lines = screens[state.screen].render(inner);
+    const reveal = Math.floor(state.sa * 80) + 1;       // staggered line reveal on every screen change
+    if (reveal < lines.length) lines = lines.map((l, i) => (i < reveal ? l : ''));
+    const framed = box(lines, W, state.screen === 'splash' ? '' : 'lesswatch');
+    rendered = ['', ...framed];
+  }
+
+  const all = rendered.slice(0, rows - 1);
   out.write(E + 'H' + all.map((l) => left + l + E + 'K').join('\n') + E + 'J');
 }
 
@@ -1161,15 +1255,18 @@ function finish() {
   const isCloud = TARGETS[state.target].id === 'cloud';
   const local = process.env.LW_LOCAL || `http://localhost:${isCloud ? 8080 : 3000}`;
   const ip = detectedPublicIP !== '127.0.0.1' ? detectedPublicIP : 'none (local only)';
+  const cols = out.columns || 80;
+  const cardW = Math.max(86, Math.min(cols - 4, 94));
   const card = box([
     BOLD + green('LESSWATCH is live') + RESET, '',
     `${C.accent('Public IP ')}  ${ip}`,
-    `${C.accent('Public URL')}  ${BOLD}${url}${RESET}`,
+    `${C.accent('Public URL')}  ${BOLD}${C.text(url)}${RESET}`,
     `${C.accent('Local     ')}  ${local}`,
     `${C.accent('Login     ')}  admin / admin`, '',
     C.muted('docker compose ps  ·  docker compose logs -f'),
-  ], 76, '');
-  out.write('\n' + card.map((l) => '  ' + l).join('\n') + '\n\n');
+  ], cardW, '');
+  const left = ' '.repeat(Math.max(0, Math.floor((cols - cardW) / 2)));
+  out.write('\n' + card.map((l) => left + l).join('\n') + '\n\n');
   process.exit(0);
 }
 
