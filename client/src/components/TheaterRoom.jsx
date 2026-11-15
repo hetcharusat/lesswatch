@@ -4729,7 +4729,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     return popovers;
   }
 
-  // Voice & Mic Settings Popover (Compact YouTube/Obsidian Style + Discord Per-Peer Controls)
+  // Voice & Mic Settings Popover (Impeccable Cinema Obsidian Pro-Audio Suite)
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
 
@@ -4740,33 +4740,123 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     const popover = (
       <div className="vs949-v1" onClick={(e) => e.stopPropagation()}>
+        {/* Header: Segmented Pill Tab Switch + Close */}
         <div className="vs-head">
           <div className="vs-tabs" role="tablist" aria-label="Voice settings tabs">
-            <button type="button" role="tab" aria-selected={voiceSettingsTab === 'mic'} onClick={() => setVoiceSettingsTab('mic')} className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={voiceSettingsTab === 'mic'}
+              onClick={() => setVoiceSettingsTab('mic')}
+              className={`vs-tab ${voiceSettingsTab === 'mic' ? 'is-on' : ''}`}
+            >
               {isVoiceConnected && !isMuted && <span className="vs-dot" aria-hidden="true" />}
-              <span>My Mic</span>
+              <Mic size={13} style={{ opacity: 0.85 }} />
+              <span>My Microphone</span>
             </button>
-            <button type="button" role="tab" aria-selected={voiceSettingsTab === 'peers'} onClick={() => setVoiceSettingsTab('peers')} className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}>
-              <span>Member Mics ({otherPeers.length})</span>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={voiceSettingsTab === 'peers'}
+              onClick={() => setVoiceSettingsTab('peers')}
+              className={`vs-tab ${voiceSettingsTab === 'peers' ? 'is-on' : ''}`}
+            >
+              <Users size={13} style={{ opacity: 0.85 }} />
+              <span>Party Members ({otherPeers.length})</span>
             </button>
           </div>
-          <button type="button" onClick={() => setShowVoiceSettings(false)} className="vs-close" title="Close" aria-label="Close voice settings">
-            <X size={13} />
+          <button
+            type="button"
+            onClick={() => setShowVoiceSettings(false)}
+            className="vs-close"
+            title="Close voice settings"
+            aria-label="Close voice settings"
+          >
+            <X size={14} />
           </button>
         </div>
 
         {voiceSettingsTab === 'mic' ? (
-          <div className="vs-cols">
-            <div className="vs-col">
-              <div className="vs-sec-head">
-                <span>Microphone ({audioInputDevices.length || 1})</span>
-                <button type="button" onClick={refreshMediaDevices} className="vs-rescan">
-                  <RotateCcw size={10} /> Rescan
+          <div className="vs-content-scroll">
+            {/* Card 1: Master Voice Status & VU Deck */}
+            <div className="vs-hero-card">
+              <div className="vs-hero-left">
+                <div className="vs-hero-status-row">
+                  <span className={`vs-status-pill ${isVoiceConnected ? (isMuted ? 'is-muted' : 'is-connected') : 'is-offline'}`}>
+                    <span className="vs-status-dot" />
+                    <span>{isVoiceConnected ? (isMuted ? 'Muted' : 'Live Connected') : 'Offline'}</span>
+                  </span>
+                  {isVoiceConnected && (
+                    <span className="vs-hero-sub">
+                      {isMuted ? 'Microphone muted' : 'Audio transmitting'}
+                    </span>
+                  )}
+                </div>
+                {/* 13-Bar Live VU Equalizer */}
+                <div className="vs-vu-meter" title={`Live input level: ${Math.round(micLevel)}%`}>
+                  {[18, 30, 48, 68, 88, 100, 110, 100, 88, 68, 48, 30, 18].map((mult, i) => {
+                    const threshold = (i / 13) * 65;
+                    const isLit = isVoiceConnected && !isMuted && micLevel > threshold;
+                    const barHeight = isLit ? Math.min(100, Math.max(20, (micLevel - threshold) * 2.2 + 25)) : 18;
+                    return (
+                      <span
+                        key={i}
+                        className={`vs-vu-bar ${isLit ? 'is-active' : ''}`}
+                        style={{
+                          height: `${barHeight}%`,
+                          background: i >= 11 ? '#f43f5e' : i >= 8 ? '#f59e0b' : isLit ? '#10b981' : 'rgba(255, 255, 255, 0.16)'
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="vs-hero-actions">
+                {isVoiceConnected ? (
+                  <button
+                    type="button"
+                    onClick={leaveVoiceChat}
+                    className="vs-action-btn is-disconnect"
+                    title="Leave voice chat"
+                  >
+                    <MicOff size={13} />
+                    <span>Disconnect</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startMicrophone()}
+                    className="vs-action-btn is-connect"
+                    title="Connect microphone to voice chat"
+                  >
+                    <Mic size={13} />
+                    <span>Join Voice</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Hardware Input Device */}
+            <div className="vs-card">
+              <div className="vs-card-header">
+                <div className="vs-sec-title">
+                  <Radio size={12} color="#f472b6" />
+                  <span>Input Microphone ({audioInputDevices.length || 1})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshMediaDevices}
+                  className="vs-rescan"
+                  title="Rescan audio devices"
+                >
+                  <RotateCcw size={10} />
+                  <span>Rescan</span>
                 </button>
               </div>
+
               <div className="vs-mic-list">
                 {audioInputDevices.length === 0 ? (
-                  <div style={{ fontSize: '0.71rem', opacity: 0.72, padding: '6px' }}>Default System Mic</div>
+                  <div className="vs-mic-empty">Default System Microphone</div>
                 ) : (
                   audioInputDevices.map((dev, idx) => {
                     const isSelected = dev.deviceId === selectedAudioInput;
@@ -4777,120 +4867,202 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                         onClick={() => switchAudioInput(dev.deviceId)}
                         className={`vs-mic-row ${isSelected ? 'is-on' : ''}`}
                       >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.label || `Mic ${idx + 1}`}</span>
-                        {isSelected && <Check size={12} color="#f472b6" style={{ flexShrink: 0 }} />}
+                        <div className="vs-mic-info">
+                          <Mic size={12} className="vs-mic-icon" />
+                          <span className="vs-mic-name">{dev.label || `Microphone ${idx + 1}`}</span>
+                        </div>
+                        {isSelected && <Check size={13} color="#f472b6" style={{ flexShrink: 0 }} />}
                       </button>
                     );
                   })
                 )}
               </div>
-              <div className="vs-action-pair">
-                <button
-                  type="button"
-                  onClick={handleEchoCancellationToggle}
-                  className={`vs-anim-btn ${isEchoCancellationEnabled ? 'is-echo-on' : ''}`}
-                  title={isEchoCancellationEnabled ? 'Echo Cancellation: On (Speaker safe)' : 'Echo Cancellation: Off (Headphones mode)'}
-                >
-                  <span>{isEchoCancellationEnabled ? 'Echo: On' : 'Echo: Off'}</span>
-                </button>
-                {isVoiceConnected ? (
-                  <button type="button" onClick={leaveVoiceChat} className="vs-anim-btn is-disconnect">
-                    <MicOff size={12} /> <span>Disconnect</span>
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => startMicrophone()} className="vs-anim-btn is-connect">
-                    <Mic size={12} /> <span>Connect</span>
-                  </button>
-                )}
+            </div>
+
+            {/* Card 3: Pro DSP Audio Studio */}
+            <div className="vs-card">
+              <div className="vs-card-header">
+                <div className="vs-sec-title">
+                  <Sliders size={12} color="#f472b6" />
+                  <span>Studio Audio Processing</span>
+                </div>
+              </div>
+
+              <div className="vs-dsp-grid">
+                {/* 1. Noise Suppression */}
+                <div className="vs-dsp-cell">
+                  <div className="vs-cell-header">
+                    <span className="vs-label">Noise Suppression</span>
+                    <span className="vs-badge">{noiseSuppressionMode.toUpperCase()}</span>
+                  </div>
+                  <div className="vs-seg3">
+                    {[
+                      { id: 'rnnoise', label: 'AI Neural' },
+                      { id: 'speex', label: 'Acoustic' },
+                      { id: 'raw', label: 'Bypass' }
+                    ].map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => handleNoiseModeChange(mode.id)}
+                        className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Echo Cancellation (Toggle) */}
+                <div className="vs-dsp-cell">
+                  <div className="vs-cell-header">
+                    <span className="vs-label">Echo Cancellation</span>
+                    <span className={`vs-badge ${isEchoCancellationEnabled ? 'is-active' : ''}`}>
+                      {isEchoCancellationEnabled ? 'Active' : 'Off'}
+                    </span>
+                  </div>
+                  <div className="vs-toggle-row" onClick={handleEchoCancellationToggle}>
+                    <span className="vs-sublabel">Feedback prevention</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isEchoCancellationEnabled}
+                      className={`vs-switch ${isEchoCancellationEnabled ? 'is-on' : ''}`}
+                      title="Toggle Echo Cancellation"
+                    >
+                      <span className="vs-switch-thumb" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Noise Gate */}
+                <div className="vs-dsp-cell">
+                  <div className="vs-cell-header">
+                    <span className="vs-label">Noise Gate</span>
+                    <span className={`vs-badge ${noiseIntensity === 0 ? '' : isNoiseGateOpen ? 'is-open' : 'is-gated'}`}>
+                      {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
+                    </span>
+                  </div>
+                  <div className="vs-meter-container">
+                    <div className="vs-meter">
+                      <div
+                        className="vs-meter-fill"
+                        style={{
+                          width: `${Math.min(100, micLevel)}%`,
+                          background: isNoiseGateOpen
+                            ? 'linear-gradient(90deg, #10b981, #34d399)'
+                            : 'linear-gradient(90deg, #ec4899, #f472b6)'
+                        }}
+                      />
+                      {noiseIntensity > 0 && (
+                        <div
+                          className="vs-meter-mark"
+                          style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={noiseIntensity}
+                    aria-label="Noise Gate threshold"
+                    className="vs-range"
+                    style={{ '--pct': `${noiseIntensity}%` }}
+                    onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
+                  />
+                </div>
+
+                {/* 4. Mic Sensitivity / Gain */}
+                <div className="vs-dsp-cell">
+                  <div className="vs-cell-header">
+                    <span className="vs-label">Mic Sensitivity</span>
+                    <span className="vs-badge">
+                      {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
+                    </span>
+                  </div>
+                  <div style={{ height: '7px' }} />
+                  <input
+                    type="range"
+                    min="50"
+                    max="200"
+                    step="5"
+                    value={micGain}
+                    aria-label="Mic Sensitivity"
+                    className="vs-range"
+                    style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }}
+                    onChange={(e) => handleMicGainChange(Number(e.target.value))}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="vs-col vs-col-right">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div className="vs-sec-head">
-                  <span>Suppression</span>
-                  <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>{noiseSuppressionMode.toUpperCase()}</span>
-                </div>
-                <div className="vs-seg3">
-                  {[{ id: 'rnnoise', label: 'AI Neural' }, { id: 'speex', label: 'Acoustic' }, { id: 'raw', label: 'Bypass' }].map((mode) => (
-                    <button key={mode.id} type="button" onClick={() => handleNoiseModeChange(mode.id)} className={`vs-seg-btn ${noiseSuppressionMode === mode.id ? 'is-on' : ''}`}>
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <div className="vs-sec-head">
-                  <span>Noise Gate</span>
-                  <span style={{ fontSize: '0.65rem', color: noiseIntensity === 0 ? '#a7f3d0' : isNoiseGateOpen ? '#10b981' : '#f472b6' }}>
-                    {noiseIntensity === 0 ? 'Off' : `${isNoiseGateOpen ? 'Open' : 'Gated'} · ${noiseIntensity}%`}
-                  </span>
-                </div>
-                <div className="vs-meter">
-                  <div
-                    className="vs-meter-fill"
-                    style={{
-                      width: `${Math.min(100, micLevel)}%`,
-                      background: isNoiseGateOpen ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #ec4899, #f472b6)',
-                    }}
-                  />
-                  {noiseIntensity > 0 && <div className="vs-meter-mark" style={{ left: `${Math.max(1, Math.round(noiseIntensity * 0.55))}%` }} />}
-                </div>
-                <input
-                  type="range" min="0" max="100" step="5" value={noiseIntensity}
-                  aria-label="Noise Gate threshold"
-                  className="vs-range"
-                  style={{ '--pct': `${noiseIntensity}%` }}
-                  onChange={(e) => handleNoiseIntensityChange(Number(e.target.value))}
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <div className="vs-sec-head">
-                  <span>Mic Sensitivity</span>
-                  <span style={{ fontSize: '0.65rem', color: '#f472b6' }}>
-                    {micGain}% ({micGain === 100 ? '0 dB' : `${((micGain - 100) * 0.12) > 0 ? '+' : ''}${((micGain - 100) * 0.12).toFixed(1)} dB`})
-                  </span>
-                </div>
-                <input
-                  type="range" min="50" max="200" step="5" value={micGain}
-                  aria-label="Mic Sensitivity"
-                  className="vs-range"
-                  style={{ '--pct': `${Math.round(((micGain - 50) / 150) * 100)}%` }}
-                  onChange={(e) => handleMicGainChange(Number(e.target.value))}
-                />
-              </div>
+            {/* Tip Footer */}
+            <div className="vs-tip-footer">
+              <span className="vs-tip-badge">TIP</span>
+              <span>Hold <kbd className="vs-kbd">V</kbd> anywhere while watching video for instant Push-to-Talk</span>
             </div>
           </div>
         ) : (
-          <div className="vs-peers">
+          <div className="vs-peers-content">
+            <div className="vs-card-header" style={{ padding: '4px 2px 10px 2px' }}>
+              <div className="vs-sec-title">
+                <Users size={12} color="#f472b6" />
+                <span>Room Member Volume ({otherPeers.length})</span>
+              </div>
+              <span className="vs-hero-sub">Adjust individual listening levels</span>
+            </div>
+
             {otherPeers.length === 0 ? (
-              <div style={{ textAlign: 'center', fontSize: '0.74rem', padding: '18px 8px', color: 'rgba(253, 228, 242, 0.72)' }}>
-                No other members connected in voice yet
+              <div className="vs-empty-peers">
+                <div className="vs-empty-peers-icon">
+                  <Users size={24} color="#f472b6" />
+                </div>
+                <div className="vs-empty-peers-title">No other members in voice</div>
+                <div className="vs-empty-peers-desc">
+                  When other friends join this room, you can adjust their individual volume sliders here.
+                </div>
               </div>
             ) : (
-              otherPeers.map((user) => {
-                const pId = user.id || user.peerId || user.socketId;
-                const peerVol = peerVolumes.get(pId) ?? 100;
-                const isPeerMuted = peerVol === 0;
-                return (
-                  <div key={pId || user.username} className="vs-peer-row">
-                    <UserAvatar avatar={user.avatar || 'jojo-star'} size="20px" />
-                    <span style={{ fontSize: '0.73rem', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username || user.name || 'Friend'}</span>
-                    <input
-                      type="range" min="0" max="200" step="5" value={peerVol}
-                      onChange={(e) => handlePeerVolume(pId, e.target.value)}
-                      className="vs-range"
-                      style={{ width: '104px', '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
-                    />
-                    <span style={{ fontSize: '0.68rem', fontWeight: 800, minWidth: '34px', textAlign: 'right', color: '#fbcfe8' }}>{peerVol}%</span>
-                    <button type="button" onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)} className="vs-peer-mute" title={isPeerMuted ? 'Unmute member' : 'Mute member'}>
-                      {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                    </button>
-                  </div>
-                );
-              })
+              <div className="vs-peers-list">
+                {otherPeers.map((user) => {
+                  const pId = user.id || user.peerId || user.socketId;
+                  const peerVol = peerVolumes.get(pId) ?? 100;
+                  const isPeerMuted = peerVol === 0;
+                  return (
+                    <div key={pId || user.username} className="vs-peer-card">
+                      <div className="vs-peer-left">
+                        <UserAvatar avatar={user.avatar || 'jojo-star'} size="26px" />
+                        <span className="vs-peer-name">{user.username || user.name || 'Friend'}</span>
+                      </div>
+                      <div className="vs-peer-slider-wrap">
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          step="5"
+                          value={peerVol}
+                          onChange={(e) => handlePeerVolume(pId, e.target.value)}
+                          className="vs-range"
+                          style={{ '--pct': `${Math.round((peerVol / 200) * 100)}%` }}
+                        />
+                        <span className="vs-peer-pct">{peerVol}%</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handlePeerVolume(pId, isPeerMuted ? 100 : 0)}
+                        className={`vs-peer-mute ${isPeerMuted ? 'is-muted' : ''}`}
+                        title={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                        aria-label={isPeerMuted ? 'Unmute member' : 'Mute member'}
+                      >
+                        {isPeerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
