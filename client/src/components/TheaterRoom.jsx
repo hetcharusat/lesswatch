@@ -3992,8 +3992,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     return `${m}:${remS.toString().padStart(2, '0')}`;
   }
 
-  // Floating Party Webcam Video Tile
-  function PartyWebcamCard({ track, isLocal, name, avatar, isMuted, isSpeaking, onToggleCamera, onHideSelf }) {
+  // Floating Party Webcam Video Tile (Apple PiP Cinema Glass)
+  function PartyWebcamCard({
+    track,
+    isLocal,
+    name,
+    avatar,
+    isMuted,
+    isSpeaking,
+    onToggleCamera,
+    onHideSelf,
+    webcamScale,
+    onSetScale,
+    onCollapse,
+    onResizeStart
+  }) {
     const videoRef = useRef(null);
 
     useEffect(() => {
@@ -4006,49 +4019,120 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }, [track]);
 
     return (
-      <div className={`wt-webcam-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}>
+      <div
+        className={`wt-pip-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}
+        style={{
+          width: `${webcamScale}px`,
+          height: `${Math.round(webcamScale * 0.58)}px`
+        }}
+      >
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={isLocal}
-          className="wt-webcam-video"
+          className="wt-pip-video"
           style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
         />
-        <div className="wt-webcam-badge">
-          <UserAvatar user={{ name, avatar }} size={16} showBorder={false} />
-          <span className="wt-webcam-name">{name}</span>
-          {isMuted && <MicOff size={11} color="#fca5a5" />}
-        </div>
-        {isLocal && (
-          <div className="wt-webcam-card-actions">
-            {onHideSelf && (
+
+        {/* Ambient Top Shadow Gradient for Floating Controls */}
+        <div className="wt-pip-scrim-top" />
+
+        {/* Top Floating Glass HUD (Fades in on hover) */}
+        <div className="wt-pip-hud-top" onClick={(e) => e.stopPropagation()}>
+          <div className="wt-pip-badge">
+            <span className="wt-pip-avatar-ring">
+              <UserAvatar user={{ name, avatar }} size={15} showBorder={false} />
+            </span>
+            <span className="wt-pip-name">{name}</span>
+            {isMuted && <MicOff size={10} color="#fca5a5" />}
+          </div>
+
+          <div className="wt-pip-actions">
+            {/* Quick S · M · L Size Switcher */}
+            <div className="wt-pip-sizes" title="Preset sizes">
+              {[
+                { label: 'S', size: 160 },
+                { label: 'M', size: 240 },
+                { label: 'L', size: 340 }
+              ].map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  className={`wt-pip-size-btn ${Math.abs(webcamScale - s.size) < 30 ? 'is-active' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSetScale(s.size);
+                  }}
+                  title={`Resize to ${s.label} (${s.size}px)`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {onCollapse && (
               <button
                 type="button"
-                onClick={onHideSelf}
-                className="wt-webcam-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCollapse();
+                }}
+                className="wt-pip-btn"
+                title="Collapse to reaction bubble"
+              >
+                <Minimize2 size={11} />
+              </button>
+            )}
+
+            {isLocal && onHideSelf && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onHideSelf();
+                }}
+                className="wt-pip-btn"
                 title="Hide self-view (others still see you)"
               >
                 <EyeOff size={11} />
               </button>
             )}
-            {onToggleCamera && (
+
+            {isLocal && onToggleCamera && (
               <button
                 type="button"
-                onClick={onToggleCamera}
-                className="wt-webcam-action-btn is-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCamera();
+                }}
+                className="wt-pip-btn is-close"
                 title="Turn off webcam"
               >
                 <X size={11} />
               </button>
             )}
           </div>
-        )}
+        </div>
+
+        {/* Bottom-Right Corner Resize Grip (Native Mac/PiP Style) */}
+        <div
+          className="wt-pip-resize-thumb"
+          onPointerDown={(e) => onResizeStart(e)}
+          title="Drag corner to resize freely"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <line x1="9" y1="2" x2="2" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+            <line x1="9" y1="5.5" x2="5.5" y2="9" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+            <line x1="9" y1="9" x2="9" y2="9.01" stroke="rgba(255, 255, 255, 0.75)" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </div>
       </div>
     );
   }
 
-  // Collapsed Micro Reaction Orb (36px circular live webcam)
+  // Collapsed Micro Reaction Bubble (96px squircle live webcam pill)
   function PartyWebcamOrb({ track, isLocal, name, avatar, isMuted, isSpeaking, onExpand }) {
     const videoRef = useRef(null);
 
@@ -4063,28 +4147,30 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
     return (
       <div
-        className={`wt-webcam-orb ${isSpeaking ? 'is-speaking' : ''}`}
-        title={`${name} ${isSpeaking ? '(Speaking)' : ''} · Click to expand`}
+        className={`wt-pip-orb ${isSpeaking ? 'is-speaking' : ''}`}
+        title={`${name} · Click to expand to PiP`}
         onClick={onExpand}
       >
         <video
-          ref={(el) => { if (el) { if (track) { try { track.attach(el); } catch {} } } }}
+          ref={videoRef}
           autoPlay
           playsInline
           muted={isLocal}
-          className="wt-webcam-orb-video"
+          className="wt-pip-orb-video"
           style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
         />
-        {isMuted && (
-          <span className="wt-webcam-orb-muted">
-            <MicOff size={8} color="#fca5a5" />
-          </span>
-        )}
+        <div className="wt-pip-orb-footer">
+          <span className="wt-pip-orb-name">{name}</span>
+          {isMuted && <MicOff size={9} color="#fca5a5" />}
+        </div>
+        <div className="wt-pip-orb-expand-hint">
+          <Maximize2 size={12} color="#ffffff" />
+        </div>
       </div>
     );
   }
 
-  // Floating Party Webcam Grid Dock (Canva-Style Mouse Resizing & Pure Obsidian Glassmorphism)
+  // Floating Party Webcam Grid Dock (Pure Floating Glass PiP, Zero Toolbar Clutter)
   function renderPartyWebcamGrid() {
     const hasLocalVideo = isCameraEnabled && localVideoTrack;
     const hasRemoteVideos = remoteVideoTracks.size > 0;
@@ -4093,8 +4179,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const showLocalCard = hasLocalVideo && !isSelfViewHidden;
     const totalCount = (showLocalCard ? 1 : 0) + remoteVideoTracks.size;
 
-    const handleWebcamPointerDown = (e) => {
-      if (e.target.closest('button, video, input, .wt-canva-handle, .wt-canva-corner-thumb')) return;
+    // Direct card click-and-drag to move
+    const handleCardPointerDown = (e) => {
+      if (e.target.closest('button, .wt-pip-resize-thumb, .wt-pip-sizes')) return;
       e.preventDefault();
       e.stopPropagation();
       setIsWebcamDragging(true);
@@ -4124,7 +4211,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       window.addEventListener('pointercancel', onPointerUp);
     };
 
-    const handleWebcamResizePointerDown = (e, direction = 'se') => {
+    // Direct mouse drag on bottom-right corner to resize
+    const handleResizeStart = (e) => {
       e.preventDefault();
       e.stopPropagation();
       setIsWebcamResizing(true);
@@ -4133,26 +4221,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       const initScale = webcamScale;
 
       const onPointerMove = (ev) => {
-        let delta = 0;
-        if (direction === 'se') {
-          const dx = ev.clientX - startX;
-          const dy = (ev.clientY - startY) / 0.58;
-          delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-        } else if (direction === 'sw') {
-          const dx = startX - ev.clientX;
-          const dy = (ev.clientY - startY) / 0.58;
-          delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-        } else if (direction === 'ne') {
-          const dx = ev.clientX - startX;
-          const dy = (startY - ev.clientY) / 0.58;
-          delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-        } else if (direction === 'nw') {
-          const dx = startX - ev.clientX;
-          const dy = (startY - ev.clientY) / 0.58;
-          delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-        }
-
-        const newScale = Math.round(Math.max(140, Math.min(480, initScale + delta)));
+        const dx = ev.clientX - startX;
+        const dy = (ev.clientY - startY) / 0.58;
+        const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+        const newScale = Math.round(Math.max(140, Math.min(460, initScale + delta)));
         setWebcamScale(newScale);
         try {
           localStorage.setItem('wt_webcam_scale', String(newScale));
@@ -4171,95 +4243,35 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       window.addEventListener('pointercancel', onPointerUp);
     };
 
+    // Double click to cycle size presets
+    const handleCardDoubleClick = (e) => {
+      e.stopPropagation();
+      if (isWebcamCollapsed) {
+        setIsWebcamCollapsed(false);
+        return;
+      }
+      if (webcamScale < 200) {
+        setWebcamScale(240);
+      } else if (webcamScale < 290) {
+        setWebcamScale(340);
+      } else {
+        setWebcamScale(160);
+      }
+    };
+
     return (
       <div
         className={`wt-webcam-dock ${isCinemaDimmed && !isWebcamDragging && !isWebcamResizing ? 'is-cinema-dimmed' : ''} ${isWebcamCollapsed ? 'is-collapsed' : ''} ${isWebcamDragging ? 'is-dragging' : ''} ${isWebcamResizing ? 'is-resizing' : ''}`}
         style={{
-          transform: `translate3d(${webcamPosition.x}px, ${webcamPosition.y}px, 0)`,
-          '--webcam-card-w': `${webcamScale}px`
+          transform: `translate3d(${webcamPosition.x}px, ${webcamPosition.y}px, 0)`
         }}
-        onPointerDown={handleWebcamPointerDown}
-        onDoubleClick={() => setWebcamPosition({ x: 0, y: 0 })}
+        onPointerDown={handleCardPointerDown}
+        onDoubleClick={handleCardDoubleClick}
         onClick={(e) => e.stopPropagation()}
-        title={isWebcamDragging ? 'Dragging webcam dock' : 'Double click header to reset position'}
+        title={isWebcamDragging ? 'Dragging webcam' : 'Drag anywhere to move · Double-click to toggle size (S/M/L)'}
       >
-        {/* Sleek Glassmorphic Floating Header (No Sliders!) */}
-        <div className="wt-webcam-header-bar" onPointerDown={handleWebcamPointerDown} title="Drag to move across screen">
-          <div className="wt-webcam-grip-pill">
-            <span className="wt-webcam-live-dot" />
-            <GripHorizontal size={12} color="#ff5ea5" />
-            <span className="wt-webcam-header-title">Live Cam ({totalCount})</span>
-            <span className="wt-webcam-size-badge">{webcamScale}px</span>
-          </div>
-
-          <div className="wt-webcam-header-actions">
-            {hasLocalVideo && isSelfViewHidden && (
-              <button
-                type="button"
-                className="wt-webcam-unhide-chip"
-                onClick={(e) => { e.stopPropagation(); setIsSelfViewHidden(false); }}
-                title="Show your own camera preview"
-              >
-                <Eye size={11} /> <span>Show Me</span>
-              </button>
-            )}
-            <button
-              type="button"
-              className="wt-webcam-ctrl-btn"
-              onClick={(e) => { e.stopPropagation(); setIsWebcamCollapsed((prev) => !prev); }}
-              title={isWebcamCollapsed ? 'Expand to 16:9 cards' : 'Collapse to reaction pills'}
-            >
-              {isWebcamCollapsed ? <Maximize2 size={11} /> : <Minimize2 size={11} />}
-            </button>
-            {hasLocalVideo && (
-              <button
-                type="button"
-                className="wt-webcam-ctrl-btn is-close"
-                onClick={(e) => { e.stopPropagation(); toggleCamera(); }}
-                title="Turn off webcam"
-              >
-                <X size={11} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Canva-Style Bounding Box & 4 Interactive Corner Resize Anchors */}
-        <div className="wt-canva-bbox" aria-hidden="true">
-          <span
-            className="wt-canva-handle wt-canva-handle-nw"
-            onPointerDown={(e) => handleWebcamResizePointerDown(e, 'nw')}
-            title="Drag corner to resize (Canva style)"
-          />
-          <span
-            className="wt-canva-handle wt-canva-handle-ne"
-            onPointerDown={(e) => handleWebcamResizePointerDown(e, 'ne')}
-            title="Drag corner to resize (Canva style)"
-          />
-          <span
-            className="wt-canva-handle wt-canva-handle-sw"
-            onPointerDown={(e) => handleWebcamResizePointerDown(e, 'sw')}
-            title="Drag corner to resize (Canva style)"
-          />
-          <span
-            className="wt-canva-handle wt-canva-handle-se"
-            onPointerDown={(e) => handleWebcamResizePointerDown(e, 'se')}
-            title="Drag corner to resize (Canva style)"
-          />
-          {/* Tactile Canva Corner Resize Thumb at Bottom-Right */}
-          <div
-            className="wt-canva-corner-thumb"
-            onPointerDown={(e) => handleWebcamResizePointerDown(e, 'se')}
-            title="Click and drag corner to resize"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M9 1L1 9M9 5L5 9M9 9L9 9.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </div>
-        </div>
-
         {isWebcamCollapsed ? (
-          <div className="wt-webcam-orbs-rack">
+          <div className="wt-pip-orbs-rack">
             {showLocalCard && (
               <PartyWebcamOrb
                 track={localVideoTrack}
@@ -4289,7 +4301,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             })}
           </div>
         ) : (
-          <div className="wt-webcam-cards-stack">
+          <div className="wt-pip-cards-shelf">
             {showLocalCard && (
               <PartyWebcamCard
                 track={localVideoTrack}
@@ -4298,8 +4310,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 avatar={currentProfile?.avatar}
                 isMuted={isMuted}
                 isSpeaking={isLocalSpeaking}
+                webcamScale={webcamScale}
+                onSetScale={(sz) => {
+                  setWebcamScale(sz);
+                  try { localStorage.setItem('wt_webcam_scale', String(sz)); } catch {}
+                }}
+                onCollapse={() => setIsWebcamCollapsed(true)}
                 onToggleCamera={toggleCamera}
                 onHideSelf={() => setIsSelfViewHidden(true)}
+                onResizeStart={handleResizeStart}
               />
             )}
             {Array.from(remoteVideoTracks.entries()).map(([peerId, track]) => {
@@ -4314,6 +4333,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   avatar={peer?.avatar || user?.avatar}
                   isMuted={peer?.isMuted}
                   isSpeaking={peer?.isSpeaking}
+                  webcamScale={webcamScale}
+                  onSetScale={(sz) => {
+                    setWebcamScale(sz);
+                    try { localStorage.setItem('wt_webcam_scale', String(sz)); } catch {}
+                  }}
+                  onCollapse={() => setIsWebcamCollapsed(true)}
+                  onResizeStart={handleResizeStart}
                 />
               );
             })}

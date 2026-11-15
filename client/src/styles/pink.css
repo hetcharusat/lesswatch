@@ -9769,22 +9769,32 @@ body.in-chit-chat-mode header {
 
 .wt-webcam-dock {
   position: absolute;
-  top: 18px;
-  right: 20px;
+  top: 24px;
+  right: 24px;
   z-index: 1005;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-end;
   pointer-events: auto;
   user-select: none;
   touch-action: none;
-  animation: wtWebcamIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: wtPipIn 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes wtPipIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
 }
 
 .wt-webcam-dock.is-cinema-dimmed {
-  opacity: 0.38;
-  filter: contrast(0.92);
+  opacity: 0.42;
+  filter: contrast(0.94);
 }
 
 .wt-webcam-dock.is-cinema-dimmed:hover,
@@ -9804,452 +9814,334 @@ body.in-chit-chat-mode header {
   transition: none !important;
 }
 
-/* Glassmorphic Minimal Header Bar (No Sliders!) */
-.wt-webcam-header-bar {
+/* Horizontal Shelf for Cards: Looks like a cozy couch watching together */
+.wt-pip-cards-shelf {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: var(--webcam-card-w, 220px);
-  padding: 5px 10px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, rgba(28, 18, 38, 0.78) 0%, rgba(14, 8, 22, 0.88) 100%);
-  backdrop-filter: blur(14px) saturate(170%);
-  -webkit-backdrop-filter: blur(14px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.35),
-    0 0 14px rgba(244, 114, 182, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  cursor: grab;
-  transition: border-color 180ms ease, box-shadow 180ms ease, width 120ms ease;
+  gap: 10px;
 }
 
-.wt-webcam-dock.is-dragging .wt-webcam-header-bar {
+/* Individual Picture-in-Picture Card */
+.wt-pip-card {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(22, 14, 30, 0.72) 0%, rgba(10, 5, 16, 0.88) 100%);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  cursor: grab;
+  transition:
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wt-webcam-dock.is-dragging .wt-pip-card {
   cursor: grabbing;
 }
 
-.wt-webcam-header-bar:hover {
-  border-color: rgba(244, 114, 182, 0.5);
+.wt-pip-card:hover {
+  border-color: rgba(255, 94, 165, 0.55);
   box-shadow:
-    0 10px 28px rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(255, 94, 165, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
-}
-
-.wt-webcam-grip-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: #ffffff;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  pointer-events: none;
-}
-
-.wt-webcam-live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-  animation: wtLivePulse 2s ease-in-out infinite;
-}
-
-@keyframes wtLivePulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
-}
-
-.wt-webcam-header-title {
-  color: #ffffff;
-}
-
-.wt-webcam-size-badge {
-  font-size: 0.58rem;
-  font-weight: 800;
-  color: #f472b6;
-  background: rgba(236, 72, 153, 0.18);
-  border: 1px solid rgba(244, 114, 182, 0.3);
-  border-radius: 999px;
-  padding: 1px 5px;
-  margin-left: 2px;
-}
-
-.wt-webcam-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.wt-webcam-ctrl-btn {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.10);
-  color: #fce7f3;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  padding: 0;
-  transition: background 150ms ease, color 150ms ease, transform 150ms ease, border-color 150ms ease;
-}
-
-.wt-webcam-ctrl-btn:hover {
-  background: #ec4899;
-  border-color: rgba(255, 255, 255, 0.5);
-  color: #ffffff;
-  transform: scale(1.12);
-  box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);
-}
-
-.wt-webcam-ctrl-btn.is-close:hover {
-  background: #ef4444;
-  border-color: #f87171;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
-}
-
-.wt-webcam-unhide-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid rgba(244, 114, 182, 0.4);
-  background: rgba(236, 72, 153, 0.25);
-  color: #fce7f3;
-  font-size: 0.60rem;
-  font-weight: 800;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.wt-webcam-unhide-chip:hover {
-  background: #ec4899;
-  color: #ffffff;
-}
-
-/* ==========================================================================
-   CANVA-STYLE BOUNDING BOX & INTERACTIVE CORNER RESIZE HANDLES
-   ========================================================================== */
-
-.wt-canva-bbox {
-  position: absolute;
-  top: 36px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  border: 1.5px solid transparent;
-  border-radius: 18px;
-  transition: border-color 200ms ease;
-  z-index: 10;
-}
-
-.wt-webcam-dock:hover .wt-canva-bbox,
-.wt-webcam-dock.is-resizing .wt-canva-bbox {
-  border-color: rgba(255, 94, 165, 0.45);
-}
-
-.wt-canva-handle {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid #ff5ea5;
-  box-shadow: 0 0 8px rgba(255, 94, 165, 0.8), 0 2px 4px rgba(0, 0, 0, 0.4);
-  pointer-events: auto;
-  opacity: 0;
-  transform: scale(0.85);
-  transition: opacity 160ms ease, transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  z-index: 11;
-}
-
-.wt-webcam-dock:hover .wt-canva-handle,
-.wt-webcam-dock.is-resizing .wt-canva-handle {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.wt-canva-handle:hover {
-  transform: scale(1.35) !important;
-  background: #ff5ea5;
-  border-color: #ffffff;
-  box-shadow: 0 0 12px #ff5ea5;
-}
-
-.wt-canva-handle-nw {
-  top: -5px;
-  left: -5px;
-  cursor: nwse-resize;
-}
-
-.wt-canva-handle-ne {
-  top: -5px;
-  right: -5px;
-  cursor: nesw-resize;
-}
-
-.wt-canva-handle-sw {
-  bottom: -5px;
-  left: -5px;
-  cursor: nesw-resize;
-}
-
-.wt-canva-handle-se {
-  bottom: -5px;
-  right: -5px;
-  cursor: nwse-resize;
-}
-
-/* Tactile Canva Corner Resize Thumb at Bottom-Right */
-.wt-canva-corner-thumb {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  background: rgba(18, 10, 26, 0.82);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  color: #f472b6;
-  display: grid;
-  place-items: center;
-  cursor: nwse-resize;
-  pointer-events: auto;
-  opacity: 0.65;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  transition: opacity 150ms ease, transform 150ms ease, background 150ms ease, color 150ms ease;
-  z-index: 12;
-}
-
-.wt-webcam-dock:hover .wt-canva-corner-thumb,
-.wt-webcam-dock.is-resizing .wt-canva-corner-thumb {
-  opacity: 1;
-}
-
-.wt-canva-corner-thumb:hover {
-  transform: scale(1.18);
-  background: #ff5ea5;
-  border-color: #ffffff;
-  color: #ffffff;
-  box-shadow: 0 0 10px rgba(255, 94, 165, 0.85);
-}
-
-/* ==========================================================================
-   CARDS STACK & INDIVIDUAL 16:9 WEBCAM FRAMES
-   ========================================================================== */
-
-.wt-webcam-cards-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  position: relative;
-}
-
-.wt-webcam-card {
-  position: relative;
-  width: var(--webcam-card-w, 220px);
-  height: calc(var(--webcam-card-w, 220px) * 0.58);
-  border-radius: 16px;
-  overflow: hidden;
-  background: linear-gradient(145deg, rgba(24, 14, 32, 0.72) 0%, rgba(12, 6, 18, 0.88) 100%);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1.5px solid rgba(255, 255, 255, 0.30);
-  box-shadow:
-    0 14px 36px rgba(0, 0, 0, 0.5),
-    0 0 18px rgba(244, 114, 182, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.80),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.35);
-  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease, border-color 220ms ease;
-}
-
-.wt-webcam-card:hover {
-  border-color: rgba(255, 94, 165, 0.65);
-  box-shadow:
-    0 16px 42px rgba(0, 0, 0, 0.55),
-    0 0 22px rgba(255, 94, 165, 0.28),
+    0 20px 48px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(255, 94, 165, 0.25),
     inset 0 1px 1px rgba(255, 255, 255, 0.95);
 }
 
-.wt-webcam-card.is-speaking {
+.wt-pip-card.is-speaking {
   border-color: #ff5ea5 !important;
-  animation: wtWebcamSpeakingHalo 1.6s ease-in-out infinite;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 2px #ff5ea5,
+    0 0 24px rgba(255, 94, 165, 0.75) !important;
 }
 
-.wt-webcam-video {
+.wt-pip-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  background: #09050d;
-}
-
-/* Glassmorphic Live Name Badge */
-.wt-webcam-badge {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px 3px 4px;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, rgba(22, 12, 30, 0.85) 0%, rgba(10, 5, 15, 0.92) 100%);
-  backdrop-filter: blur(10px) saturate(160%);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  color: #ffffff;
-  font-size: 0.68rem;
-  font-weight: 700;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  background: #0d0712;
   pointer-events: none;
 }
 
-.wt-webcam-avatar-ring {
+/* Scrim Gradient for Top Controls Legibility */
+.wt-pip-scrim-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.65) 0%, transparent 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.wt-pip-card:hover .wt-pip-scrim-top {
+  opacity: 1;
+}
+
+/* Floating Top HUD */
+.wt-pip-hud-top {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+/* Bottom-left or Top-left Name Pill */
+.wt-pip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 4px;
+  border-radius: 9999px;
+  background: rgba(18, 10, 24, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.wt-pip-avatar-ring {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   padding: 1px;
-  background: radial-gradient(circle, rgba(255, 94, 165, 0.5) 0%, transparent 70%);
   border: 1px solid #ff5ea5;
 }
 
-.wt-webcam-name {
-  max-width: 95px;
+.wt-pip-name {
+  max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Glass Floating Card Actions */
-.wt-webcam-card-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+/* Action Controls (Fade in on hover) */
+.wt-pip-actions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   opacity: 0;
   transform: translateY(-2px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.wt-webcam-card:hover .wt-webcam-card-actions {
+.wt-pip-card:hover .wt-pip-actions {
   opacity: 1;
   transform: translateY(0);
 }
 
-.wt-webcam-action-btn {
-  width: 24px;
-  height: 24px;
+/* S · M · L Preset Buttons Pill */
+.wt-pip-sizes {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 9999px;
+  background: rgba(18, 10, 24, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  gap: 2px;
+}
+
+.wt-pip-size-btn {
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  background: rgba(18, 10, 26, 0.82);
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.58rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.wt-pip-size-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.wt-pip-size-btn.is-active {
+  background: #ff5ea5;
+  color: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 94, 165, 0.7);
+}
+
+/* Glass Pill Action Button */
+.wt-pip-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(18, 10, 24, 0.85);
   backdrop-filter: blur(8px);
   color: #fce7f3;
   display: grid;
   place-items: center;
   cursor: pointer;
   padding: 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  transition: background 150ms ease, color 150ms ease, transform 150ms ease, border-color 150ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease, border-color 140ms ease;
 }
 
-.wt-webcam-action-btn:hover {
+.wt-pip-btn:hover {
   background: #ff5ea5;
   border-color: #ffffff;
   color: #ffffff;
-  transform: scale(1.12);
-  box-shadow: 0 0 10px rgba(255, 94, 165, 0.75);
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(255, 94, 165, 0.6);
 }
 
-.wt-webcam-action-btn.is-close:hover {
+.wt-pip-btn.is-close:hover {
   background: #ef4444;
   border-color: #ffffff;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.75);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+/* Bottom-Right Tactile Corner Resize Grip */
+.wt-pip-resize-thumb {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  cursor: nwse-resize;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 180ms ease, transform 140ms ease;
+  z-index: 3;
+}
+
+.wt-pip-card:hover .wt-pip-resize-thumb,
+.wt-webcam-dock.is-resizing .wt-pip-resize-thumb {
+  opacity: 1;
+}
+
+.wt-pip-resize-thumb:hover {
+  transform: scale(1.2);
+}
+
+.wt-pip-resize-thumb svg line {
+  transition: stroke 140ms ease;
+}
+
+.wt-pip-resize-thumb:hover svg line {
+  stroke: #ff5ea5;
 }
 
 /* ==========================================================================
-   COLLAPSED REACTION BUBBLE MODE
+   COLLAPSED REACTION BUBBLE MODE (ORB)
    ========================================================================== */
 
-.wt-webcam-dock.is-collapsed .wt-webcam-header-bar {
-  width: auto;
-}
-
-.wt-webcam-dock.is-collapsed .wt-canva-bbox {
-  top: 36px;
-}
-
-.wt-webcam-orbs-rack {
+.wt-pip-orbs-rack {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 8px;
-  align-items: flex-end;
 }
 
-.wt-webcam-orb {
+.wt-pip-orb {
   position: relative;
-  width: calc(var(--webcam-card-w, 220px) * 0.48);
-  height: calc(var(--webcam-card-w, 220px) * 0.36);
-  min-width: 80px;
-  min-height: 60px;
-  max-width: 160px;
-  max-height: 120px;
+  width: 96px;
+  height: 72px;
   border-radius: 20px;
   overflow: hidden;
-  background: linear-gradient(145deg, rgba(22, 12, 30, 0.75) 0%, rgba(10, 5, 16, 0.9) 100%);
-  backdrop-filter: blur(10px) saturate(160%);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  background: linear-gradient(145deg, rgba(22, 12, 30, 0.75) 0%, rgba(10, 5, 16, 0.90) 100%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1.5px solid rgba(255, 255, 255, 0.40);
   box-shadow:
-    0 12px 30px rgba(0, 0, 0, 0.5),
-    0 0 14px rgba(244, 114, 182, 0.22),
+    0 12px 30px rgba(0, 0, 0, 0.45),
+    0 0 14px rgba(255, 94, 165, 0.20),
     inset 0 1px 1px rgba(255, 255, 255, 0.85);
   cursor: pointer;
   transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
 }
 
-.wt-webcam-orb:hover {
-  transform: scale(1.05);
+.wt-pip-orb:hover {
+  transform: scale(1.06);
   border-color: #ff5ea5;
   box-shadow:
-    0 14px 36px rgba(0, 0, 0, 0.6),
-    0 0 22px rgba(255, 94, 165, 0.55);
+    0 16px 36px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(255, 94, 165, 0.5);
 }
 
-.wt-webcam-orb.is-speaking {
+.wt-pip-orb.is-speaking {
   border-color: #ff5ea5 !important;
-  box-shadow: 0 0 0 2px #ec4899, 0 0 20px rgba(236, 72, 153, 0.95);
-  animation: wtWebcamSpeakingHalo 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 2px #ff5ea5, 0 0 20px rgba(255, 94, 165, 0.95) !important;
 }
 
-.wt-webcam-orb-video {
+.wt-pip-orb-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.wt-webcam-orb-muted {
+.wt-pip-orb-footer {
   position: absolute;
   bottom: 4px;
-  right: 4px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(15, 6, 20, 0.85);
-  border: 1px solid rgba(244, 114, 182, 0.4);
+  left: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(14, 8, 20, 0.72);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 0.60rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.wt-pip-orb-name {
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-pip-orb-expand-hint {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
   display: grid;
   place-items: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.wt-pip-orb:hover .wt-pip-orb-expand-hint {
+  opacity: 1;
 }
 
 .a4-btn.is-camera-on {
