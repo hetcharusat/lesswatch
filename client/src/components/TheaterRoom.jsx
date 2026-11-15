@@ -3831,7 +3831,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               width: '320px',
               pointerEvents: 'auto',
               zIndex: 1002,
-              filter: 'drop-shadow(0 16px 36px rgba(0, 0, 0, 0.7))'
+              filter: 'drop-shadow(0 14px 30px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 12px rgba(236, 72, 153, 0.2))'
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}

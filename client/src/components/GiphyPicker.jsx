@@ -80,11 +80,16 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
         maxHeight: '340px',
         display: 'flex',
         flexDirection: 'column',
-        background: isDarkTheme ? 'rgba(14, 10, 20, 0.98)' : '#ffffff',
-        border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
-        borderRadius: '16px',
-        boxShadow: isDarkTheme ? '0 16px 40px rgba(0, 0, 0, 0.85)' : '0 12px 32px rgba(0, 0, 0, 0.12)',
-        backdropFilter: 'blur(24px)',
+        background: isDarkTheme
+          ? 'linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.85) 100%)'
+          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 245, 250, 0.9) 100%)',
+        border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.32)' : '1px solid rgba(236, 72, 153, 0.2)',
+        borderRadius: '20px',
+        boxShadow: isDarkTheme
+          ? '0 20px 48px rgba(0, 0, 0, 0.38), 0 2px 14px rgba(236, 72, 153, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.65), inset 0 -1px 1px rgba(0, 0, 0, 0.25)'
+          : '0 16px 36px rgba(236, 72, 153, 0.12), inset 0 1px 1px #ffffff',
+        backdropFilter: 'blur(20px) saturate(190%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(190%)',
         overflow: 'hidden',
         zIndex: 120,
         boxSizing: 'border-box',
@@ -98,7 +103,7 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.06)',
+          borderBottom: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.06)',
           flexShrink: 0
         }}
       >
@@ -108,10 +113,10 @@ export function GiphyPicker({ onSelectGif, onClose, isDarkTheme = true }) {
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            background: isDarkTheme ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.04)',
+            background: isDarkTheme ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.04)',
             borderRadius: '9999px',
             padding: '6px 12px',
-            border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.08)'
+            border: isDarkTheme ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid rgba(0, 0, 0, 0.08)'
           }}
         >
           <Search size={14} color={isDarkTheme ? '#f472b6' : '#ec4899'} />

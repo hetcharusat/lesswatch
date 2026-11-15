@@ -1227,14 +1227,18 @@ body {
   pointer-events: auto;
   cursor: pointer;
   color: #fdf2f8;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.13) 0%, rgba(22, 14, 34, 0.44) 44%, rgba(12, 8, 22, 0.58) 100%);
-  backdrop-filter: blur(8px) saturate(145%);
-  -webkit-backdrop-filter: blur(8px) saturate(145%);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(20, 10, 30, 0.45) 100%);
+  backdrop-filter: blur(16px) saturate(190%);
+  -webkit-backdrop-filter: blur(16px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.32),
+    0 2px 10px rgba(236, 72, 153, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   transform-origin: bottom left;
   animation: fcLiquidBubbleIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 .floating-chat-pill {
@@ -1257,8 +1261,13 @@ body {
 
 .floating-chat-pill:hover,
 .floating-chat-media-card:hover {
-  border-color: rgba(244, 114, 182, 0.44);
-  box-shadow: none;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.09) 45%, rgba(24, 12, 36, 0.5) 100%);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.35),
+    0 0 16px rgba(244, 114, 182, 0.28),
+    inset 0 1px 1px rgba(255, 255, 255, 0.75);
+  transform: translateY(-1px);
 }
 
 .floating-chat-overlay .fc-row-slot.fading .floating-chat-pill,
@@ -5379,11 +5388,17 @@ body.in-chit-chat-mode header {
   bottom: calc(100% + 6px);
   left: 8px;
   right: 8px;
-  padding: 11px;
-  border-radius: 16px;
-  background: rgba(16, 11, 26, 0.98);
-  border: 1px solid rgba(244, 114, 182, 0.32);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.84);
+  padding: 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(18, 10, 28, 0.82) 100%);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.38),
+    0 2px 12px rgba(236, 72, 153, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
   color: #fdf2f8;
   z-index: 160;
   display: flex;
@@ -7100,12 +7115,17 @@ body.in-chit-chat-mode header {
   bottom: 74px;
   left: 10px;
   right: 10px;
-  padding: 10px;
-  background: rgba(16, 12, 22, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(20px);
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(18, 10, 28, 0.82) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 18px;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.38),
+    0 2px 12px rgba(236, 72, 153, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
   z-index: 150;
 }
 
