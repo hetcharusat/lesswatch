@@ -585,6 +585,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   // Native WebRTC P2P Fallback Mesh Refs (Seamless zero-config fallback when LiveKit is down/Docker-less)
   const p2pConnectionsRef = useRef(new Map());     // peerId -> { pc, targetPeerId, makingOffer, ignoreOffer }
+  const remoteP2pVideoTracksRef = useRef(new Map()); // peerId -> MediaStreamTrack (cached P2P video track)
   const isP2pFallbackActiveRef = useRef(false);
   const [isP2pFallbackActive, setIsP2pFallbackActive] = useState(false);
   const localStreamRef = useRef(new MediaStream());
@@ -1457,27 +1458,54 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         );
         const pKey = user?.id || targetPeerId;
 
-        setRemoteVideoTracks((prev) => {
-          const next = new Map(prev);
-          next.set(targetPeerId, track);
-          if (pKey) next.set(pKey, track);
-          if (user?.username) next.set(user.username, track);
-          return next;
-        });
+        // Cache P2P video track
+        remoteP2pVideoTracksRef.current.set(targetPeerId, track);
+        if (pKey) remoteP2pVideoTracksRef.current.set(pKey, track);
 
-        setRemotePeers((prev) => {
-          const next = new Map(prev);
-          const peer = next.get(pKey) || next.get(targetPeerId) || {
-            username: user?.username || 'Partner',
-            avatar: user?.avatar || 'jojo-star',
-            color: user?.color || '#f472b6',
-            isSpeaking: false,
-            isMuted: false,
-          };
-          next.set(pKey, { ...peer, hasVideo: true });
-          next.set(targetPeerId, { ...peer, hasVideo: true });
-          return next;
-        });
+        const syncP2pVideoActive = (isActive) => {
+          setRemoteVideoTracks((prev) => {
+            const next = new Map(prev);
+            if (isActive) {
+              next.set(targetPeerId, track);
+              if (pKey) next.set(pKey, track);
+              if (user?.username) next.set(user.username, track);
+            } else {
+              next.delete(targetPeerId);
+              if (pKey) next.delete(pKey);
+              if (user?.username) next.delete(user.username);
+            }
+            return next;
+          });
+
+          setRemotePeers((prev) => {
+            const next = new Map(prev);
+            const peer = next.get(pKey) || next.get(targetPeerId) || {
+              username: user?.username || 'Partner',
+              avatar: user?.avatar || 'jojo-star',
+              color: user?.color || '#f472b6',
+              isSpeaking: false,
+              isMuted: false,
+            };
+            const updated = { ...peer, hasVideo: isActive };
+            next.set(pKey, updated);
+            next.set(targetPeerId, updated);
+            return next;
+          });
+        };
+
+        track.onunmute = () => {
+          syncP2pVideoActive(true);
+        };
+
+        track.onmute = () => {
+          syncP2pVideoActive(false);
+        };
+
+        // Only mark video active if the user hasVideo is already broadcasted or track is live & unmuted
+        const isInitiallyActive = Boolean(user?.hasVideo || (!track.muted && track.readyState === 'live'));
+        if (isInitiallyActive) {
+          syncP2pVideoActive(true);
+        }
       } else if (track.kind === 'audio') {
         attachRemoteP2pAudio(targetPeerId, track);
       }
@@ -3140,21 +3168,46 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     });
 
     s.on('voice:track_state', ({ peerId, isMuted: peerMuted, hasVideo: peerVideo }) => {
+      const user = connectedUsersRef.current.find((u) => u.id === peerId);
+      const pKey = user?.id || peerId;
+
+      if (peerVideo === true) {
+        const cachedTrack = remoteP2pVideoTracksRef.current?.get(peerId) || remoteP2pVideoTracksRef.current?.get(pKey);
+        if (cachedTrack) {
+          setRemoteVideoTracks((prev) => {
+            const next = new Map(prev);
+            next.set(peerId, cachedTrack);
+            if (pKey) next.set(pKey, cachedTrack);
+            if (user?.username) next.set(user.username, cachedTrack);
+            return next;
+          });
+        }
+      } else if (peerVideo === false) {
+        setRemoteVideoTracks((prev) => {
+          const next = new Map(prev);
+          next.delete(peerId);
+          if (pKey) next.delete(pKey);
+          if (user?.username) next.delete(user.username);
+          return next;
+        });
+      }
+
       setRemotePeers((prev) => {
         const next = new Map(prev);
-        const user = connectedUsersRef.current.find((u) => u.id === peerId);
-        const peer = next.get(peerId) || {
+        const peer = next.get(peerId) || next.get(pKey) || {
           username: user?.username || 'Partner',
           avatar: user?.avatar || 'jojo-star',
           color: user?.color || '#f472b6',
           isSpeaking: false,
           isMuted: false,
         };
-        next.set(peerId, {
+        const updated = {
           ...peer,
           isMuted: typeof peerMuted === 'boolean' ? peerMuted : peer.isMuted,
-          hasVideo: typeof peerVideo === 'boolean' ? peerVideo : peer.hasVideo
-        });
+          hasVideo: typeof peerVideo === 'boolean' ? peerVideo : !!peer.hasVideo
+        };
+        next.set(peerId, updated);
+        if (pKey) next.set(pKey, updated);
         return next;
       });
 
@@ -4850,16 +4903,35 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   // Floating Party Webcam Grid Dock
   function renderPartyWebcamGrid() {
-    const hasLocalVideo = isCameraEnabled && localVideoTrack;
-    const hasRemoteVideos = remoteVideoTracks.size > 0;
+    const hasLocalVideo = Boolean(isCameraEnabled && localVideoTrack);
     const myId = socketRef.current?.id || '';
-    const remotePeersWithVideo = Array.from(remotePeers.entries()).filter(
-      ([pId, peer]) => pId !== myId && (peer.hasVideo || remoteVideoTracks.has(pId))
-    );
-    if (!hasLocalVideo && !hasRemoteVideos && remotePeersWithVideo.length === 0) return null;
+
+    // Deduplicate remote peers and strictly only include peers who ACTUALLY have their camera enabled
+    const seenPeerKeys = new Set();
+    const remotePeersWithVideo = [];
+    for (const [pId, peer] of remotePeers.entries()) {
+      if (pId === myId) continue;
+      const user = connectedUsersRef.current.find((u) => u.id === pId || (u.username && u.username === peer?.username));
+      const canonicalId = user?.id || pId;
+      if (seenPeerKeys.has(canonicalId)) continue;
+
+      const isVideoActive = Boolean(peer?.hasVideo === true || user?.hasVideo === true);
+      if (isVideoActive) {
+        seenPeerKeys.add(canonicalId);
+        remotePeersWithVideo.push([canonicalId, peer]);
+      }
+    }
+
+    // If NO ONE in the room has started their camera, do NOT render any camera cards or dock!
+    if (!hasLocalVideo && remotePeersWithVideo.length === 0) {
+      return null;
+    }
 
     const showLocalCard = hasLocalVideo && !isSelfViewHidden;
-    const totalCount = (showLocalCard ? 1 : 0) + Math.max(remotePeersWithVideo.length, remoteVideoTracks.size);
+    const totalCount = (showLocalCard ? 1 : 0) + remotePeersWithVideo.length;
+    if (totalCount === 0) {
+      return null;
+    }
 
     // 1. If user chose to Hide: render the tiny floating glass button pill at corner
     if (isWebcamHidden) {
