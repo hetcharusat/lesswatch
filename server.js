@@ -28,6 +28,40 @@ const LIVEKIT_HTTP_TARGET = LIVEKIT_INTERNAL_URL
   .replace(/^ws:\/\//i, 'http://');
 const LIVEKIT_WS_URL = process.env.LIVEKIT_WS_URL || '';
 
+// LiveKit Health Probe Cache
+let livekitHealthCache = { status: null, lastCheck: 0 };
+async function checkLivekitAvailable() {
+  const now = Date.now();
+  if (livekitHealthCache.status !== null && (now - livekitHealthCache.lastCheck < 10000)) {
+    return livekitHealthCache.status;
+  }
+  livekitHealthCache.lastCheck = now;
+  try {
+    const targetUrl = new URL(LIVEKIT_HTTP_TARGET);
+    const host = targetUrl.hostname;
+    const port = parseInt(targetUrl.port, 10) || (targetUrl.protocol === 'https:' ? 443 : 80);
+    const reachable = await new Promise((resolve) => {
+      const sock = net.createConnection({ host, port, timeout: 800 }, () => {
+        sock.destroy();
+        resolve(true);
+      });
+      sock.on('error', () => {
+        sock.destroy();
+        resolve(false);
+      });
+      sock.on('timeout', () => {
+        sock.destroy();
+        resolve(false);
+      });
+    });
+    livekitHealthCache.status = reachable;
+    return reachable;
+  } catch {
+    livekitHealthCache.status = false;
+    return false;
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 
@@ -1090,11 +1124,22 @@ app.get('/api/live-status', (req, res) => {
 // ============================================================
 app.post('/api/livekit/token', express.json(), async (req, res) => {
   if (appConfig.modules?.livekit === false) {
-    return res.status(403).json({ error: 'LiveKit voice/video module is disabled on this server.' });
+    return res.status(403).json({ error: 'LiveKit voice/video module is disabled on this server.', available: false, fallback: 'p2p' });
   }
   if (!AccessToken || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
-    return res.status(503).json({ error: 'LiveKit not configured on this server (missing LIVEKIT_API_KEY / LIVEKIT_API_SECRET).' });
+    return res.status(503).json({ error: 'LiveKit not configured on this server (missing LIVEKIT_API_KEY / LIVEKIT_API_SECRET).', available: false, fallback: 'p2p' });
   }
+
+  // Pre-flight check if LiveKit SFU host is reachable before handing client a WebSocket URL
+  const isAvailable = await checkLivekitAvailable();
+  if (!isAvailable) {
+    return res.json({
+      available: false,
+      fallback: 'p2p',
+      reason: 'LiveKit SFU is not running on this host. Falling back to native WebRTC P2P mesh.'
+    });
+  }
+
   const { roomId, identity, username } = req.body || {};
   if (!roomId || !identity) {
     return res.status(400).json({ error: 'roomId and identity required' });
@@ -4926,6 +4971,13 @@ server.on('upgrade', async (req, socket, head) => {
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
     if (appConfig?.modules?.livekit === false) {
+      socket.destroy();
+      return;
+    }
+    if (livekitHealthCache.status === false) {
+      try {
+        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nLiveKit SFU unreachable on host\r\n');
+      } catch {}
       socket.destroy();
       return;
     }

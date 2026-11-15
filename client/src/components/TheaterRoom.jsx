@@ -265,6 +265,12 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const livekitRoomRef = useRef(null);             // LiveKitRoom instance
   const localAudioTrackRef = useRef(null);         // LocalAudioTrack (livekit-client)
   const localVideoTrackRef = useRef(null);         // LocalVideoTrack (livekit-client)
+
+  // Native WebRTC P2P Fallback Mesh Refs (Seamless zero-config fallback when LiveKit is down/Docker-less)
+  const p2pConnectionsRef = useRef(new Map());     // peerId -> { pc, targetPeerId, makingOffer, ignoreOffer }
+  const isP2pFallbackActiveRef = useRef(false);
+  const [isP2pFallbackActive, setIsP2pFallbackActive] = useState(false);
+  const localStreamRef = useRef(new MediaStream());
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
   const [showCameraSettings, setShowCameraSettings] = useState(false);
   const [videoInputDevices, setVideoInputDevices] = useState([]);
@@ -949,6 +955,276 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   // ==========================================================================
+  // High-Performance Browser-to-Browser WebRTC P2P Mesh Fallback Engine
+  // (Zero-config, sub-100ms video & voice streaming even without Docker/LiveKit)
+  // ==========================================================================
+  const P2P_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+
+  function attachRemoteP2pAudio(peerId, track) {
+    if (!peerId || !track) return;
+    const mediaStreamTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
+    if (!mediaStreamTrack) return;
+
+    let audioEl = remoteAudioElementsRef.current.get(peerId);
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = `remote-p2p-audio-${peerId}`;
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      let hub = document.getElementById('wt-remote-audio-hub');
+      if (!hub) {
+        hub = document.createElement('div');
+        hub.id = 'wt-remote-audio-hub';
+        hub.style.position = 'fixed';
+        hub.style.left = '-9999px';
+        hub.style.top = '-9999px';
+        hub.style.width = '1px';
+        hub.style.height = '1px';
+        hub.style.opacity = '0.01';
+        hub.style.pointerEvents = 'none';
+        hub.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(hub);
+      }
+      hub.appendChild(audioEl);
+      remoteAudioElementsRef.current.set(peerId, audioEl);
+    }
+
+    const stream = new MediaStream([mediaStreamTrack]);
+    audioEl.srcObject = stream;
+
+    const vol = peerVolumes.get(peerId) ?? 100;
+
+    // Dual-Ear Stereo Pipeline for P2P:
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        let gainEntry = peerGainNodesRef.current.get(peerId);
+        if (!gainEntry) {
+          const ctx = new AudioContextClass();
+          const source = ctx.createMediaStreamSource(stream);
+          const gainNode = ctx.createGain();
+          const merger = ctx.createChannelMerger(2);
+
+          source.connect(gainNode);
+          gainNode.connect(merger, 0, 0); // Pipe to Left ear
+          gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
+          merger.connect(ctx.destination);
+
+          gainNode.gain.value = vol / 100;
+          gainEntry = { ctx, source, gainNode, merger };
+          peerGainNodesRef.current.set(peerId, gainEntry);
+
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => { });
+          }
+          audioEl.volume = 0; // Mute raw element to avoid duplicate output/echo
+        } else {
+          gainEntry.gainNode.gain.value = vol / 100;
+          if (gainEntry.ctx && gainEntry.ctx.state === 'suspended') {
+            gainEntry.ctx.resume().catch(() => { });
+          }
+          audioEl.volume = 0;
+        }
+      } else {
+        audioEl.volume = Math.max(0, Math.min(1.0, vol / 100));
+      }
+    } catch (e) {
+      console.warn('Dual-ear P2P voice pipeline fallback:', e);
+      audioEl.volume = Math.max(0, Math.min(1.0, vol / 100));
+    }
+
+    if (selectedAudioOutput && typeof audioEl.setSinkId === 'function') {
+      audioEl.setSinkId(selectedAudioOutput).catch(() => { });
+    }
+
+    const playPromise = audioEl.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn('Remote P2P audio waiting for user interaction:', err);
+        setNeedsVoiceAudioUnlock(true);
+        const unlock = () => {
+          audioEl.play().then(() => setNeedsVoiceAudioUnlock(false)).catch(() => { });
+          const entry = peerGainNodesRef.current.get(peerId);
+          if (entry?.ctx?.state === 'suspended') entry.ctx.resume().catch(() => { });
+          window.removeEventListener('click', unlock);
+          window.removeEventListener('keydown', unlock);
+          window.removeEventListener('touchstart', unlock);
+        };
+        window.addEventListener('click', unlock, { once: true });
+        window.addEventListener('keydown', unlock, { once: true });
+        window.addEventListener('touchstart', unlock, { once: true });
+      });
+    }
+
+    setRemotePeers((prev) => {
+      const next = new Map(prev);
+      const user = connectedUsersRef.current.find((u) => u.id === peerId);
+      const peer = next.get(peerId) || {
+        username: user?.username || 'Partner',
+        avatar: user?.avatar || 'jojo-star',
+        color: user?.color || '#f472b6',
+        isSpeaking: false,
+        isMuted: false,
+      };
+      next.set(peerId, peer);
+      return next;
+    });
+  }
+
+  function getP2pPeerConnection(targetPeerId, isInitiator = false) {
+    if (!targetPeerId) return null;
+    let connObj = p2pConnectionsRef.current.get(targetPeerId);
+    if (connObj && connObj.pc && connObj.pc.signalingState !== 'closed') {
+      if (isInitiator && !connObj.makingOffer) {
+        try {
+          connObj.makingOffer = true;
+          connObj.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true }).then((offer) => {
+            return connObj.pc.setLocalDescription(offer);
+          }).then(() => {
+            socketRef.current?.emit('voice:signal', {
+              targetPeerId,
+              signalData: { desc: connObj.pc.localDescription }
+            });
+          }).catch((err) => {
+            console.warn('P2P renegotiation offer error:', err);
+          }).finally(() => {
+            connObj.makingOffer = false;
+          });
+        } catch {}
+      }
+      return connObj;
+    }
+
+    const pc = new RTCPeerConnection({ iceServers: P2P_ICE_SERVERS });
+    connObj = {
+      pc,
+      targetPeerId,
+      makingOffer: false,
+      ignoreOffer: false
+    };
+    p2pConnectionsRef.current.set(targetPeerId, connObj);
+
+    // 1. ICE Candidate Handler
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('voice:signal', {
+          targetPeerId,
+          signalData: { candidate: event.candidate }
+        });
+      }
+    };
+
+    // 2. Remote Media Track Handler (Receives remote video & audio)
+    pc.ontrack = (event) => {
+      const track = event.track;
+      console.log(`📡 [P2P WebRTC] ontrack from ${targetPeerId} (kind: ${track.kind})`);
+
+      if (track.kind === 'video') {
+        const user = connectedUsersRef.current.find(
+          (u) => u.id === targetPeerId || (u.username && u.username.toLowerCase() === targetPeerId.toLowerCase())
+        );
+        const pKey = user?.id || targetPeerId;
+
+        setRemoteVideoTracks((prev) => {
+          const next = new Map(prev);
+          next.set(targetPeerId, track);
+          if (pKey) next.set(pKey, track);
+          if (user?.username) next.set(user.username, track);
+          return next;
+        });
+
+        setRemotePeers((prev) => {
+          const next = new Map(prev);
+          const peer = next.get(pKey) || next.get(targetPeerId) || {
+            username: user?.username || 'Partner',
+            avatar: user?.avatar || 'jojo-star',
+            color: user?.color || '#f472b6',
+            isSpeaking: false,
+            isMuted: false,
+          };
+          next.set(pKey, { ...peer, hasVideo: true });
+          next.set(targetPeerId, { ...peer, hasVideo: true });
+          return next;
+        });
+      } else if (track.kind === 'audio') {
+        attachRemoteP2pAudio(targetPeerId, track);
+      }
+    };
+
+    // 3. Attach current local tracks to connection
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        try {
+          pc.addTrack(track, localStreamRef.current);
+        } catch (e) {
+          console.warn('Error attaching local track to P2P peer:', e);
+        }
+      });
+    }
+
+    // 4. Perfect Negotiation Pattern
+    pc.onnegotiationneeded = async () => {
+      try {
+        connObj.makingOffer = true;
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        if (pc.signalingState !== 'stable') return;
+        await pc.setLocalDescription(offer);
+        socketRef.current?.emit('voice:signal', {
+          targetPeerId,
+          signalData: { desc: pc.localDescription }
+        });
+      } catch (err) {
+        console.warn('P2P negotiationneeded error:', err);
+      } finally {
+        connObj.makingOffer = false;
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[P2P WebRTC] Connection to ${targetPeerId}: ${pc.connectionState}`);
+      if (pc.connectionState === 'failed') {
+        try { pc.restartIce(); } catch {}
+      }
+    };
+
+    if (isInitiator) {
+      (async () => {
+        try {
+          connObj.makingOffer = true;
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+          await pc.setLocalDescription(offer);
+          socketRef.current?.emit('voice:signal', {
+            targetPeerId,
+            signalData: { desc: pc.localDescription }
+          });
+        } catch (err) {
+          console.warn('Initial P2P offer error:', err);
+        } finally {
+          connObj.makingOffer = false;
+        }
+      })();
+    }
+
+    return connObj;
+  }
+
+  function activateP2pFallback() {
+    isP2pFallbackActiveRef.current = true;
+    setIsP2pFallbackActive(true);
+    const myId = socketRef.current?.id;
+    connectedUsersRef.current.forEach((u) => {
+      if (u.id && u.id !== myId) {
+        getP2pPeerConnection(u.id, true);
+      }
+    });
+  }
+
+  // ==========================================================================
   // LiveKit SFU Full-Duplex Voice Engine + Dual-Ear Stereo Pipeline
   // ==========================================================================
   const isConnectingVoiceRef = useRef(false);
@@ -984,7 +1260,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       if (!resp.ok) {
         throw new Error(`Failed to get voice token (${resp.status})`);
       }
-      const { token, url } = await resp.json();
+      const data = await resp.json();
+      if (!data.token || data.available === false) {
+        console.log('ℹ️ LiveKit SFU not available. Activating WebRTC P2P mesh fallback.');
+        activateP2pFallback();
+        if (publishMic) await publishLocalMic();
+        return;
+      }
+      const { token, url } = data;
 
       // 2. Disconnect previous instance if any
       if (livekitRoomRef.current) {
@@ -1248,7 +1531,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       });
 
       // 5. Connect to LiveKit server
-      await lkRoom.connect(url, token);
+      try {
+        await lkRoom.connect(url, token);
+      } catch (connErr) {
+        console.warn('⚠️ LiveKit connection failed (SFU down/unreachable), falling back to P2P mesh:', connErr);
+        activateP2pFallback();
+        if (publishMic) {
+          await publishLocalMic();
+        }
+        return;
+      }
 
       // Immediately subscribe to and attach all existing participants already streaming in the room
       lkRoom.remoteParticipants.forEach((participant) => {
@@ -1265,7 +1557,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         await publishLocalMic();
       }
     } catch (err) {
-      console.warn('Voice room connection error:', err);
+      console.warn('Voice room connection error, activating P2P fallback:', err);
+      activateP2pFallback();
+      if (publishMic) {
+        await publishLocalMic().catch(() => {});
+      }
     } finally {
       isConnectingVoiceRef.current = false;
     }
@@ -1321,6 +1617,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
       localAudioTrackRef.current = audioTrack;
 
+      // 2b. Sync local audio track to P2P mesh
+      const rawAudioTrack = audioTrack?.mediaStreamTrack || (audioTrack instanceof MediaStreamTrack ? audioTrack : null);
+      if (rawAudioTrack) {
+        localStreamRef.current.getAudioTracks().forEach((t) => localStreamRef.current.removeTrack(t));
+        localStreamRef.current.addTrack(rawAudioTrack);
+
+        p2pConnectionsRef.current.forEach((conn) => {
+          if (conn.pc && conn.pc.signalingState !== 'closed') {
+            const sender = conn.pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+            if (sender) {
+              sender.replaceTrack(rawAudioTrack).catch(() => {});
+            } else {
+              try { conn.pc.addTrack(rawAudioTrack, localStreamRef.current); } catch {}
+            }
+          }
+        });
+      }
+
       // 2. Publish to LiveKit SFU if connected
       const lkRoom = livekitRoomRef.current;
       if (lkRoom && lkRoom.state === 'connected') {
@@ -1359,6 +1673,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const startMicrophone = () => publishLocalMic();
 
   function leaveVoiceChat() {
+    p2pConnectionsRef.current.forEach((conn) => {
+      try { conn.pc.close(); } catch {}
+    });
+    p2pConnectionsRef.current.clear();
+    localStreamRef.current.getTracks().forEach((t) => {
+      try { t.stop(); } catch {}
+    });
+    localStreamRef.current = new MediaStream();
+
     if (livekitRoomRef.current) {
       try { livekitRoomRef.current.disconnect(); } catch { }
       livekitRoomRef.current = null;
@@ -1456,6 +1779,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           localVideoTrackRef.current.stop();
           localVideoTrackRef.current = null;
         }
+        // Remove video track from P2P stream & senders
+        localStreamRef.current.getVideoTracks().forEach((t) => {
+          try { t.stop(); } catch {}
+          localStreamRef.current.removeTrack(t);
+        });
+        p2pConnectionsRef.current.forEach((conn) => {
+          if (conn.pc && conn.pc.signalingState !== 'closed') {
+            const sender = conn.pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+            if (sender) {
+              sender.replaceTrack(null).catch(() => {});
+            }
+          }
+        });
         setLocalVideoTrack(null);
         setIsCameraEnabled(false);
         socketRef.current?.emit('voice:track_state', { isMuted: isMutedRef.current, hasVideo: false });
@@ -1499,6 +1835,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
         localVideoTrackRef.current = vTrack;
         setLocalVideoTrack(vTrack);
+
+        // Sync local video track to P2P mesh
+        const rawVideoTrack = vTrack?.mediaStreamTrack || (vTrack instanceof MediaStreamTrack ? vTrack : null);
+        if (rawVideoTrack) {
+          localStreamRef.current.getVideoTracks().forEach((t) => localStreamRef.current.removeTrack(t));
+          localStreamRef.current.addTrack(rawVideoTrack);
+
+          p2pConnectionsRef.current.forEach((conn) => {
+            if (conn.pc && conn.pc.signalingState !== 'closed') {
+              const sender = conn.pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+              if (sender) {
+                sender.replaceTrack(rawVideoTrack).catch(() => {});
+              } else {
+                try { conn.pc.addTrack(rawVideoTrack, localStreamRef.current); } catch {}
+              }
+            }
+          });
+        }
 
         // 3. Publish to LiveKit SFU if connected
         const lkRoom = livekitRoomRef.current;
@@ -2180,6 +2534,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
       if (user?.hasVideo && (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected')) {
         connectVoiceRoom({ publishMic: false }).catch(() => { });
+        getP2pPeerConnection(user.id, true);
+      }
+      if (isCameraEnabledRef.current || isVoiceConnectedRef.current) {
+        getP2pPeerConnection(user.id, true);
       }
       showToast(`${user.username} joined`, <Users size={15} color="var(--pink-primary)" />);
     });
@@ -2189,6 +2547,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setConnectedUsers(users);
         connectedUsersRef.current = users;
       }
+      if (userId && p2pConnectionsRef.current.has(userId)) {
+        try { p2pConnectionsRef.current.get(userId).pc.close(); } catch {}
+        p2pConnectionsRef.current.delete(userId);
+      }
+      setRemoteVideoTracks((prev) => {
+        const next = new Map(prev);
+        next.delete(userId);
+        return next;
+      });
       showToast(`${username || 'User'} left the lounge`, <LogOut size={15} color="#9ca3af" />);
     });
 
@@ -2472,14 +2839,76 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         return next;
       });
 
-      // Auto-connect to LiveKit room so you immediately receive any remote video track!
-      if (peerVideo && (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected')) {
-        connectVoiceRoom({ publishMic: false }).catch(() => { });
+      // Auto-connect to voice/video room so you immediately receive any remote video track!
+      if (peerVideo) {
+        if (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected') {
+          connectVoiceRoom({ publishMic: false }).catch(() => { });
+          getP2pPeerConnection(peerId, true);
+        }
+      }
+    });
+
+    s.on('voice:signal', async ({ senderPeerId, signalData }) => {
+      if (!senderPeerId || !signalData) return;
+      const connObj = getP2pPeerConnection(senderPeerId, false);
+      if (!connObj) return;
+      const pc = connObj.pc;
+
+      try {
+        if (signalData.desc) {
+          const desc = new RTCSessionDescription(signalData.desc);
+          const isStable = pc.signalingState === 'stable' || (pc.signalingState === 'have-local-offer' && connObj.makingOffer);
+          const offerCollision = desc.type === 'offer' && !isStable;
+
+          const isPolite = socketRef.current && (socketRef.current.id < senderPeerId);
+          connObj.ignoreOffer = !isPolite && offerCollision;
+          if (connObj.ignoreOffer) {
+            console.log(`[P2P WebRTC] Ignoring offer collision from impolite peer ${senderPeerId}`);
+            return;
+          }
+
+          if (offerCollision) {
+            await Promise.all([
+              pc.setLocalDescription({ type: 'rollback' }),
+              pc.setRemoteDescription(desc)
+            ]);
+          } else {
+            await pc.setRemoteDescription(desc);
+          }
+
+          if (desc.type === 'offer') {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            s.emit('voice:signal', {
+              targetPeerId: senderPeerId,
+              signalData: { desc: pc.localDescription }
+            });
+          }
+        } else if (signalData.candidate) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+          } catch (err) {
+            if (!connObj.ignoreOffer) {
+              console.warn('Error adding ICE candidate:', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('P2P signaling error:', err);
       }
     });
 
     s.on('voice:peer_left', ({ peerId, username }) => {
       console.log(`Peer left voice: ${peerId}`);
+      if (p2pConnectionsRef.current.has(peerId)) {
+        try { p2pConnectionsRef.current.get(peerId).pc.close(); } catch {}
+        p2pConnectionsRef.current.delete(peerId);
+      }
+      setRemoteVideoTracks((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
       if (username) showToast(`${username} left Voice Chat`, <MicOff size={15} color="#9ca3af" />);
     });
 
@@ -4257,11 +4686,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           track.attach(el);
         } else if (track.mediaStreamTrack) {
           el.srcObject = new MediaStream([track.mediaStreamTrack]);
+        } else if (track instanceof MediaStreamTrack) {
+          el.srcObject = new MediaStream([track]);
+        } else if (track instanceof MediaStream) {
+          el.srcObject = track;
         }
         el.play?.().catch(() => {});
       } catch { }
       return () => {
-        try { track.detach?.(el); } catch { }
+        try {
+          if (typeof track.detach === 'function') {
+            track.detach(el);
+          } else {
+            el.srcObject = null;
+          }
+        } catch { }
       };
     }, [track]);
 

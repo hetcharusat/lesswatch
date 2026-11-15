@@ -10220,17 +10220,17 @@ body.in-chit-chat-mode header {
   overflow: hidden;
   padding: 14px 16px;
   border-radius: 22px;
-  /* 98% solid cinema obsidian: completely eliminates video & subtitle bleed-through */
-  background: rgba(16, 11, 20, 0.98);
-  border: 1px solid rgba(244, 114, 182, 0.28);
+  /* 100% solid cinema obsidian: completely eliminates video & subtitle bleed-through */
+  background: #140d1a !important;
+  border: 1.5px solid rgba(244, 114, 182, 0.35) !important;
   box-shadow: 
-    0 24px 64px rgba(0, 0, 0, 0.96),
+    0 24px 64px rgba(0, 0, 0, 0.98),
     0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0 28px rgba(236, 72, 153, 0.16);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+    0 0 32px rgba(236, 72, 153, 0.22) !important;
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
   color: #fdf2f8;
-  z-index: 1000;
+  z-index: 10000 !important;
   display: flex;
   flex-direction: column;
   gap: 12px;
