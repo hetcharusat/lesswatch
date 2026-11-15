@@ -220,6 +220,7 @@ function buildServices(log, s) {
     const livekitOn = state.modules[3] ?? true;
     const services = ['watch-together'];
     if (livekitOn) services.push('livekit');
+    s.progress = Math.max(s.progress, 6);
 
     // Fast-start check: If image already exists locally and code has not changed, start immediately (~2s)
     let hasImage = false;
@@ -317,6 +318,7 @@ function buildServices(log, s) {
 
         // Check for Docker BuildKit fractional steps: [X/Y]
         const stepMatch = line.match(/\[\s*(\d+)\s*\/\s*(\d+)\s*\]/);
+        const mbMatch = line.match(/(\d+(?:\.\d+)?)\s*MB\s*\/\s*(\d+(?:\.\d+)?)\s*MB/i);
         if (stepMatch) {
           const stepCur = parseInt(stepMatch[1], 10);
           const stepTotal = parseInt(stepMatch[2], 10);
@@ -324,6 +326,15 @@ function buildServices(log, s) {
             const calculated = Math.min(92, Math.round((stepCur / (stepTotal + 1)) * 90) + 10);
             s.progress = Math.max(s.progress, calculated);
           }
+        } else if (mbMatch) {
+          const curMb = parseFloat(mbMatch[1]);
+          const totMb = parseFloat(mbMatch[2]);
+          if (totMb > 0) {
+            const layerPct = Math.min(1, curMb / totMb);
+            s.progress = Math.max(s.progress, Math.round(15 + layerPct * 30));
+          }
+        } else if (line.includes('sha256:') || /downloading|extracting/i.test(line)) {
+          s.progress = Math.max(s.progress, 15);
         } else if (line.includes('Step 1/') || /load metadata|load build definition/i.test(line)) {
           s.progress = Math.max(s.progress, 15);
         } else if (line.includes('Step 2/') || /apt-get/i.test(line)) {
