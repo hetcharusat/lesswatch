@@ -4547,6 +4547,26 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }) {
     const videoRef = useRef(null);
     const [isVideoReady, setIsVideoReady] = useState(false);
+    const [isHudVisible, setIsHudVisible] = useState(true);
+    const hideTimeoutRef = useRef(null);
+
+    // Auto-hide name tag & action buttons after 10 seconds of inactivity
+    useEffect(() => {
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsHudVisible(false);
+      }, 10000);
+      return () => {
+        if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+      };
+    }, []);
+
+    const handleUserActivity = () => {
+      setIsHudVisible(true);
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsHudVisible(false);
+      }, 10000);
+    };
 
     useEffect(() => {
       if (!track || !videoRef.current) {
@@ -4594,7 +4614,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }, [track]);
 
     return (
-      <div className={`wt-pip-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}>
+      <div
+        className={`wt-pip-card ${isSpeaking ? 'is-speaking' : ''} ${isLocal ? 'is-local' : ''}`}
+        onPointerEnter={handleUserActivity}
+        onPointerMove={handleUserActivity}
+      >
         <video
           ref={videoRef}
           autoPlay
@@ -4626,14 +4650,16 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         {/* Ambient Top Shadow Gradient for Floating Controls */}
         <div className="wt-pip-scrim-top" />
 
-        {/* Top Floating Glass HUD (Fades in on hover) */}
-        <div className="wt-pip-hud-top" onClick={(e) => e.stopPropagation()}>
+        {/* Top Floating Glass HUD (Auto-hides after 10s of inactivity, reappears on hover/move) */}
+        <div
+          className={`wt-pip-hud-top ${!isHudVisible ? 'is-autohidden' : ''}`}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="wt-pip-badge">
             <span className="wt-pip-avatar-ring">
               <UserAvatar user={{ name, avatar }} size={15} showBorder={false} />
             </span>
             <span className="wt-pip-name">{name}</span>
-            {isMuted && <MicOff size={10} color="#fca5a5" />}
           </div>
 
           <div className="wt-pip-actions">
@@ -4758,7 +4784,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         />
         <div className="wt-pip-orb-footer">
           <span className="wt-pip-orb-name">{name}</span>
-          {isMuted && <MicOff size={9} color="#fca5a5" />}
         </div>
 
         {/* Hover action overlay */}
@@ -4806,7 +4831,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           onClick={() => setIsWebcamHidden(false)}
           title="Click to show webcam"
         >
-          <span className="wt-webcam-live-dot" />
           <Camera size={13} color="#ff5ea5" />
           <span className="wt-webcam-hidden-count">{totalCount}</span>
         </button>
