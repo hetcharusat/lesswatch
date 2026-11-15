@@ -4774,36 +4774,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         title={`${name} · Click to expand to full video`}
         onClick={onExpand}
       >
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="wt-pip-orb-video"
-          style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
-        />
-        <div className="wt-pip-orb-footer">
-          <span className="wt-pip-orb-name">{name}</span>
+        <div className="wt-pip-orb-frame">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="wt-pip-orb-video"
+            style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
+          />
+
+          {/* Hover action overlay */}
+          <div className="wt-pip-orb-hover-overlay" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="wt-pip-orb-mini-btn"
+              onClick={onExpand}
+              title="Expand to full video"
+            >
+              <Maximize2 size={11} />
+            </button>
+            <button
+              type="button"
+              className="wt-pip-orb-mini-btn"
+              onClick={onHideWebcam}
+              title="Hide (turns into tiny button)"
+            >
+              <EyeOff size={11} />
+            </button>
+          </div>
         </div>
 
-        {/* Hover action overlay */}
-        <div className="wt-pip-orb-hover-overlay" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            className="wt-pip-orb-mini-btn"
-            onClick={onExpand}
-            title="Expand to full video"
-          >
-            <Maximize2 size={11} />
-          </button>
-          <button
-            type="button"
-            className="wt-pip-orb-mini-btn"
-            onClick={onHideWebcam}
-            title="Hide (turns into tiny button)"
-          >
-            <EyeOff size={11} />
-          </button>
+        {/* Small box rendered below the video, showing name and mic status */}
+        <div className="wt-pip-orb-footer">
+          <span className="wt-pip-orb-name">{name}</span>
+          {isMuted ? (
+            <MicOff size={9} color="#f87171" title="Muted" />
+          ) : isSpeaking ? (
+            <Radio size={9} color="#10b981" title="Speaking" />
+          ) : (
+            <Mic size={9} color="#fbcfe8" style={{ opacity: 0.75 }} title="Microphone active" />
+          )}
         </div>
       </div>
     );
