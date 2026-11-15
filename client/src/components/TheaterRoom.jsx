@@ -1590,10 +1590,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   function attachRemoteP2pAudio(peerId, track) {
     if (!peerId || !track) return;
     if (peerId === socketRef.current?.id) return;
-    const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
-    const user = connectedUsersRef.current.find((u) => u.id === peerId);
-    const pName = (user?.username || '').trim().toLowerCase();
-    if (pName && myName && pName === myName) return;
 
     const mediaStreamTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
     if (!mediaStreamTrack) return;
@@ -1777,21 +1773,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             const next = new Map(prev);
             if (isActive) {
               next.set(targetPeerId, track);
-              if (pKey) next.set(pKey, track);
-              if (user?.username) next.set(user.username, track);
             } else {
               next.delete(targetPeerId);
-              if (pKey) next.delete(pKey);
-              if (user?.username) next.delete(user.username);
             }
             return next;
           });
 
           setRemotePeers((prev) => {
             const myId = socketRef.current?.id || '';
-            const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
-            const pName = (user?.username || '').trim().toLowerCase();
-            if (targetPeerId === myId || (pName && myName && pName === myName)) return prev;
+            if (targetPeerId === myId) return prev;
 
             const next = new Map(prev);
             const peer = next.get(targetPeerId) || {
@@ -1801,7 +1791,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               isSpeaking: false,
               isMuted: false,
             };
-            const updated = { ...peer, hasVideo: isActive };
+            const updated = {
+              ...peer,
+              username: user?.username || peer.username,
+              avatar: user?.avatar || peer.avatar,
+              color: user?.color || peer.color,
+              hasVideo: isActive
+            };
             next.set(targetPeerId, updated);
             return next;
           });
@@ -1951,9 +1947,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       function handleTrackSubscribed(track, publication, participant) {
         if (!participant || !track) return;
         if (participant.isLocal || participant.identity === lkRoom.localParticipant?.identity) return;
-        const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
-        const pName = (participant.name || '').trim().toLowerCase();
-        if (pName && myName && pName === myName) return;
         if (track.kind === Track.Kind.Audio) {
           const audioEl = track.attach();
           audioEl.id = `remote-audio-${participant.identity}`;
@@ -2295,6 +2288,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             }
           }
         });
+
+        // Ensure all connected peers have an active P2P connection to exchange audio
+        connectedUsersRef.current.forEach((u) => {
+          if (u.id !== socketRef.current?.id) {
+            getP2pPeerConnection(u.id, true);
+          }
+        });
       }
 
       // 2. Publish to LiveKit SFU if connected
@@ -2523,6 +2523,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
               if (sender) {
                 sender.replaceTrack(rawVideoTrack).catch(() => {});
               }
+            }
+          });
+
+          // Ensure all connected peers have an active P2P connection to exchange video
+          connectedUsersRef.current.forEach((u) => {
+            if (u.id !== socketRef.current?.id) {
+              getP2pPeerConnection(u.id, true);
             }
           });
         }
@@ -3145,12 +3152,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setConnectedUsers(state.users);
         connectedUsersRef.current = state.users;
         const myId = s.id;
-        const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
         setRemotePeers((prev) => {
           const next = new Map(prev);
           state.users.forEach((u) => {
-            const uName = (u.username || '').trim().toLowerCase();
-            if (u.id !== myId && (!myName || uName !== myName) && (u.hasVideo || u.inVoice)) {
+            if (u.id !== myId && (u.hasVideo || u.inVoice)) {
               const existing = next.get(u.id) || {
                 username: u.username || 'Partner',
                 avatar: u.avatar || 'jojo-star',
@@ -3158,11 +3163,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 isSpeaking: false,
                 isMuted: !!u.isMuted,
               };
-              next.set(u.id, { ...existing, hasVideo: !!u.hasVideo });
+              next.set(u.id, { ...existing, hasVideo: !!u.hasVideo, isMuted: !!u.isMuted });
             }
           });
           return next;
         });
+
+        // If local user has camera or mic active, immediately negotiate P2P to room members
+        if (isCameraEnabledRef.current || isVoiceConnectedRef.current) {
+          state.users.forEach((u) => {
+            if (u.id !== myId) {
+              getP2pPeerConnection(u.id, true);
+            }
+          });
+        }
       }
       if (state.messages) setChatMessages(state.messages);
       if (state.lastSeen) setRoomLastSeen(state.lastSeen);
@@ -3223,20 +3237,23 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         try { p2pConnectionsRef.current.get(userId).pc.close(); } catch {}
         p2pConnectionsRef.current.delete(userId);
       }
+      const audioEl = remoteAudioElementsRef.current.get(userId);
+      if (audioEl) {
+        try {
+          audioEl.pause();
+          audioEl.srcObject = null;
+          if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
+        } catch {}
+        remoteAudioElementsRef.current.delete(userId);
+      }
       setRemoteVideoTracks((prev) => {
         const next = new Map(prev);
         next.delete(userId);
-        if (username) next.delete(username);
         return next;
       });
       setRemotePeers((prev) => {
         const next = new Map(prev);
         next.delete(userId);
-        if (username) {
-          for (const [k, v] of next.entries()) {
-            if (v?.username === username) next.delete(k);
-          }
-        }
         return next;
       });
       showToast(`${username || 'User'} left the lounge`, <LogOut size={15} color="#9ca3af" />);
@@ -3507,20 +3524,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     s.on('voice:track_state', ({ peerId, isMuted: peerMuted, hasVideo: peerVideo }) => {
       if (peerId === s.id) return;
       const user = connectedUsersRef.current.find((u) => u.id === peerId);
-      const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
-      const pName = (user?.username || '').trim().toLowerCase();
-      if (pName && myName && pName === myName) return;
-
-      const pKey = user?.id || peerId;
 
       if (peerVideo === true) {
-        const cachedTrack = remoteP2pVideoTracksRef.current?.get(peerId) || remoteP2pVideoTracksRef.current?.get(pKey);
+        const cachedTrack = remoteP2pVideoTracksRef.current?.get(peerId);
         if (cachedTrack) {
           setRemoteVideoTracks((prev) => {
             const next = new Map(prev);
             next.set(peerId, cachedTrack);
-            if (pKey) next.set(pKey, cachedTrack);
-            if (user?.username) next.set(user.username, cachedTrack);
             return next;
           });
         }
@@ -3528,8 +3538,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setRemoteVideoTracks((prev) => {
           const next = new Map(prev);
           next.delete(peerId);
-          if (pKey) next.delete(pKey);
-          if (user?.username) next.delete(user.username);
           return next;
         });
       }
@@ -3545,6 +3553,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         };
         const updated = {
           ...peer,
+          username: user?.username || peer.username,
+          avatar: user?.avatar || peer.avatar,
+          color: user?.color || peer.color,
           isMuted: typeof peerMuted === 'boolean' ? peerMuted : peer.isMuted,
           hasVideo: typeof peerVideo === 'boolean' ? peerVideo : !!peer.hasVideo
         };
@@ -3552,13 +3563,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         return next;
       });
 
-      // Auto-connect to voice/video room so you immediately receive any remote video track!
-      if (peerVideo) {
+      // Auto-connect to voice/video room so you immediately receive any remote audio or video tracks!
+      if (peerVideo || peerMuted === false) {
         if (!livekitRoomRef.current || livekitRoomRef.current.state !== 'connected') {
           connectVoiceRoom({ publishMic: false }).catch(() => { });
-          getP2pPeerConnection(peerId, true);
         }
+        getP2pPeerConnection(peerId, true);
       }
+    });
+
+    s.on('voice:peer_joined', ({ peerId, username, avatar, color, hasVideo, hasAudio }) => {
+      if (peerId === s.id) return;
+      setRemotePeers((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(peerId) || {};
+        next.set(peerId, {
+          ...existing,
+          username: username || existing.username || 'Partner',
+          avatar: avatar || existing.avatar || 'jojo-star',
+          color: color || existing.color || '#f472b6',
+          hasVideo: !!hasVideo,
+          isSpeaking: false,
+          isMuted: false,
+        });
+        return next;
+      });
+      getP2pPeerConnection(peerId, true);
     });
 
     s.on('voice:signal', async ({ senderPeerId, signalData }) => {
@@ -3653,7 +3683,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         try { p2pConnectionsRef.current.get(peerId).pc.close(); } catch {}
         p2pConnectionsRef.current.delete(peerId);
       }
+      const audioEl = remoteAudioElementsRef.current.get(peerId);
+      if (audioEl) {
+        try {
+          audioEl.pause();
+          audioEl.srcObject = null;
+          if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
+        } catch {}
+        remoteAudioElementsRef.current.delete(peerId);
+      }
       setRemoteVideoTracks((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+      setRemotePeers((prev) => {
         const next = new Map(prev);
         next.delete(peerId);
         return next;
@@ -5195,22 +5239,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const hasLocalVideo = Boolean(isCameraEnabled && localVideoTrack);
     const myId = socketRef.current?.id || '';
 
-    // Deduplicate remote peers and strictly only include peers who ACTUALLY have their camera enabled
-    const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
-    const seenPeerKeys = new Set();
+    // Strictly only include remote peers who ACTUALLY have their camera enabled (keyed by socket ID)
+    const seenSocketIds = new Set();
     const remotePeersWithVideo = [];
     for (const [pId, peer] of remotePeers.entries()) {
       if (pId === myId) continue;
-      const user = connectedUsersRef.current.find((u) => u.id === pId || (u.username && u.username === peer?.username));
-      const pName = (peer?.username || user?.username || '').trim().toLowerCase();
-      if (pName && myName && pName === myName) continue;
-      const canonicalId = pName || user?.id || pId;
-      if (seenPeerKeys.has(canonicalId)) continue;
-
+      if (seenSocketIds.has(pId)) continue;
+      const user = connectedUsersRef.current.find((u) => u.id === pId);
       const isVideoActive = Boolean(peer?.hasVideo === true || user?.hasVideo === true);
       if (isVideoActive) {
-        seenPeerKeys.add(canonicalId);
-        remotePeersWithVideo.push([canonicalId, peer]);
+        seenSocketIds.add(pId);
+        remotePeersWithVideo.push([pId, peer]);
       }
     }
 
@@ -5423,6 +5462,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             {remotePeersWithVideo.map(([peerId, peer]) => {
               const user = connectedUsers.find((u) => u.id === peerId);
               let track = remoteVideoTracks.get(peerId)
+                || remoteP2pVideoTracksRef.current?.get(peerId)
                 || (peer?.username && remoteVideoTracks.get(peer.username))
                 || (user?.username && remoteVideoTracks.get(user.username))
                 || (user?.id && remoteVideoTracks.get(user.id));
@@ -5482,6 +5522,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             {remotePeersWithVideo.map(([peerId, peer]) => {
               const user = connectedUsers.find((u) => u.id === peerId);
               let track = remoteVideoTracks.get(peerId)
+                || remoteP2pVideoTracksRef.current?.get(peerId)
                 || (peer?.username && remoteVideoTracks.get(peer.username))
                 || (user?.username && remoteVideoTracks.get(user.username))
                 || (user?.id && remoteVideoTracks.get(user.id));
@@ -6270,10 +6311,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   function renderVoiceSettingsPopover() {
     if (!showVoiceSettings) return null;
 
-    const myName = (currentProfile?.name || currentProfile?.username || '').toLowerCase();
-    const otherPeers = connectedUsers.filter(
-      (u) => (u.username || u.name || '').toLowerCase() !== myName
-    );
+    const myId = socketRef.current?.id || '';
+    const otherPeers = connectedUsers.filter((u) => u.id !== myId);
 
     const popover = (
       <div className="vs949-v1" onClick={(e) => e.stopPropagation()}>
@@ -7138,15 +7177,15 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
               {(() => {
                 const myId = socketRef.current?.id || '';
-                const myName = (currentProfile?.name || currentProfile?.username || '').trim().toLowerCase();
+                const activeSocketIds = new Set(connectedUsers.map((u) => u.id));
 
                 const uniquePeers = [];
-                const seenUsernames = new Set();
+                const seenSocketIds = new Set();
                 for (const [pId, p] of remotePeers.entries()) {
                   if (pId === myId) continue;
-                  const pName = (p?.username || '').trim().toLowerCase();
-                  if (pName && (pName === myName || seenUsernames.has(pName))) continue;
-                  if (pName) seenUsernames.add(pName);
+                  if (activeSocketIds.size > 0 && !activeSocketIds.has(pId)) continue;
+                  if (seenSocketIds.has(pId)) continue;
+                  seenSocketIds.add(pId);
                   uniquePeers.push([pId, p]);
                 }
 
