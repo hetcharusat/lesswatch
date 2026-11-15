@@ -9819,6 +9819,138 @@ body.in-chit-chat-mode header {
   transition: none !important;
 }
 
+/* ==========================================================================
+   PUSH-TO-TALK LUXURY GLASSMORPHIC HUD (Voice Emitting Mic Animation)
+   ========================================================================== */
+.wt-ptt-glass-pill {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1010;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 20px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(20, 10, 28, 0.75) 100%);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    0 0 28px rgba(255, 94, 165, 0.4),
+    inset 0 1px 1.5px rgba(255, 255, 255, 0.7),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  user-select: none;
+  animation: wtPttIn 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes wtPttIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.wt-ptt-mic-emitter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+
+.wt-ptt-mic-core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff5ea5;
+  filter: drop-shadow(0 0 8px rgba(255, 94, 165, 0.9));
+  animation: wtMicPulse 0.9s ease-in-out infinite alternate;
+}
+
+.wt-ptt-wave {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 94, 165, 0.75);
+  pointer-events: none;
+  opacity: 0;
+  animation: wtWaveEmit 1.2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.wt-ptt-wave.wave-2 {
+  animation-delay: 0.4s;
+}
+
+.wt-ptt-wave.wave-3 {
+  animation-delay: 0.8s;
+}
+
+@keyframes wtWaveEmit {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+@keyframes wtMicPulse {
+  0% {
+    transform: scale(0.94);
+    filter: drop-shadow(0 0 6px rgba(255, 94, 165, 0.6));
+  }
+  100% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 14px rgba(255, 94, 165, 1));
+  }
+}
+
+.wt-ptt-sound-arcs {
+  display: flex;
+  align-items: center;
+  gap: 3.5px;
+  height: 18px;
+}
+
+.wt-ptt-sound-bar {
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fbcfe8 0%, #ff5ea5 100%);
+  box-shadow: 0 0 8px rgba(255, 94, 165, 0.8);
+  animation: wtSoundBar 0.7s ease-in-out infinite alternate;
+}
+
+.wt-ptt-sound-bar:nth-child(1) { height: 7px; animation-delay: 0.08s; }
+.wt-ptt-sound-bar:nth-child(2) { height: 16px; animation-delay: 0.28s; }
+.wt-ptt-sound-bar:nth-child(3) { height: 11px; animation-delay: 0.14s; }
+.wt-ptt-sound-bar:nth-child(4) { height: 18px; animation-delay: 0.38s; }
+.wt-ptt-sound-bar:nth-child(5) { height: 9px; animation-delay: 0.18s; }
+
+@keyframes wtSoundBar {
+  0% {
+    transform: scaleY(0.35);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scaleY(1.15);
+    opacity: 1;
+  }
+}
+
 /* 1. TINY FLOATING BUTTON WHEN HIDDEN - UPPER RIGHT LUXURY FROSTED GLASS */
 .wt-webcam-hidden-trigger {
   position: absolute;
@@ -10145,6 +10277,9 @@ body.in-chit-chat-mode .wt-webcam-hidden-trigger {
   height: 100%;
   object-fit: cover;
   display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* Small minimal badge rendered down below the video */

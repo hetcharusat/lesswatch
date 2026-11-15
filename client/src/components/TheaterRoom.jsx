@@ -221,6 +221,7 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
       className={`wt-pip-card ${isLocal ? 'is-local' : ''}`}
       onPointerEnter={handleUserActivity}
       onPointerMove={handleUserActivity}
+      onDragStart={(e) => e.preventDefault()}
     >
       <video
         ref={videoRef}
@@ -395,6 +396,7 @@ const PartyWebcamOrb = memo(function PartyWebcamOrb({
     <div
       className="wt-pip-orb"
       title={`${name} · Click to expand · Drag to reposition`}
+      onDragStart={(e) => e.preventDefault()}
       onClick={(e) => {
         if (wasJustDraggedRef?.current) return;
         onExpand?.();
@@ -2351,7 +2353,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             setIsMuted(false);
             playAudioChirp('unmute');
             socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
-            showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
           }
         }).catch(() => {
           pttKeyHeldRef.current = false;
@@ -2367,7 +2368,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setIsMuted(false);
         playAudioChirp('unmute');
         socketRef.current?.emit('voice:track_state', { isMuted: false, hasVideo: false });
-        showToast('Push-to-Talk (Mic Live)', <Mic size={15} color="var(--pink-primary)" />);
       }
     };
 
@@ -2382,7 +2382,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         localAudioTrackRef.current.mute().catch(() => { });
         playAudioChirp('mute');
         socketRef.current?.emit('voice:track_state', { isMuted: true, hasVideo: false });
-        showToast('Push-to-Talk ended (Muted)', <MicOff size={15} color="#9ca3af" />);
       }
     };
 
@@ -4964,17 +4963,28 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       );
     }
 
-    // Direct card click-and-drag with free movement and magnetic edge snapping on release
+    // Direct card click-and-drag with free movement and magnetic edge snapping on release (Zero-Lag Direct DOM Transform)
     const handleCardPointerDown = (e) => {
       if (e.target.closest('button, .wt-pip-resize-thumb, .wt-pip-actions')) return;
       if (e.button !== undefined && e.button !== 0) return;
       e.stopPropagation();
+      e.preventDefault();
 
       const startX = e.clientX;
       const startY = e.clientY;
       const initX = webcamPosition.x;
       const initY = webcamPosition.y;
       let hasMoved = false;
+      let currentTx = initX;
+      let currentTy = initY;
+
+      const dockEl = dockRef.current;
+      const pointerId = e.pointerId;
+      try {
+        if (dockEl && typeof dockEl.setPointerCapture === 'function') {
+          dockEl.setPointerCapture(pointerId);
+        }
+      } catch {}
 
       const onPointerMove = (ev) => {
         const dx = ev.clientX - startX;
@@ -4984,31 +4994,45 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           hasMoved = true;
           wasJustDraggedRef.current = true;
           setIsWebcamDragging(true);
+          if (dockEl) {
+            dockEl.classList.add('is-dragging');
+          }
         }
 
-        if (hasMoved) {
-          setWebcamPosition({
-            x: initX + dx,
-            y: initY + dy,
-          });
+        if (hasMoved && dockEl) {
+          currentTx = initX + dx;
+          currentTy = initY + dy;
+          dockEl.style.transform = `translate3d(${currentTx}px, ${currentTy}px, 0)`;
         }
       };
 
       const onPointerUp = (ev) => {
+        try {
+          if (dockEl && typeof dockEl.releasePointerCapture === 'function') {
+            dockEl.releasePointerCapture(pointerId);
+          }
+        } catch {}
+
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', onPointerUp);
         window.removeEventListener('pointercancel', onPointerUp);
 
         if (!hasMoved) {
           setIsWebcamDragging(false);
+          if (dockEl) dockEl.classList.remove('is-dragging');
+          // If clicked on a compact reaction orb without dragging, expand to full video
+          if (isWebcamCollapsed || e.target.closest('.wt-pip-orb')) {
+            setIsWebcamCollapsed(false);
+          }
           return;
         }
 
         setIsWebcamDragging(false);
+        if (dockEl) dockEl.classList.remove('is-dragging');
 
         // Magnetic edge snapping and viewport clamping
-        if (dockRef.current) {
-          const rect = dockRef.current.getBoundingClientRect();
+        if (dockEl) {
+          const rect = dockEl.getBoundingClientRect();
           const winW = window.innerWidth;
           const winH = window.innerHeight;
 
@@ -5018,9 +5042,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           const MARGIN_TOP = 20;
           const MARGIN_BOTTOM = 96; // Space above video player scrubber / controls
           const SNAP_DIST = 60;     // Magnetic attraction threshold (px)
-
-          const currentTx = initX + (ev.clientX - startX);
-          const currentTy = initY + (ev.clientY - startY);
 
           // Boundaries in tx / ty coordinate space relative to top: 24px, right: 24px
           const minTx = MARGIN_LEFT - (winW - 24 - rect.width);
@@ -5051,6 +5072,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             finalTy = Math.max(minTy, Math.min(maxTy, currentTy));
           }
 
+          dockEl.style.transform = `translate3d(${finalTx}px, ${finalTy}px, 0)`;
           setWebcamPosition({ x: finalTx, y: finalTy });
           try {
             localStorage.setItem('wt_webcam_pos', JSON.stringify({ x: finalTx, y: finalTy }));
@@ -5118,6 +5140,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             localStorage.removeItem('wt_webcam_pos');
           } catch {}
         }}
+        onDragStart={(e) => e.preventDefault()}
         onClick={(e) => e.stopPropagation()}
         title={isWebcamDragging ? 'Dragging webcam' : 'Drag anywhere to move (magnetic edges) · Double-click to reset'}
       >
@@ -6691,29 +6714,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           {/* Floating Subtitle & Audio Popovers */}
           {renderTrackPopovers()}
 
-          {/* Push-to-Talk HUD Banner */}
+          {/* Glassmorphic Push-to-Talk Voice Emitting HUD */}
           {isPushToTalking && (
-            <div style={{
-              position: 'absolute',
-              top: '24px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 65,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 20px',
-              borderRadius: '999px',
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95))',
-              color: '#fff',
-              fontWeight: 800,
-              fontSize: '0.86rem',
-              boxShadow: '0 0 24px rgba(16, 185, 129, 0.7), 0 8px 16px rgba(0,0,0,0.4)',
-              pointerEvents: 'none',
-              letterSpacing: '0.04em'
-            }}>
-              <Radio size={16} />
-              <span>TRANSMITTING (HOLDING 'V')</span>
+            <div className="wt-ptt-glass-pill" title="Push-to-Talk (Mic Live)">
+              <div className="wt-ptt-mic-emitter">
+                <span className="wt-ptt-wave wave-1" />
+                <span className="wt-ptt-wave wave-2" />
+                <span className="wt-ptt-wave wave-3" />
+                <div className="wt-ptt-mic-core">
+                  <Mic size={17} color="#ff5ea5" />
+                </div>
+              </div>
+              <div className="wt-ptt-sound-arcs">
+                <span className="wt-ptt-sound-bar" />
+                <span className="wt-ptt-sound-bar" />
+                <span className="wt-ptt-sound-bar" />
+                <span className="wt-ptt-sound-bar" />
+                <span className="wt-ptt-sound-bar" />
+              </div>
             </div>
           )}
 
