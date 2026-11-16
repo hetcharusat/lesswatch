@@ -55,8 +55,8 @@ services:
     image: m1k1o/neko:chromium
     container_name: ${NEKO_CONTAINER_NAME:-neko}
     profiles: ["neko"]
-    restart: "no"
-    shm_size: "2gb"
+    restart: unless-stopped
+    shm_size: "1gb"
     expose:
       - "8080"
     ports:

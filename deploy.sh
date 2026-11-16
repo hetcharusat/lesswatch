@@ -532,13 +532,14 @@ CUSTOM_DOMAIN=""
 # ------------------------------------------------------------------------------
 echo -e "${PURPLE}${BOLD}⚡ Orchestrating System Infrastructure...${RESET}"
 
-# Swap optimization
+# Swap optimization (Ensures 4GB swap on micro/low-RAM cloud instances so Chromium 1080p video never OOMs)
 TOTAL_RAM_MB=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo "4000")
-if [ "$TOTAL_RAM_MB" -lt 2500 ] && [ ! -f /swapfile ]; then
-  spin_cmd "Configuring 2GB high-speed swap for smooth transcoding" \
-    "(fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048) && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && (grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab) && sysctl vm.swappiness=10"
+CURRENT_SWAP_MB=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}' || echo "0")
+if [ "$TOTAL_RAM_MB" -lt 3500 ] && [ "$CURRENT_SWAP_MB" -lt 3500 ]; then
+  spin_cmd "Configuring 4GB high-speed swap for smooth virtual browser & transcoding" \
+    "(swapoff /swapfile 2>/dev/null || true) && (fallocate -l 4G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=4096) && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && (grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab) && sysctl -w vm.swappiness=60 && sysctl -w vm.vfs_cache_pressure=50"
 else
-  echo -e "  ${GREEN}✔${RESET} Memory capacity verified (${TOTAL_RAM_MB}MB RAM)"
+  echo -e "  ${GREEN}✔${RESET} Memory capacity verified (${TOTAL_RAM_MB}MB RAM, ${CURRENT_SWAP_MB}MB Swap)"
 fi
 
 # Ensure Docker Engine

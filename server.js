@@ -274,6 +274,10 @@ const nekoProxy = createProxyMiddleware({
     },
     error: (err, req, res) => {
       console.warn(`[Neko Proxy] Connection notice: ${err.message}`);
+      if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
+        // Automatically revive Neko container if it crashed or was killed by OOM
+        ensureNekoRunning().catch(() => {});
+      }
       if (res && !res.headersSent) {
         if (req.accepts && req.accepts('html') && !req.xhr && !req.headers['x-requested-with']) {
           res.status(502).send(`
