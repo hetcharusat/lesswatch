@@ -97,6 +97,7 @@ const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const NEKO_CONTAINER_NAME = process.env.NEKO_CONTAINER_NAME || 'neko';
 const NEKO_URL = process.env.NEKO_URL || 'http://172.17.0.1:8080';
 let activeNekoUrl = NEKO_URL;
+let nekoPrefix = '/neko';
 
 async function resolveNekoUrl() {
   const candidates = [
@@ -110,13 +111,26 @@ async function resolveNekoUrl() {
 
   for (const candidate of candidates) {
     try {
-      const res = await fetch(`${candidate}/neko/health`, { signal: AbortSignal.timeout(600) })
-        .catch(() => fetch(`${candidate}/`, { signal: AbortSignal.timeout(600) }));
-      if (res && res.status < 500) {
-        if (activeNekoUrl !== candidate) {
-          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate}`);
+      // 1. Check if Neko has /neko prefix configured (standard production)
+      const resPrefixed = await fetch(`${candidate}/neko/health`, { signal: AbortSignal.timeout(600) }).catch(() => null);
+      if (resPrefixed && resPrefixed.status < 500) {
+        if (activeNekoUrl !== candidate || nekoPrefix !== '/neko') {
+          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate} (prefix: /neko)`);
         }
         activeNekoUrl = candidate;
+        nekoPrefix = '/neko';
+        return candidate;
+      }
+      // 2. Check if Neko is running at root without prefix
+      const resRoot = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(600) })
+        .catch(() => fetch(`${candidate}/`, { signal: AbortSignal.timeout(600) }))
+        .catch(() => null);
+      if (resRoot && resRoot.status < 500) {
+        if (activeNekoUrl !== candidate || nekoPrefix !== '') {
+          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate} (prefix: none)`);
+        }
+        activeNekoUrl = candidate;
+        nekoPrefix = '';
         return candidate;
       }
     } catch {}
@@ -255,8 +269,15 @@ const nekoProxy = createProxyMiddleware({
   router: () => activeNekoUrl,
   changeOrigin: true,
   ws: false,
-  pathRewrite: {
-    '^/neko': ''
+  pathRewrite: (path, req) => {
+    if (nekoPrefix === '/neko') {
+      if (!path.startsWith('/neko')) {
+        return '/neko' + (path.startsWith('/') ? path : '/' + path);
+      }
+      return path;
+    } else {
+      return path.startsWith('/neko') ? (path.replace(/^\/neko/, '') || '/') : path;
+    }
   },
   on: {
     proxyReq: (proxyReq, req, res) => {
@@ -5073,9 +5094,17 @@ server.on('upgrade', async (req, socket, head) => {
       (req.headers.host && req.headers.host.includes('trycloudflare.com'));
     req.headers['x-forwarded-proto'] = isHttps ? 'https' : 'http';
     req.headers['x-forwarded-host'] = req.headers['x-forwarded-host'] || req.headers.host;
-    // Strip /neko subpath prefix if present so Neko backend receives /api/ws?token=... instead of /neko/api/ws
-    let cleanUrl = url.startsWith('/neko') ? (url.replace(/^\/neko/, '') || '/') : url;
-    if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
+    // Route WebSocket URL matching Neko's configured path prefix
+    let cleanUrl = url;
+    if (nekoPrefix === '/neko') {
+      if (!cleanUrl.startsWith('/neko')) {
+        cleanUrl = '/neko' + (cleanUrl.startsWith('/') ? cleanUrl : '/' + cleanUrl);
+      }
+    } else {
+      if (cleanUrl.startsWith('/neko')) {
+        cleanUrl = cleanUrl.replace(/^\/neko/, '') || '/';
+      }
+    }
     req.url = cleanUrl;
     nekoProxy.upgrade(req, socket, head);
   } else if (req.url && req.url.startsWith('/livekit')) {
