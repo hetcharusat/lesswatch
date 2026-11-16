@@ -56,7 +56,9 @@ services:
     container_name: ${NEKO_CONTAINER_NAME:-neko}
     profiles: ["neko"]
     restart: unless-stopped
-    shm_size: "1gb"
+    shm_size: "2gb"
+    cap_add:
+      - SYS_ADMIN
     expose:
       - "8080"
     ports:
