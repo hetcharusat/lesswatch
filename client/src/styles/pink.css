@@ -10499,43 +10499,45 @@ body.in-chit-chat-mode .wt-webcam-hidden-trigger {
   flex-direction: column;
   align-items: center;
   cursor: grab;
-  opacity: 0.52;
-  transition: opacity 220ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0.88;
+  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.45));
+  transition: opacity 220ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1), filter 220ms ease;
 }
 
 .wt-pip-orb:hover {
   opacity: 1 !important;
   transform: translateY(-2px);
+  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.6));
 }
 
 .wt-pip-orb-frame {
   position: relative;
   width: 144px;
   height: 94px;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(145deg, rgba(22, 12, 30, 0.45) 0%, rgba(10, 5, 16, 0.62) 100%);
-  backdrop-filter: blur(14px) saturate(170%);
-  -webkit-backdrop-filter: blur(14px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(145deg, rgba(20, 10, 28, 0.72) 0%, rgba(10, 4, 16, 0.88) 100%);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.35),
-    0 0 12px rgba(244, 114, 182, 0.12),
-    inset 0 1px 1px rgba(255, 255, 255, 0.45);
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    0 0 16px rgba(255, 94, 165, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.5);
   transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .wt-pip-orb:hover .wt-pip-orb-frame {
-  border-color: rgba(255, 94, 165, 0.7);
-  background: linear-gradient(145deg, rgba(22, 12, 30, 0.75) 0%, rgba(10, 5, 16, 0.90) 100%);
+  border-color: rgba(255, 94, 165, 0.8);
+  background: linear-gradient(145deg, rgba(26, 12, 36, 0.85) 0%, rgba(12, 5, 20, 0.95) 100%);
   box-shadow:
-    0 14px 32px rgba(0, 0, 0, 0.55),
-    0 0 20px rgba(255, 94, 165, 0.4);
+    0 14px 32px rgba(0, 0, 0, 0.6),
+    0 0 24px rgba(255, 94, 165, 0.45);
 }
 
 .wt-pip-orb.is-speaking .wt-pip-orb-frame {
   /* No harsh flashing outline ring around video frame when speaking */
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .wt-pip-orb-video {
@@ -10543,6 +10545,7 @@ body.in-chit-chat-mode .wt-webcam-hidden-trigger {
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0.98;
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;

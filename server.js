@@ -218,7 +218,7 @@ async function resetNekoChromium() {
   return { success: true };
 }
 
-// Shared Virtual Browser (Neko) Proxy (Manual WS upgrade only on /neko)
+// Shared Virtual Browser (Neko) Proxy (Manual WS upgrade only on /neko and /api/ws)
 const nekoProxy = createProxyMiddleware({
   target: NEKO_URL,
   changeOrigin: true,
@@ -228,11 +228,28 @@ const nekoProxy = createProxyMiddleware({
   },
   on: {
     proxyReq: (proxyReq, req, res) => {
-      // Normalize origin so Neko backend accepts cross-origin API requests without CORS rejection
+      // Normalize origin and protocol so Neko backend accepts cross-origin API requests without CORS rejection
       try {
         const u = new URL(NEKO_URL);
         proxyReq.setHeader('origin', u.origin);
+        proxyReq.setHeader('host', u.host);
       } catch {}
+      const isHttps = req.secure ||
+        req.headers['x-forwarded-proto'] === 'https' ||
+        (req.headers.host && req.headers.host.includes('trycloudflare.com'));
+      proxyReq.setHeader('x-forwarded-proto', isHttps ? 'https' : 'http');
+    },
+    proxyReqWs: (proxyReq, req, socket, options, head) => {
+      // Ensure WebSocket handshake headers are explicitly normalized
+      try {
+        const u = new URL(NEKO_URL);
+        proxyReq.setHeader('origin', u.origin);
+        proxyReq.setHeader('host', u.host);
+      } catch {}
+      const isHttps = req.socket?.encrypted ||
+        req.headers['x-forwarded-proto'] === 'https' ||
+        (req.headers.host && req.headers.host.includes('trycloudflare.com'));
+      proxyReq.setHeader('x-forwarded-proto', isHttps ? 'https' : 'http');
     },
     proxyRes: (proxyRes, req, res) => {
       // Rewrite session cookies so browsers allow them inside iframes
@@ -421,6 +438,14 @@ app.use('/neko', async (req, res, next) => {
     return res.status(503).json({ error: 'Docker socket is not available on this server to manage Neko.', code: 'DOCKER_UNAVAILABLE' });
   }
 
+  nekoProxy(req, res, next);
+});
+
+// Fallback proxying for Neko client root-relative API calls
+app.use(['/api/ws', '/ws', '/api/session', '/api/stats', '/api/members'], (req, res, next) => {
+  if (appConfig?.modules?.neko === false) {
+    return res.status(403).json({ error: 'Shared Browser (Neko) is disabled.' });
+  }
   nekoProxy(req, res, next);
 });
 
@@ -4940,7 +4965,10 @@ server.on('upgrade', async (req, socket, head) => {
     // Avoid unhandled socket error if client disconnects abruptly
   });
 
-  if (req.url && req.url.startsWith('/neko')) {
+  const url = req.url || '';
+  const isNekoWs = url.startsWith('/neko') || url.startsWith('/api/ws') || url === '/ws' || url.startsWith('/ws?');
+
+  if (isNekoWs) {
     if (!appConfig?.modules?.neko) {
       socket.destroy();
       return;
@@ -4955,17 +4983,22 @@ server.on('upgrade', async (req, socket, head) => {
       return;
     }
     socket.resume();
-    // Normalize Origin to target host so gorilla/websocket checkOrigin allows the handshake from any tunnel/domain
+    // Normalize Origin and Host to target host so gorilla/websocket checkOrigin allows the handshake from any tunnel/domain
     try {
       const u = new URL(NEKO_URL);
       req.headers.origin = u.origin;
+      req.headers.host = u.host;
     } catch {
       req.headers.origin = 'http://neko:8080';
+      req.headers.host = 'neko:8080';
     }
-    req.headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || 'https';
+    const isHttps = req.socket?.encrypted ||
+      req.headers['x-forwarded-proto'] === 'https' ||
+      (req.headers.host && req.headers.host.includes('trycloudflare.com'));
+    req.headers['x-forwarded-proto'] = isHttps ? 'https' : 'http';
     req.headers['x-forwarded-host'] = req.headers['x-forwarded-host'] || req.headers.host;
-    // Strip /neko subpath prefix so Neko backend receives /api/ws?token=... instead of /neko/api/ws
-    let cleanUrl = req.url.replace(/^\/neko/, '') || '/';
+    // Strip /neko subpath prefix if present so Neko backend receives /api/ws?token=... instead of /neko/api/ws
+    let cleanUrl = url.startsWith('/neko') ? (url.replace(/^\/neko/, '') || '/') : url;
     if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
     req.url = cleanUrl;
     nekoProxy.upgrade(req, socket, head);

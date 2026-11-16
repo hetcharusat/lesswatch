@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { GlassSurface } from './GlassSurface';
 import {
   ClayPlay,
   ClayPause,
@@ -1509,7 +1510,7 @@ export function PoufPlayer({
   return (
     <div
       ref={containerRef}
-      className={`pouf-player-container ${isFullscreen ? 'pouf-fullscreen' : ''} ${className}`}
+      className={`pouf-player-container player-liquid-glass ${isFullscreen ? 'pouf-fullscreen' : ''} ${className}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => localPlaying && !showSettingsMenu && !showSubMenu && setShowControls(false)}
       style={{
@@ -1858,7 +1859,7 @@ export function PoufPlayer({
           <span className="a4-tcode" style={{ color: 'rgba(255,228,230,0.75)' }}>{formatTime(duration)}</span>
         </div>
 
-        <div className="a4-deck">
+        <GlassSurface className="a4-deck">
           <div className="a4-left">
             <button type="button" onClick={() => setIsMuted(m => !m)} className="a4-btn" title={isMuted ? 'Unmute' : 'Mute'}>
               {isMuted || volume === 0 ? <VolumeX size={16} color="#ff2e93" /> : <Volume2 size={16} />}
@@ -1909,10 +1910,10 @@ export function PoufPlayer({
             </div>
             <button type="button" onClick={toggleFullscreen} className="a4-btn" title="Fullscreen (F)">{isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}</button>
           </div>
-        </div>
+        </GlassSurface>
 
         {showSubMenu && (
-          <div onClick={(e) => e.stopPropagation()} className="subv1-shell">
+          <GlassSurface variant="panel" onClick={(e) => e.stopPropagation()} className="subv1-shell">
             {subsSubView === 'root' && (
               <>
                 <div className="subv1-head">
@@ -2048,12 +2049,12 @@ export function PoufPlayer({
                 </div>
               </>
             )}
-          </div>
+          </GlassSurface>
 
         )}
 
         {showSettingsMenu && (
-          <div onClick={(e) => e.stopPropagation()} className="cfgv1-shell">
+          <GlassSurface variant="panel" onClick={(e) => e.stopPropagation()} className="cfgv1-shell">
             {settingsSubView !== 'filters' ? renderSettingsCoreViews() : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2125,7 +2126,7 @@ export function PoufPlayer({
                 )}
               </>
             )}
-          </div>
+          </GlassSurface>
 
         )}
       </div>

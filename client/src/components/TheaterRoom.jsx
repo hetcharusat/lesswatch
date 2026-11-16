@@ -48,6 +48,7 @@ import {
 } from './ClayIcons';
 import { createNoiseSuppressorNode } from '../services/noiseSuppressor';
 import { GiphyPicker } from './GiphyPicker';
+import { GlassSurface } from './GlassSurface';
 
 function extractYouTubeId(url) {
   if (!url || typeof url !== 'string') return '';
@@ -176,14 +177,17 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
     }
     const el = videoRef.current;
     el.muted = true;
+    el.defaultMuted = true;
     el.playsInline = true;
+    el.setAttribute('muted', '');
+    el.setAttribute('playsinline', '');
 
     // Check if element is already bound to this active track to prevent any video flicker
     const mediaTrack = track.mediaStreamTrack || (track instanceof MediaStreamTrack ? track : null);
     const existingStream = el.srcObject;
     if (existingStream && mediaTrack && existingStream.getTracks && existingStream.getTracks().includes(mediaTrack)) {
       if (el.paused) el.play?.().catch(() => {});
-      setIsVideoReady(true);
+      if (el.videoWidth > 0 || el.readyState >= 1) setIsVideoReady(true);
       return;
     }
 
@@ -197,22 +201,56 @@ const PartyWebcamCard = memo(function PartyWebcamCard({
       } else if (track instanceof MediaStream) {
         el.srcObject = track;
       }
-      el.play?.().catch(() => {});
+      el.muted = true;
+      el.defaultMuted = true;
+      el.play?.().catch((err) => {
+        console.warn('Autoplay error on remote video, forcing muted play:', err);
+        el.muted = true;
+        el.play?.().catch(() => {});
+      });
     } catch (attachErr) {
       console.warn('Error attaching video track:', attachErr);
     }
 
+    const checkReady = () => {
+      if (el.videoWidth > 0 || el.readyState >= 1 || el.currentTime > 0) {
+        setIsVideoReady(true);
+      }
+    };
+
     const onPlaying = () => setIsVideoReady(true);
     el.addEventListener('playing', onPlaying);
     el.addEventListener('loadeddata', onPlaying);
+    el.addEventListener('loadedmetadata', checkReady);
+    el.addEventListener('canplay', onPlaying);
+    el.addEventListener('timeupdate', checkReady);
 
-    if (el.readyState >= 2) {
+    if (mediaTrack) {
+      mediaTrack.onunmute = () => {
+        el.play?.().catch(() => {});
+        setIsVideoReady(true);
+      };
+    }
+
+    // Safety fallback: after 1000ms, if track is live, ensure video plays and hide connecting overlay
+    const safetyTimer = setTimeout(() => {
+      if (el && mediaTrack && mediaTrack.readyState === 'live') {
+        el.play?.().catch(() => {});
+        setIsVideoReady(true);
+      }
+    }, 1000);
+
+    if (el.readyState >= 1 || el.videoWidth > 0) {
       setIsVideoReady(true);
     }
 
     return () => {
+      clearTimeout(safetyTimer);
       el.removeEventListener('playing', onPlaying);
       el.removeEventListener('loadeddata', onPlaying);
+      el.removeEventListener('loadedmetadata', checkReady);
+      el.removeEventListener('canplay', onPlaying);
+      el.removeEventListener('timeupdate', checkReady);
       try {
         if (typeof track.detach === 'function') {
           track.detach(el);
@@ -793,6 +831,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [isWebcamCollapsed, setIsWebcamCollapsed] = useState(false);
   const [isSelfViewHidden, setIsSelfViewHidden] = useState(false);
   const [isCinemaDimmed, setIsCinemaDimmed] = useState(false);
+
+  // A/V Lip-Sync Alignment (Compensates for video encoding/decoding buffer delay)
+  const [avSyncDelay, setAvSyncDelay] = useState(() => parseInt(localStorage.getItem('wt_av_sync_delay') || '80', 10));
+  const avSyncDelayRef = useRef(avSyncDelay);
+  avSyncDelayRef.current = avSyncDelay;
+
+  const handleAvSyncDelayChange = useCallback((val) => {
+    const num = Math.max(0, Math.min(300, Number(val)));
+    setAvSyncDelay(num);
+    avSyncDelayRef.current = num;
+    localStorage.setItem('wt_av_sync_delay', String(num));
+    const delaySec = num / 1000;
+    peerGainNodesRef.current.forEach((entry) => {
+      if (entry?.delayNode && entry.ctx) {
+        entry.delayNode.delayTime.setTargetAtTime(delaySec, entry.ctx.currentTime, 0.05);
+      }
+    });
+  }, []);
   const [webcamPosition, setWebcamPosition] = useState(() => {
     try {
       const saved = localStorage.getItem('wt_webcam_pos');
@@ -1632,15 +1688,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           const ctx = new AudioContextClass();
           const source = ctx.createMediaStreamSource(stream);
           const gainNode = ctx.createGain();
+          const delayNode = ctx.createDelay(1.0);
           const merger = ctx.createChannelMerger(2);
 
+          const avDelaySec = (avSyncDelayRef.current || 80) / 1000;
+          delayNode.delayTime.value = avDelaySec;
+
           source.connect(gainNode);
-          gainNode.connect(merger, 0, 0); // Pipe to Left ear
-          gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
+          gainNode.connect(delayNode);
+          delayNode.connect(merger, 0, 0); // Pipe to Left ear
+          delayNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
           merger.connect(ctx.destination);
 
           gainNode.gain.value = vol / 100;
-          gainEntry = { ctx, source, gainNode, merger };
+          gainEntry = { ctx, source, gainNode, delayNode, merger };
           peerGainNodesRef.current.set(peerId, gainEntry);
 
           if (ctx.state === 'suspended') {
@@ -1704,14 +1765,34 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     if (!targetPeerId) return null;
     let connObj = p2pConnectionsRef.current.get(targetPeerId);
     if (connObj && connObj.pc && connObj.pc.signalingState !== 'closed') {
-      // Sync latest local tracks to existing transceivers without renegotiation
+      // Sync latest local tracks to existing transceivers
       const audioTrack = localStreamRef.current?.getAudioTracks()[0] || null;
       const videoTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+      let needsOffer = false;
       if (connObj.audioTransceiver?.sender && connObj.audioTransceiver.sender.track !== audioTrack) {
         connObj.audioTransceiver.sender.replaceTrack(audioTrack).catch(() => {});
       }
       if (connObj.videoTransceiver?.sender && connObj.videoTransceiver.sender.track !== videoTrack) {
         connObj.videoTransceiver.sender.replaceTrack(videoTrack).catch(() => {});
+        needsOffer = true;
+      }
+      if (isInitiator && needsOffer && connObj.pc.signalingState === 'stable') {
+        (async () => {
+          try {
+            connObj.makingOffer = true;
+            const offer = await connObj.pc.createOffer();
+            if (connObj.pc.signalingState !== 'stable') return;
+            await connObj.pc.setLocalDescription(offer);
+            socketRef.current?.emit('voice:signal', {
+              targetPeerId,
+              signalData: { desc: connObj.pc.localDescription }
+            });
+          } catch (e) {
+            console.warn('P2P renegotiation offer error:', e);
+          } finally {
+            connObj.makingOffer = false;
+          }
+        })();
       }
       return connObj;
     }
@@ -1966,15 +2047,20 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 const ctx = new AudioContextClass();
                 const source = ctx.createMediaStreamSource(stream);
                 const gainNode = ctx.createGain();
+                const delayNode = ctx.createDelay(1.0);
                 const merger = ctx.createChannelMerger(2);
 
+                const avDelaySec = (avSyncDelayRef.current || 80) / 1000;
+                delayNode.delayTime.value = avDelaySec;
+
                 source.connect(gainNode);
-                gainNode.connect(merger, 0, 0); // Pipe to Left ear
-                gainNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
+                gainNode.connect(delayNode);
+                delayNode.connect(merger, 0, 0); // Pipe to Left ear
+                delayNode.connect(merger, 0, 1); // Pipe identical voice to Right ear
                 merger.connect(ctx.destination);
 
                 gainNode.gain.value = vol / 100;
-                gainEntry = { ctx, source, gainNode, merger };
+                gainEntry = { ctx, source, gainNode, delayNode, merger };
                 peerGainNodesRef.current.set(participant.identity, gainEntry);
 
                 if (ctx.state === 'suspended') {
@@ -2130,6 +2216,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           try {
             if (gainEntry.source) gainEntry.source.disconnect();
             if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
+            if (gainEntry.delayNode) gainEntry.delayNode.disconnect();
             if (gainEntry.merger) gainEntry.merger.disconnect();
             if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => { });
           } catch { }
@@ -2173,6 +2260,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           try {
             if (gainEntry.source) gainEntry.source.disconnect();
             if (gainEntry.gainNode) gainEntry.gainNode.disconnect();
+            if (gainEntry.delayNode) gainEntry.delayNode.disconnect();
             if (gainEntry.merger) gainEntry.merger.disconnect();
             if (gainEntry.ctx && gainEntry.ctx.state !== 'closed') gainEntry.ctx.close().catch(() => { });
           } catch { }
@@ -2372,6 +2460,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       try {
         if (entry.source) entry.source.disconnect();
         if (entry.gainNode) entry.gainNode.disconnect();
+        if (entry.delayNode) entry.delayNode.disconnect();
         if (entry.merger) entry.merger.disconnect();
         if (entry.ctx && entry.ctx.state !== 'closed') entry.ctx.close().catch(() => { });
       } catch { }
@@ -2539,7 +2628,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         if (lkRoom && lkRoom.state === 'connected') {
           try {
             await lkRoom.localParticipant.publishTrack(vTrack, {
-              simulcast: true,
+              simulcast: false, // Turn off CPU-heavy multi-stream encoding to keep video in sync with audio
               videoCodec: 'vp8',
             });
           } catch (pubErr) {
@@ -3524,9 +3613,21 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     s.on('voice:track_state', ({ peerId, isMuted: peerMuted, hasVideo: peerVideo }) => {
       if (peerId === s.id) return;
       const user = connectedUsersRef.current.find((u) => u.id === peerId);
+      if (user) {
+        if (typeof peerVideo === 'boolean') user.hasVideo = peerVideo;
+        if (typeof peerMuted === 'boolean') user.isMuted = peerMuted;
+      }
 
       if (peerVideo === true) {
-        const cachedTrack = remoteP2pVideoTracksRef.current?.get(peerId);
+        let cachedTrack = remoteP2pVideoTracksRef.current?.get(peerId);
+        if (!cachedTrack) {
+          const conn = p2pConnectionsRef.current.get(peerId);
+          const rTrack = conn?.videoTransceiver?.receiver?.track;
+          if (rTrack && rTrack.readyState === 'live') {
+            cachedTrack = rTrack;
+            remoteP2pVideoTracksRef.current.set(peerId, rTrack);
+          }
+        }
         if (cachedTrack) {
           setRemoteVideoTracks((prev) => {
             const next = new Map(prev);
@@ -6302,6 +6403,30 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 ))}
               </div>
             </div>
+
+            {/* A/V Lip-Sync Alignment */}
+            <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div className="vs-cell-header" style={{ marginBottom: '6px' }}>
+                <span className="vs-label">Audio / Video Lip-Sync</span>
+                <span className="vs-badge is-active">+{avSyncDelay}ms</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="300"
+                step="10"
+                value={avSyncDelay}
+                onChange={(e) => handleAvSyncDelayChange(parseInt(e.target.value, 10))}
+                className="vs-range"
+                style={{ '--pct': `${Math.round((avSyncDelay / 300) * 100)}%` }}
+                aria-label="A/V Lip-Sync Delay"
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.62rem', color: 'rgba(255, 255, 255, 0.45)' }}>
+                <span>0ms (Direct)</span>
+                <span>80ms (Synced)</span>
+                <span>300ms</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -6649,7 +6774,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   return (
-    <div ref={theaterWrapperRef} tabIndex={-1} style={{ outline: 'none' }} className={`theater-view-wrapper ${isChatSidebarOpen ? 'chat-expanded' : ''}`}>
+    <div ref={theaterWrapperRef} tabIndex={-1} style={{ outline: 'none' }} className={`theater-view-wrapper theater-liquid-glass ${isChatSidebarOpen ? 'chat-expanded' : ''}`}>
       {/* Non-scaling Cinema Transition Curtain for smooth native Fullscreen enter/exit */}
       <div ref={fsCurtainRef} className="wt-fs-curtain" aria-hidden="true" />
       {/* Hidden WebRTC Remote Audio Hub */}
@@ -7066,7 +7191,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             <canvas ref={ambientDeckCanvasRef} width={64} height={1} className="amb-blur-canvas" />
           </div>
           <div className="amb-row">
-            <div className="amb-dock-group">
+            <GlassSurface className="amb-dock-group">
               <button
                 onClick={handleForceSync}
                 className={`btn-gold-shimmer amb-sync-cta ${(syncStatus === 'Buffering...' || Boolean(barrierState)) ? 'is-catching' : (syncStatus === 'In Sync' ? 'is-synced' : 'is-desynced')}`}
@@ -7093,9 +7218,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 <ClayFolder size={15} />
                 <span>Library</span>
               </button>
-            </div>
+            </GlassSurface>
 
-            <div className="amb-dock-group v1-unified-scale" style={{ padding: '5px 8px', gap: '6px', alignItems: 'center' }}>
+            <GlassSurface className="amb-dock-group v1-unified-scale" style={{ padding: '5px 8px', gap: '6px', alignItems: 'center' }}>
               {/* HUD Mic Capsule */}
               <div style={{ position: 'relative', display: 'inline-flex' }}>
                 <div className={`hud-capsule ${isVoiceConnected ? (isMuted ? 'is-muted' : 'is-live') : 'is-off'}`}>
@@ -7165,8 +7290,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 </div>
                 {renderCameraSettingsPopover()}
               </div>
-            </div>
-            <div className="amb-dock-group">
+            </GlassSurface>
+            <GlassSurface className="amb-dock-group">
               <input
                 ref={subtitleFileInputRef}
                 type="file"
@@ -7348,7 +7473,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 <Maximize size={13} color="var(--pink-primary)" />
                 <span>Fullscreen</span>
               </button>
-            </div>
+            </GlassSurface>
           </div>
         </div>
       </div>
