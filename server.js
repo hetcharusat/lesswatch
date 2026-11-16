@@ -95,7 +95,34 @@ if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 // --------------------------------------------------------------------------
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const NEKO_CONTAINER_NAME = process.env.NEKO_CONTAINER_NAME || 'neko';
-const NEKO_URL = process.env.NEKO_URL || 'http://neko:8080';
+const NEKO_URL = process.env.NEKO_URL || 'http://172.17.0.1:8080';
+let activeNekoUrl = NEKO_URL;
+
+async function resolveNekoUrl() {
+  const candidates = [
+    process.env.NEKO_URL,
+    'http://172.17.0.1:8080',
+    'http://172.18.0.1:8080',
+    'http://neko:8080',
+    'http://127.0.0.1:8080',
+    'http://localhost:8080'
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(`${candidate}/neko/health`, { signal: AbortSignal.timeout(600) })
+        .catch(() => fetch(`${candidate}/`, { signal: AbortSignal.timeout(600) }));
+      if (res && res.status < 500) {
+        if (activeNekoUrl !== candidate) {
+          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate}`);
+        }
+        activeNekoUrl = candidate;
+        return candidate;
+      }
+    } catch {}
+  }
+  return activeNekoUrl;
+}
 
 function hasDockerSocket() {
   if (!DOCKER_SOCKET) return false;
@@ -143,16 +170,20 @@ function callDockerAPI(apiPath, method = 'POST', postData = null) {
 async function checkNekoStatus() {
   if (!hasDockerSocket()) {
     try {
-      const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
-      if (probe.status < 500) return 'running';
+      await resolveNekoUrl();
+      const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
+        .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
+      if (probe && probe.status < 500) return 'running';
     } catch {}
     return 'unavailable';
   }
   const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/json`, 'GET');
   if (res.status === 404) {
     try {
-      const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
-      if (probe.status < 500) return 'running';
+      await resolveNekoUrl();
+      const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
+        .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
+      if (probe && probe.status < 500) return 'running';
     } catch {}
     return 'not_found';
   }
@@ -220,7 +251,8 @@ async function resetNekoChromium() {
 
 // Shared Virtual Browser (Neko) Proxy (Manual WS upgrade only on /neko and /api/ws)
 const nekoProxy = createProxyMiddleware({
-  target: NEKO_URL,
+  target: activeNekoUrl,
+  router: () => activeNekoUrl,
   changeOrigin: true,
   ws: false,
   pathRewrite: {
@@ -230,7 +262,7 @@ const nekoProxy = createProxyMiddleware({
     proxyReq: (proxyReq, req, res) => {
       // Normalize origin and protocol so Neko backend accepts cross-origin API requests without CORS rejection
       try {
-        const u = new URL(NEKO_URL);
+        const u = new URL(activeNekoUrl);
         proxyReq.setHeader('origin', u.origin);
         proxyReq.setHeader('host', u.host);
       } catch {}
@@ -242,7 +274,7 @@ const nekoProxy = createProxyMiddleware({
     proxyReqWs: (proxyReq, req, socket, options, head) => {
       // Ensure WebSocket handshake headers are explicitly normalized
       try {
-        const u = new URL(NEKO_URL);
+        const u = new URL(activeNekoUrl);
         proxyReq.setHeader('origin', u.origin);
         proxyReq.setHeader('host', u.host);
       } catch {}
@@ -335,21 +367,24 @@ async function ensureNekoRunning() {
 
   nekoStartupPromise = (async () => {
     try {
-      // First probe NEKO_URL directly: if Neko is already running, return 'running'
+      await resolveNekoUrl();
+      // First probe activeNekoUrl directly: if Neko is already running, return 'running'
       // so WebSocket upgrades and HTTP requests are never blocked when the Docker socket is unmounted or restricted.
       try {
-        const directProbe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
-        if (directProbe.status < 500) {
+        const directProbe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
+          .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
+        if (directProbe && directProbe.status < 500) {
           return 'running';
         }
       } catch {}
 
       const status = await checkNekoStatus();
       if (status === 'not_found' || status === 'unavailable') {
-        // Probe NEKO_URL before failing with 'unavailable' or 'not_found'
+        // Probe activeNekoUrl before failing with 'unavailable' or 'not_found'
         try {
-          const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
-          if (probe.status < 500) {
+          const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
+            .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
+          if (probe && probe.status < 500) {
             return 'running';
           }
         } catch {}
@@ -360,8 +395,9 @@ async function ensureNekoRunning() {
         const startRes = await startNeko();
         if (!startRes.success) {
           try {
-            const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
-            if (probe.status < 500) return 'running';
+            const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
+              .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
+            if (probe && probe.status < 500) return 'running';
           } catch {}
           return 'failed';
         }
@@ -370,9 +406,11 @@ async function ensureNekoRunning() {
       // Wait until Neko HTTP endpoint is actively accepting connections
       for (let i = 0; i < 24; i++) {
         try {
-          const res = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(800) });
-          if (res.status < 500) {
-            console.log('✅ [Neko] Virtual browser HTTP service is fully ready!');
+          await resolveNekoUrl();
+          const res = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
+            .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
+          if (res && res.status < 500) {
+            console.log(`✅ [Neko] Virtual browser HTTP service is fully ready at ${activeNekoUrl}!`);
             return 'running';
           }
         } catch {}
@@ -382,8 +420,9 @@ async function ensureNekoRunning() {
     } catch (err) {
       console.error('Neko startup error:', err);
       try {
-        const probe = await fetch(`${NEKO_URL}/`, { signal: AbortSignal.timeout(1000) });
-        if (probe.status < 500) return 'running';
+        const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
+          .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
+        if (probe && probe.status < 500) return 'running';
       } catch {}
       return 'error';
     } finally {
@@ -5022,12 +5061,12 @@ server.on('upgrade', async (req, socket, head) => {
     socket.resume();
     // Normalize Origin and Host to target host so gorilla/websocket checkOrigin allows the handshake from any tunnel/domain
     try {
-      const u = new URL(NEKO_URL);
+      const u = new URL(activeNekoUrl);
       req.headers.origin = u.origin;
       req.headers.host = u.host;
     } catch {
-      req.headers.origin = 'http://neko:8080';
-      req.headers.host = 'neko:8080';
+      req.headers.origin = 'http://172.17.0.1:8080';
+      req.headers.host = '172.17.0.1:8080';
     }
     const isHttps = req.socket?.encrypted ||
       req.headers['x-forwarded-proto'] === 'https' ||

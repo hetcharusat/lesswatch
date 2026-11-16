@@ -832,8 +832,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const [isSelfViewHidden, setIsSelfViewHidden] = useState(false);
   const [isCinemaDimmed, setIsCinemaDimmed] = useState(false);
 
-  // A/V Lip-Sync Alignment (Compensates for video encoding/decoding buffer delay)
-  const [avSyncDelay, setAvSyncDelay] = useState(() => parseInt(localStorage.getItem('wt_av_sync_delay') || '80', 10));
+  // A/V Lip-Sync Alignment (Default 0ms for natural zero-latency WebRTC hardware sync; adjustable in settings)
+  const [avSyncDelay, setAvSyncDelay] = useState(() => parseInt(localStorage.getItem('wt_av_sync_delay') || '0', 10));
   const avSyncDelayRef = useRef(avSyncDelay);
   avSyncDelayRef.current = avSyncDelay;
 
@@ -1691,7 +1691,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           const delayNode = ctx.createDelay(1.0);
           const merger = ctx.createChannelMerger(2);
 
-          const avDelaySec = (avSyncDelayRef.current || 80) / 1000;
+          const avDelaySec = (avSyncDelayRef.current ?? 0) / 1000;
           delayNode.delayTime.value = avDelaySec;
 
           source.connect(gainNode);
@@ -2050,7 +2050,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 const delayNode = ctx.createDelay(1.0);
                 const merger = ctx.createChannelMerger(2);
 
-                const avDelaySec = (avSyncDelayRef.current || 80) / 1000;
+                const avDelaySec = (avSyncDelayRef.current ?? 0) / 1000;
                 delayNode.delayTime.value = avDelaySec;
 
                 source.connect(gainNode);
