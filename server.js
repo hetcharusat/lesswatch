@@ -324,7 +324,12 @@ const livekitProxy = createProxyMiddleware({
 });
 
 let nekoStartupPromise = null;
+let nekoIdleTimer = null;
 async function ensureNekoRunning() {
+  if (nekoIdleTimer) {
+    clearTimeout(nekoIdleTimer);
+    nekoIdleTimer = null;
+  }
   if (!appConfig?.modules?.neko) return 'disabled';
   if (nekoStartupPromise) return await nekoStartupPromise;
 
@@ -4286,14 +4291,42 @@ function anyActiveNekoUsers() {
   return false;
 }
 
-async function stopNekoIfIdle() {
+async function stopNekoIfIdle(immediate = false) {
   try {
-    if (anyActiveNekoUsers()) return { skipped: true, reason: 'active_users' };
-    const status = await checkNekoStatus();
-    if (status === 'running') {
-      return await stopNeko();
+    if (anyActiveNekoUsers()) {
+      if (nekoIdleTimer) {
+        clearTimeout(nekoIdleTimer);
+        nekoIdleTimer = null;
+      }
+      return { skipped: true, reason: 'active_users' };
     }
-    return { success: true, status, alreadyStopped: true };
+
+    if (immediate) {
+      if (nekoIdleTimer) {
+        clearTimeout(nekoIdleTimer);
+        nekoIdleTimer = null;
+      }
+      const status = await checkNekoStatus();
+      if (status === 'running') {
+        return await stopNeko();
+      }
+      return { success: true, status, alreadyStopped: true };
+    }
+
+    // Grace period: Wait 90s before stopping Neko to protect against page refreshes or quick reconnects
+    if (!nekoIdleTimer) {
+      nekoIdleTimer = setTimeout(async () => {
+        nekoIdleTimer = null;
+        if (!anyActiveNekoUsers()) {
+          const status = await checkNekoStatus();
+          if (status === 'running') {
+            console.log('🛑 [Neko] Idle grace period elapsed (90s). Stopping container to release CPU/RAM...');
+            await stopNeko();
+          }
+        }
+      }, 90000);
+    }
+    return { scheduled: true, delayMs: 90000 };
   } catch (err) {
     return { success: false, error: err.message };
   }
