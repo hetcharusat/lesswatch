@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GlassSurface } from './GlassSurface';
+import { SeekTimeline } from './SeekTimeline';
 import {
   ClayPlay,
   ClayPause,
@@ -1807,57 +1808,20 @@ export function PoufPlayer({
       <div
         className={`pouf-hud-overlay a4-hud ${!isLocked && showControls ? '' : 'is-hidden'}`}
       >
-        <div className="a4-timeline">
-          <span className="a4-tcode">{formatTime(playProgress)}</span>
-          <div
-            id="pouf-progress-track"
-            className="a4-track"
-            onMouseDown={(e) => {
-              const track = e.currentTarget;
-              if (!track || !videoRef.current || !duration) return;
-              isDraggingScrubberRef.current = true;
-              const rect = track.getBoundingClientRect();
-              const upd = (cx) => {
-                const tt = Math.max(0, Math.min(1, (cx - rect.left) / (rect.width || 1))) * duration;
-                setPlayProgress(tt);
-                return tt;
-              };
-              upd(e.clientX);
-              const onMM = (me) => upd(me.clientX);
-              const onMU = (ue) => {
-                const ft = upd(ue.clientX);
-                isDraggingScrubberRef.current = false;
-                if (videoRef.current) videoRef.current.currentTime = ft;
-                if (shouldUseAudioElement && audioRef.current) audioRef.current.currentTime = ft;
-                if (onSeek) onSeek(ft);
-                window.removeEventListener('mousemove', onMM);
-                window.removeEventListener('mouseup', onMU);
-              };
-              window.addEventListener('mousemove', onMM);
-              window.addEventListener('mouseup', onMU);
-            }}
-            onMouseMove={(e) => {
-              if (!duration) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1)));
-              setHoverPosition(pos * 100);
-              setHoverTime(pos * duration);
-            }}
-            onMouseLeave={handleScrubberMouseLeave}
-          >
-            {hoverTime !== null && (
-              <div className="a4-tip" style={{ left: `${hoverPosition}%` }}>
-                {formatTime(hoverTime)}
-              </div>
-            )}
-            <div className="a4-rail">
-              <div className="a4-buf" style={{ width: `${duration > 0 ? (bufferedProgress / duration) * 100 : 0}%` }} />
-              <div className="a4-fill" style={{ width: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
-            </div>
-            <div className="a4-knob" style={{ left: `${duration > 0 ? (playProgress / duration) * 100 : 0}%` }} />
-          </div>
-          <span className="a4-tcode" style={{ color: 'rgba(255,228,230,0.75)' }}>{formatTime(duration)}</span>
-        </div>
+        <SeekTimeline
+          currentTime={playProgress}
+          duration={duration}
+          buffered={bufferedProgress}
+          formatTime={formatTime}
+          disabled={!canControl}
+          onSeek={(time) => {
+            if (!videoRef.current) return;
+            videoRef.current.currentTime = time;
+            if (shouldUseAudioElement && audioRef.current) audioRef.current.currentTime = time;
+            setPlayProgress(time);
+            onSeek?.(time);
+          }}
+        />
 
         <GlassSurface className="a4-deck">
           <div className="a4-left">

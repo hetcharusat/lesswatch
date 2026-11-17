@@ -1,0 +1,12 @@
+{
+  "ExtensionInstallForcelist": [
+    "cjpalhdlnbpafiamejdnhcphjbkeiagm;https://clients2.google.com/service/update2/crx"
+  ],
+  "AutoplayAllowed": true,
+  "FullscreenAllowed": true,
+  "PasswordManagerEnabled": false,
+  "PromptForDownloadLocation": false,
+  "BackgroundModeEnabled": false,
+  "DefaultNotificationsSetting": 2,
+  "DefaultPopupsSetting": 2
+}

@@ -12,12 +12,31 @@ member:
   provider: "noauth"
 
 desktop:
-  screen: "1280x720@30"
+  screen: "1280x720@60"
 
-video:
-  bitrate: 3072
-  max_fps: 30
-  codec: "vp8"
+capture:
+  video:
+    codec: "h264"
+    # Ultra-low latency H.264 stream shared by all viewers with baseline hardware decoding
+    ids: [main]
+    pipelines:
+      main:
+        # Dynamic framerate following Neko screen mode (up to 60fps)
+        fps: "fps > 60 ? 60 : fps"
+        gst_prefix: "! video/x-raw,format=I420"
+        gst_encoder: "x264enc"
+        gst_params:
+          threads: "0"
+          bitrate: "4500"
+          key-int-max: "fps > 60 ? 60 : fps"
+          byte-stream: "true"
+          tune: "zerolatency"
+          speed-preset: "ultrafast"
+          bframes: "0"
+          rc-lookahead: "0"
+          vbv-buf-capacity: "300"
+        gst_suffix: "! video/x-h264,profile=baseline,stream-format=byte-stream"
+        show_pointer: false
 
 webrtc:
   epr: "52000-52100"

@@ -52,10 +52,12 @@ services:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-watchtogether}: ${LIVEKIT_API_SECRET:-change-this-to-a-long-random-secret-key}"
 
   neko:
-    image: m1k1o/neko:chromium
+    image: ${NEKO_IMAGE:-ghcr.io/m1k1o/neko/chromium:3.2.0}
     container_name: ${NEKO_CONTAINER_NAME:-neko}
     profiles: ["neko"]
     restart: unless-stopped
+    mem_limit: ${NEKO_MEMORY_LIMIT:-3072m}
+    mem_reservation: ${NEKO_MEMORY_RESERVATION:-1024m}
     shm_size: "2gb"
     cap_add:
       - SYS_ADMIN
@@ -66,13 +68,12 @@ services:
       - "52000:52000/tcp"
     volumes:
       - ./neko.yaml:/etc/neko/neko.yaml:ro
+      - ./neko-policies.json:/etc/chromium/policies/managed/policies.json:ro
+      - ./neko-policies.json:/etc/opt/chrome/policies/managed/policies.json:ro
     environment:
       - NEKO_CONFIG=/etc/neko/neko.yaml
-      - NEKO_SCREEN=${NEKO_SCREEN:-1280x720@30}
-      - NEKO_DESKTOP_SCREEN=${NEKO_SCREEN:-1280x720@30}
-      - NEKO_VIDEO_BITRATE=${NEKO_VIDEO_BITRATE:-3072}
-      - NEKO_MAX_FPS=${NEKO_MAX_FPS:-30}
-      - NEKO_VIDEO_CODEC=vp8
+      - NEKO_DESKTOP_SCREEN=${NEKO_DESKTOP_SCREEN:-${NEKO_SCREEN:-1280x720@60}}
+      # Codec, bitrate and FPS follow the v3 capture pipeline in neko.yaml.
       - NEKO_PASSWORD=${NEKO_PASSWORD:-admin}
       - NEKO_PASSWORD_ADMIN=${NEKO_ADMIN_PASSWORD:-admin}
       - NEKO_MEMBER_PROVIDER=noauth

@@ -641,35 +641,24 @@ spin_cmd "Generating cryptographic secrets & .env parameters" "
   else
     echo \"NEKO_WEBRTC_ICELITE=\${ICE_MODE}\" >> .env
   fi
-  if [ \"$IS_TUNNEL_OR_CLOUDSHELL\" = true ]; then
-    SCREEN_RES=\"960x540@20\"
-    VIDEO_BR=\"1500\"
-    MAX_FPS=\"20\"
-  else
-    SCREEN_RES=\"1280x720@30\"
-    VIDEO_BR=\"3072\"
-    MAX_FPS=\"30\"
+  # Preserve custom display choices; migrate the old deploy-generated FPS caps once.
+  SCREEN_RES=\$(sed -n 's/^NEKO_DESKTOP_SCREEN=//p' .env | tail -n 1)
+  if [ -z \"\${SCREEN_RES}\" ]; then
+    SCREEN_RES=\$(sed -n 's/^NEKO_SCREEN=//p' .env | tail -n 1)
   fi
-  if grep -q '^NEKO_SCREEN=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_SCREEN=.*/NEKO_SCREEN=\${SCREEN_RES}/\" .env
-  else
-    echo \"NEKO_SCREEN=\${SCREEN_RES}\" >> .env
+  if grep -q '^NEKO_MAX_FPS=' .env 2>/dev/null; then
+    case \"\${SCREEN_RES}\" in
+      960x540@20|1024x576@60|1280x720@30) SCREEN_RES=1280x720@60 ;;
+    esac
   fi
+  SCREEN_RES=\${SCREEN_RES:-1280x720@60}
   if grep -q '^NEKO_DESKTOP_SCREEN=' .env 2>/dev/null; then
     sed -i \"s/^NEKO_DESKTOP_SCREEN=.*/NEKO_DESKTOP_SCREEN=\${SCREEN_RES}/\" .env
   else
     echo \"NEKO_DESKTOP_SCREEN=\${SCREEN_RES}\" >> .env
   fi
-  if grep -q '^NEKO_VIDEO_BITRATE=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_VIDEO_BITRATE=.*/NEKO_VIDEO_BITRATE=\${VIDEO_BR}/\" .env
-  else
-    echo \"NEKO_VIDEO_BITRATE=\${VIDEO_BR}\" >> .env
-  fi
-  if grep -q '^NEKO_MAX_FPS=' .env 2>/dev/null; then
-    sed -i \"s/^NEKO_MAX_FPS=.*/NEKO_MAX_FPS=\${MAX_FPS}/\" .env
-  else
-    echo \"NEKO_MAX_FPS=\${MAX_FPS}\" >> .env
-  fi
+  # The explicit v3 pipeline owns bitrate/FPS; legacy keys must not override it.
+  sed -i '/^NEKO_SCREEN=/d; /^NEKO_MAX_FPS=/d; /^NEKO_VIDEO_BITRATE=/d; /^NEKO_VIDEO_CODEC=/d' .env
   if grep -q '^NEKO_WEBRTC_ICESERVERS_FRONTEND=' .env 2>/dev/null; then
     sed -i \"s|^NEKO_WEBRTC_ICESERVERS_FRONTEND=.*|NEKO_WEBRTC_ICESERVERS_FRONTEND='\${DEFAULT_ICESERVERS}'|\" .env
   else
@@ -698,7 +687,7 @@ spin_cmd "Compiling & launching Watch Together services" "$DOCKER_CMD"
 if [ "$ENABLE_NEKO" = true ]; then
   if [ "$NEKO_PROFILE" = "always" ]; then
     echo -e "  ${CYAN}📥 Downloading Neko Chromium browser image (live download)...${RESET}"
-    docker compose --profile neko pull neko || docker pull m1k1o/neko:chromium
+    docker compose --profile neko pull neko
     spin_cmd "Starting persistent Neko browser container" "docker compose --profile neko up -d neko 2>/dev/null || true"
   else
     # On-demand: dispatch pre-warming in background so deployment finishes in seconds

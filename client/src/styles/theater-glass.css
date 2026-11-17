@@ -1,17 +1,17 @@
-/* Shared liquid-glass material; layout and content stay in the original DOM. */
+/* Lightweight glass material; layout and content stay in the original DOM. */
 .theater-liquid-glass,
 .player-liquid-glass,
 .cinema-glass-surface {
-  --cinema-glass-tint: rgba(22, 20, 30, 0.72);
-  --cinema-glass-panel: rgba(22, 20, 30, 0.86);
-  --cinema-glass-edge: rgba(255, 255, 255, 0.22);
+  --cinema-glass-tint: rgba(22, 20, 30, 0.94);
+  --cinema-glass-panel: rgba(22, 20, 30, 0.97);
+  --cinema-glass-edge: rgba(255, 255, 255, 0.14);
   --cinema-glass-reflection: linear-gradient(155deg,
-    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.08),
     rgba(255, 255, 255, 0.025) 38%,
     rgba(244, 114, 182, 0.045) 75%,
     rgba(255, 255, 255, 0.08));
   --cinema-glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 -1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -22,75 +22,28 @@
 
 .theater-liquid-glass .theater-deck .amb-dock-group,
 .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-deck {
-  background: var(--cinema-glass-tint);
+  background: var(--cinema-glass-reflection), var(--cinema-glass-tint);
   border: 1px solid var(--cinema-glass-edge);
   box-shadow: var(--cinema-glass-shadow);
-  -webkit-backdrop-filter: var(--cinema-glass-refraction, blur(0px)) blur(12px) saturate(135%);
-  backdrop-filter: var(--cinema-glass-refraction, blur(0px)) blur(12px) saturate(135%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Menus use a denser tint so text remains legible over bright frames. */
 .player-liquid-glass .pouf-hud-overlay.a4-hud .subv1-shell,
 .player-liquid-glass .pouf-hud-overlay.a4-hud .cfgv1-shell {
-  background: var(--cinema-glass-panel);
+  background: var(--cinema-glass-reflection), var(--cinema-glass-panel);
   border: 1px solid var(--cinema-glass-edge);
   border-radius: 20px;
   box-shadow: var(--cinema-glass-shadow), 0 20px 48px rgba(0, 0, 0, 0.32);
-  -webkit-backdrop-filter: var(--cinema-glass-refraction, blur(0px)) blur(18px) saturate(125%);
-  backdrop-filter: var(--cinema-glass-refraction, blur(0px)) blur(18px) saturate(125%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: none;
 }
 
 .cinema-glass-surface {
   position: relative;
   isolation: isolate;
-}
-
-/* A decorative layer never intercepts clicks or changes control sizing. */
-.cinema-glass-material {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.cinema-glass-material::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--cinema-glass-reflection);
-}
-
-/* The library's default inline-flex sizing is intended for standalone pills. */
-.cinema-glass-material .cinema-glass-lens > .glass {
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit !important;
-  box-shadow: none !important;
-}
-
-/* These utility classes normally come from Tailwind; this app uses plain CSS. */
-.cinema-glass-material > .bg-black {
-  display: none;
-}
-
-.cinema-glass-material .cinema-glass-lens,
-.cinema-glass-material .glass {
-  transition: none !important;
-}
-
-.cinema-glass-material .cinema-glass-lens,
-.cinema-glass-material > span {
-  border-radius: inherit !important;
-}
-
-/* Refraction runs on the surface above; avoid filtering its backdrop twice. */
-.cinema-glass-material .glass__warp {
-  display: none;
 }
 
 .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-pill {
@@ -137,9 +90,6 @@
     --cinema-glass-edge: rgba(255, 255, 255, 0.55);
   }
 
-  .cinema-glass-material > * {
-    display: none;
-  }
 
   .cinema-glass-surface {
     -webkit-backdrop-filter: none !important;
@@ -184,4 +134,252 @@
     transition: none !important;
     transform: none !important;
   }
+}
+
+/* Brief compositor-friendly feedback; no JS ticker or retained tween history. */
+.cinema-glass-surface button:active {
+  scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cinema-glass-surface button:active { scale: none; }
+}
+/* Quiet cinema chrome: static depth, clear selection, comfortable targets. */
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-btn {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  border-color: transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-btn:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: none;
+  color: #fff;
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-btn.active {
+  background: rgba(244, 114, 182, 0.17);
+  border-color: rgba(244, 114, 182, 0.3);
+  color: #fbcfe8;
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play,
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play:hover {
+  background: linear-gradient(145deg, #f472b6, #db2777);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 3px 10px rgba(0,0,0,0.2);
+  transform: none;
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-fill {
+  background: #f472b6;
+  box-shadow: none;
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-knob {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel .pouf-yt-menu-item {
+  min-height: 36px;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.theater-liquid-glass .theater-deck .amb-dock-group {
+  border-radius: 20px;
+  gap: 6px;
+  padding: 6px;
+}
+.theater-liquid-glass .theater-deck .btn-pink-secondary.amb-btn-sm {
+  min-height: 34px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: none;
+  color: #e9e5ed;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theater-liquid-glass .theater-deck .btn-pink-secondary.amb-btn-sm:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: none;
+  transform: none;
+}
+.theater-liquid-glass .theater-deck .amb-sync-cta.is-synced {
+  background: #263d37;
+  border-color: #42665a;
+  color: #d1fae5;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+}
+/* Status remains readable without continuously repainting shadows/shimmers. */
+.theater-liquid-glass .theater-deck .amb-sync-cta,
+.theater-liquid-glass .theater-deck .amb-sync-cta::before,
+.theater-liquid-glass .theater-deck .amb-sync-cta::after,
+.theater-liquid-glass .theater-deck .beacon-ping {
+  animation: none;
+}
+
+/* Selected glass accents: painted reflections, without live video filtering. */
+.player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel {
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(255, 255, 255, 0.13), transparent 55%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 40%, rgba(244, 114, 182, 0.055)),
+    var(--cinema-glass-panel);
+  border-top-color: rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(255,255,255,0.04), 0 12px 28px rgba(0,0,0,0.35);
+}
+
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play,
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play:hover {
+  background:
+    radial-gradient(ellipse at 30% 5%, rgba(255,255,255,0.48), transparent 55%),
+    linear-gradient(145deg, #ec75b0, #c52b72);
+  border-color: rgba(255,255,255,0.42);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.45), inset 0 -2px 3px rgba(86,12,49,0.25), 0 3px 10px rgba(0,0,0,0.2);
+}
+
+@keyframes cinema-menu-reveal {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel {
+    transform-origin: bottom right;
+    animation: cinema-menu-reveal 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play {
+    transition: scale 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play:active {
+    scale: 0.94;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play:hover {
+    scale: 1.045;
+  }
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-play:active {
+    scale: 0.94;
+  }
+}
+
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel {
+    background: #201d29;
+  }
+}
+@media (pointer: coarse) {
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-btn,
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-pill {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .subv1-shell,
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .cfgv1-shell {
+    bottom: 124px;
+  }
+}
+/* Timeline uses native range interaction and local preview state, no RAF loop. */
+.player-liquid-glass .pouf-hud-overlay.a4-hud .seek-timeline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,0.8);
+}
+.seek-times {
+  display: contents;
+}
+.seek-elapsed { order: 1; color: #fff1f7; font-weight: 600; }
+.seek-total { display: none; }
+.seek-remaining { order: 3; color: #e5dce9; }
+.seek-control { order: 2; position: relative; width: 100%; height: 32px; }
+.seek-rail {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 14.5px;
+  height: 3px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.22);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.seek-buffer, .seek-progress { position: absolute; inset: 0 auto 0 0; border-radius: inherit; }
+.seek-buffer { background: rgba(255,255,255,0.35); }
+.seek-progress { background: linear-gradient(90deg, #e55297, #f9a8d4); }
+.seek-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+  border: 0;
+  border-radius: 8px;
+}
+.seek-input::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+.seek-input::-moz-range-track { height: 4px; background: transparent; }
+.seek-input::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  background: #fff1f7;
+  background-clip: padding-box;
+  box-shadow: none;
+}
+.seek-input::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  background: #fff1f7;
+  background-clip: padding-box;
+  box-shadow: none;
+}
+.seek-input:focus-visible { outline: 2px solid #f9a8d4; outline-offset: 3px; }
+.seek-input:disabled { cursor: not-allowed; opacity: 0.45; }
+.seek-preview {
+  position: absolute;
+  bottom: 28px;
+  transform: translateX(-50%);
+  min-width: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff1f7;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .seek-rail { transition: transform 120ms ease; }
+  .seek-control:focus-within .seek-rail, .is-scrubbing .seek-rail { transform: scaleY(1.5); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .seek-control:hover .seek-rail { transform: scaleY(1.5); }
+}
+@media (forced-colors: active) {
+  .seek-rail { background: GrayText; }
+  .seek-progress { background: Highlight; }
+  .seek-input { appearance: auto; }
 }
