@@ -27,6 +27,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund
 
 COPY server.js ./
+COPY scripts/neko-upstream.cjs ./scripts/neko-upstream.cjs
+COPY scripts/neko-modes.cjs ./scripts/neko-modes.cjs
+COPY scripts/neko-lifecycle.cjs ./scripts/neko-lifecycle.cjs
+COPY scripts/neko-receiver.js ./scripts/neko-receiver.js
 COPY public ./public
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh

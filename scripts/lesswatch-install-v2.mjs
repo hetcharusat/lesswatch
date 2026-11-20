@@ -23,6 +23,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { spawn, exec, execSync } from 'node:child_process';
+import { ensureDocker } from './docker-bootstrap.mjs';
 
 const REAL = process.argv.includes('--real');
 const out = process.stdout;
@@ -131,25 +132,11 @@ const SHORT = {
   livekit: 'LiveKit', storage: 'Library', neko_warm: 'Always-on',
 };
 
-// Pre-pull images in background quietly while user interacts with wizard
-try {
-  for (const img of ['cloudflare/cloudflared:latest', 'node:20-bookworm-slim', 'livekit/livekit-server:latest']) {
-    const bgPull = spawn('docker', ['pull', img], { stdio: 'ignore', detached: true });
-    bgPull.on('error', () => { }); // docker missing → don't crash the UI
-    bgPull.unref();
-  }
-} catch { }
-
 // ─── Real Stage Implementations (Non-Blocking & Watchdog Protected) ─────────
 async function checkDocker(log, s) {
-  log('Connecting to Docker daemon socket /var/run/docker.sock...');
-  try {
-    execSync('docker info', { stdio: 'ignore' });
-    s.progress = 100;
-    log(`Docker engine verified (${os.cpus().length} vCPUs, ${(os.totalmem() / 1073741824).toFixed(1)}GB RAM).`);
-  } catch {
-    throw new Error('Docker daemon is not running. Please start Docker first.');
-  }
+  await ensureDocker(log);
+  s.progress = 100;
+  log(`Docker engine verified (${os.cpus().length} vCPUs, ${(os.totalmem() / 1073741824).toFixed(1)}GB RAM).`);
 }
 
 async function generateEnvironment(log, s) {
@@ -488,7 +475,7 @@ async function startTunnel(log, s) {
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id: 'docker', label: 'Docker daemon check', cmd: 'docker info >/dev/null', exec: checkDocker, sim: 1000 },
+  { id: 'docker', label: 'Install & start Docker', cmd: 'bash scripts/ensure-docker.sh', exec: checkDocker, sim: 1000 },
   { id: 'env', label: 'Generate secrets & .env', cmd: 'sh scripts/gen-env.sh', exec: generateEnvironment, sim: 800 },
   { id: 'build', label: 'Build LESSWATCH services', cmd: 'docker compose build', exec: buildServices, sim: 2800 },
   { id: 'neko', label: 'Pull Chromium image', cmd: 'docker compose pull neko', exec: provisionNeko, sim: 1400, feature: 'neko' },

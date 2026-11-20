@@ -25,6 +25,9 @@ import { CreateRoomModal } from './CreateRoomModal';
 import { ChatSidebar } from './ChatSidebar';
 import { UserAvatar } from './JojoAvatar';
 import { PoufPlayer } from './PoufPlayer';
+import { TheaterWelcome } from './TheaterWelcome';
+import { LoungeLibraryModal } from './LoungeLibraryModal';
+import { VoiceActivityPill } from './VoiceActivityPill';
 import {
   ClayPopcorn,
   ClayFolder,
@@ -880,6 +883,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const remoteAudioElementsRef = useRef(new Map()); // participantIdentity -> HTMLAudioElement
   const audioContextRef = useRef(null);
   const audioAnalyserIntervalRef = useRef(null);
+  const micAnalyserRef = useRef(null);
   const isVoiceConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
   const isPushToTalkingRef = useRef(false);
@@ -997,7 +1001,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
-  const [libraryFiles, setLibraryFiles] = useState([]);
 
   // Toast & Autoplay prompt
   const [isToastActive, setIsToastActive] = useState(false);
@@ -1086,7 +1089,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     const closeTimer = setTimeout(() => {
       setRenderFloatingChat(false);
       setIsFloatingChatClosing(false);
-    }, 220);
+    }, 280);
     return () => clearTimeout(closeTimer);
   }, [chatOpen, renderFloatingChat]);
 
@@ -1148,6 +1151,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const artInstanceRef = useRef(null);
   const ytPlayerRef = useRef(null);
   const chatInputRef = useRef(null);
+  const openInstantChatRef = useRef(null);
   const subtitleFileInputRef = useRef(null);
   const chatFadeTimerRef = useRef(null);
   const isRemoteActionRef = useRef(false);
@@ -1426,6 +1430,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   function setupAnalyser(analyserOrTrack) {
+    micAnalyserRef.current = null;
     if (audioAnalyserIntervalRef.current) {
       clearInterval(audioAnalyserIntervalRef.current);
       audioAnalyserIntervalRef.current = null;
@@ -1454,6 +1459,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         source.connect(analyser);
       }
       if (!analyser) return;
+      micAnalyserRef.current = analyser;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let speakingTicks = 0;
@@ -2792,6 +2798,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     pttHandlersRef.current = { down: startPtt, up: stopPtt };
 
     function handleKeyDown(e) {
+      if (document.querySelector('[data-lounge-library]')) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const typing = isTextEntryElement(document.activeElement) || isTextEntryElement(e.target);
       if (typing) return;
@@ -3296,6 +3303,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         // Only launch initialMedia if room is idle
         s.emit('media:change', { url: initialMedia, title: initialTitle || 'Media', type: initialType });
         onConsumeInitialMedia?.();
+      } else {
+        applyMedia({ type: 'direct', url: '', title: '' }, state.playback);
       }
       showToast('Connected to Lounge', <Sparkles size={15} color="var(--pink-primary)" />);
       // Auto-connect to lounge LiveKit room as subscriber so you hear anyone talking with zero refresh
@@ -3542,7 +3551,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           receivedAt: Date.now()
         };
       }
-      showToast(`${changedBy} loaded "${media.title}"`, <Film size={15} color="var(--pink-primary)" />);
+      showToast(media?.url ? `${changedBy} loaded "${media.title}"` : 'Playback stopped.', <Film size={15} color="var(--pink-primary)" />);
       applyMedia(media, playback);
     });
 
@@ -3834,7 +3843,18 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
   // Apply Media Changes cleanly
   function applyMedia(media, playback) {
-    if (!media || !media.url) return;
+    if (!media) return;
+    if (!media.url) {
+      setActivePlayerType('direct');
+      setCurrentUrl('');
+      setCurrentTitle('');
+      setIsNekoReady(false);
+      setNekoMode(null);
+      nekoAppliedMode.current = null;
+      artInstanceRef.current?.pause();
+      ytPlayerRef.current?.stopVideo?.();
+      return;
+    }
 
     const resolvedType = media.type || (
       extractYouTubeId(media.url) ? 'youtube' :
@@ -4003,6 +4023,8 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 socket.emit('player:play', { currentTime });
               } else if (event.data === 2) {
                 socket.emit('player:pause', { currentTime });
+              } else if (event.data === 0) {
+                socket.emit('player:ended', { url: currentUrl, duration: event.target.getDuration?.(), currentTime });
               }
             }
           }
@@ -4560,8 +4582,92 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     }, 4500);
   }
 
+  // Iframe listeners persist across renders, so always use the current room state.
+  const openInstantChat = () => {
+    const sidebarActive = (isChitChatModeRef.current && !isChatCollapsedRef.current) || isChatSidebarOpenRef.current;
+    if (sidebarActive) return false;
+    setChatOpen(true);
+    setIsFloatingChatClosing(false);
+    resetChatInactivityTimer();
+    chatInputRef.current?.focus({ preventScroll: true });
+    return true;
+  };
+  openInstantChatRef.current = openInstantChat;
+
+  useEffect(() => {
+    if (!chatOpen || !renderFloatingChat) return;
+    const frame = requestAnimationFrame(() => {
+      chatInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chatOpen, renderFloatingChat]);
+
+  useEffect(() => () => {
+    if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
+  }, []);
+
   // Neko Lifecycle Management (Warm-up readiness check & controls)
   const [isNekoReady, setIsNekoReady] = useState(false);
+  const [nekoMode, setNekoMode] = useState(null);
+  const [nekoModeBusy, setNekoModeBusy] = useState(false);
+  const [nekoModeError, setNekoModeError] = useState('');
+  const nekoModeRequest = useRef(0);
+  const nekoModeChanging = useRef(false);
+  const nekoAppliedMode = useRef(null);
+
+  useEffect(() => {
+    if (activePlayerType !== 'neko' || !isNekoReady) return;
+    const controller = new AbortController();
+    const readMode = async () => {
+      if (nekoModeChanging.current) return;
+      const version = nekoModeRequest.current;
+      try {
+        const response = await fetch('/api/neko/mode', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('wt_token') || ''}` },
+          signal: controller.signal
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not read browser mode.');
+        if (!controller.signal.aborted && version === nekoModeRequest.current) {
+          if (nekoAppliedMode.current === 'watch' && data.mode === 'interact') {
+            // A fresh peer drops any receiver delay retained from the higher bitrate stream.
+            setNekoIframeKey(key => key + 1);
+          }
+          nekoAppliedMode.current = data.mode;
+          setNekoMode(data.mode);
+          setNekoModeError('');
+        }
+      } catch (error) {
+        if (!controller.signal.aborted && version === nekoModeRequest.current) setNekoModeError(error.message);
+      }
+    };
+    readMode();
+    const timer = setInterval(readMode, 8000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [activePlayerType, isNekoReady]);
+
+  const changeNekoMode = async (mode) => {
+    if (nekoModeChanging.current) return;
+    nekoModeChanging.current = true;
+    nekoModeRequest.current += 1;
+    setNekoModeBusy(true);
+    setNekoModeError('');
+    try {
+      const response = await fetch('/api/neko/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('wt_token') || ''}` },
+        body: JSON.stringify({ mode }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not change browser mode.');
+      nekoAppliedMode.current = data.mode;
+      setNekoMode(data.mode);
+      // Reconnect only the viewer, preserving the remote browser and all its tabs.
+      if (data.mode === 'interact') setNekoIframeKey(key => key + 1);
+    } catch (error) { setNekoModeError(error.message); }
+    finally { nekoModeChanging.current = false; setNekoModeBusy(false); }
+  };
   const [nekoIframeKey, setNekoIframeKey] = useState(1);
   const [nekoStatusMsg, setNekoStatusMsg] = useState('Checking browser readiness...');
   const [isTheaterFullscreen, setIsTheaterFullscreen] = useState(false);
@@ -4928,13 +5034,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         }
       }, true);
 
-      // 5. Forward only supported room shortcuts (Hold V, F, C) & Escape from inside Neko
+      // 5. Keyboard events in an iframe never bubble to the parent window.
+      let instantChatEnterHeld = false;
       win.addEventListener('keydown', (e) => {
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
         const activeInside = doc.activeElement;
         const isTyping = isTextEntryElement(activeInside) || isTextEntryElement(e.target);
 
-        if (e.key === 'Escape') {
+        if (e.key === 'Enter' || e.code === 'NumpadEnter') {
+          // Keep Enter available to Neko's local menus and text fields.
+          if (isTyping || isInteractiveActivationElement(activeInside) || isInteractiveActivationElement(e.target)) return;
+          if (e.repeat && !instantChatEnterHeld) return;
+          if (instantChatEnterHeld || openInstantChatRef.current?.()) {
+            instantChatEnterHeld = true;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+          return;
+        } else if (e.key === 'Escape') {
           setChatOpen(false);
           const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
           if (fsEl && document.exitFullscreen) {
@@ -4955,12 +5072,19 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }, true);
 
       win.addEventListener('keyup', (e) => {
+        if ((e.key === 'Enter' || e.code === 'NumpadEnter') && instantChatEnterHeld) {
+          instantChatEnterHeld = false;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
         if (e.code === 'KeyV' || e.key?.toLowerCase() === 'v') {
           pttHandlersRef.current?.up?.();
         }
       }, true);
 
       win.addEventListener('blur', () => {
+        instantChatEnterHeld = false;
         pttHandlersRef.current?.up?.();
       });
     } catch (err) {
@@ -4969,59 +5093,47 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   };
 
   useEffect(() => {
-    let active = true;
-
+    const controller = new AbortController();
+    setIsNekoReady(false);
+    if (activePlayerType !== 'neko') return () => controller.abort();
+    if (appConfig?.modules?.neko === false) {
+      setNekoStatusMsg('Shared Browser is disabled in Admin Settings.');
+      return () => controller.abort();
+    }
     async function checkAndWarmNeko() {
-      if (activePlayerType !== 'neko') {
-        setIsNekoReady(false);
-        return;
-      }
-      if (appConfig?.modules?.neko === false) {
-        setIsNekoReady(false);
-        setNekoStatusMsg('Shared Browser (Neko) module is disabled in Admin Settings.');
-        return;
-      }
-
-      setNekoStatusMsg('Connecting to Virtual Shared Browser (Neko)...');
-      try {
-        const res = await fetch('/api/neko/control', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'status' })
-        });
-        const data = await res.json();
-        if (data.status !== 'running') {
-          setNekoStatusMsg('Launching Chromium instance & WebRTC engine...');
-          await fetch('/api/neko/control', {
+      setNekoStatusMsg('Starting your shared browser…');
+      setNekoModeError('');
+      for (let attempt = 0; attempt < 12 && !controller.signal.aborted; attempt++) {
+        try {
+          const response = await fetch('/api/neko/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'start' })
+            body: JSON.stringify({ action: 'start' }),
+            signal: controller.signal
           });
-          let retries = 8;
-          while (retries-- > 0 && active) {
-            await new Promise(r => setTimeout(r, 1200));
-            const check = await fetch('/api/neko/control', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'status' })
-            }).then(r => r.json()).catch(() => ({ status: 'unknown' }));
-            if (check.status === 'running') break;
+          const data = await response.json();
+          if (controller.signal.aborted) return;
+          if (response.ok && data.success && data.status === 'running' && data.mode) {
+            nekoAppliedMode.current = data.mode;
+            setNekoMode(data.mode);
+            setIsNekoReady(true);
+            return;
+          }
+          if (attempt === 11) throw new Error(data.error || 'Browser did not become ready.');
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          if (attempt === 11) {
+            setNekoStatusMsg('Could not connect. Use Reload to try again.');
+            setNekoModeError(error.message);
+            return;
           }
         }
-        if (active) {
-          setIsNekoReady(true);
-        }
-      } catch (e) {
-        if (active) setIsNekoReady(true);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
-
     checkAndWarmNeko();
-
-    return () => {
-      active = false;
-    };
-  }, [activePlayerType]);
+    return () => controller.abort();
+  }, [activePlayerType, nekoIframeKey]);
 
   const handleReloadNeko = () => {
     showToast('Reloading browser frame...', <RotateCcw size={15} />);
@@ -5029,23 +5141,24 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   };
 
   const handleStopNeko = async () => {
+    // Unmount first, cancelling warm-up and polling before the stop request.
+    setActivePlayerType('direct');
+    setCurrentUrl('');
+    setCurrentTitle('');
+    setIsNekoReady(false);
+    setNekoMode(null);
+    nekoAppliedMode.current = null;
     try {
-      showToast('Stopping Shared Browser & freeing server CPU...', <Power size={15} />);
-      await fetch('/api/neko/control', {
+      const response = await fetch('/api/neko/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'stop' })
       });
-      if (socket) {
-        socket.emit('media:change', { url: '', title: '', type: 'direct' });
-      }
-      setActivePlayerType('direct');
-      setCurrentUrl('');
-      setCurrentTitle('');
-      setIsNekoReady(false);
-      showToast('Shared Browser stopped. Server CPU freed.', <Check size={15} />);
-    } catch (err) {
-      console.warn('Error stopping neko:', err);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not stop the browser.');
+      showToast('Shared Browser stopped.', <Check size={15} />);
+    } catch (error) {
+      showToast(error.message, <AlertCircle size={15} />);
     }
   };
 
@@ -5144,10 +5257,11 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     setUnreadChatCount(0);
   }, [handleMarkChatSeen, captureFsMorphSource]);
 
-  // Unified Capture-Phase Room Shortcuts (ONLY Hold V, F, C; Escape closes popovers/chat/fullscreen)
+  // Unified room shortcuts: Enter opens instant chat; F/C/V and Escape retain their roles.
   useEffect(() => {
     function handleGlobalKeyDown(e) {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector('[data-lounge-library]')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
 
       const activeEl = document.activeElement;
       const isTyping = isTextEntryElement(activeEl) || isTextEntryElement(e.target);
@@ -5216,15 +5330,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         if (isInteractiveActivationElement(activeEl) || isInteractiveActivationElement(e.target)) {
           return;
         }
-        const isSidebarActive = (isChitChatModeRef.current && !isChatCollapsedRef.current) || isChatSidebarOpenRef.current;
-        if (!isSidebarActive && !chatOpen) {
+        if (openInstantChatRef.current?.()) {
           e.preventDefault();
           e.stopPropagation();
-          setChatOpen(true);
-          resetChatInactivityTimer();
-          setTimeout(() => {
-            chatInputRef.current?.focus();
-          }, 40);
           return;
         }
       }
@@ -5249,7 +5357,6 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown, true);
-      if (chatFadeTimerRef.current) clearTimeout(chatFadeTimerRef.current);
     };
   }, [handleToggleSideChat, toggleVideoFullscreen, captureFsMorphSource, showFloatingGiphy, chatOpen, showAudioPopover, showSubtitlePopover, showVoiceSettings]);
 
@@ -5314,18 +5421,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   }
 
   async function openLibrary() {
-    if (onNavigate) {
-      onNavigate('library');
-      return;
-    }
-    try {
-      const res = await fetch('/api/library');
-      const data = await res.json();
-      setLibraryFiles(Array.isArray(data) ? data : (data.files || []));
-      setLibraryModalOpen(true);
-    } catch {
-      alert('Could not fetch library files');
-    }
+    setLibraryModalOpen(true);
   }
 
   function formatTime(sec) {
@@ -6858,104 +6954,44 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                   />
                 )}
 
-                {/* Neko Management Header Bar (Auto-hides in True Fullscreen, slides down on top hover) */}
+                {/* Compact controls stay available on top hover in fullscreen. */}
                 <div
+                  className="neko-toolbar"
                   onMouseEnter={() => setIsTopBarHovered(true)}
                   onMouseLeave={() => setIsTopBarHovered(false)}
                   style={{
                     position: isTheaterFullscreen ? 'absolute' : 'relative',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '42px',
-                    background: 'rgba(23, 15, 32, 0.95)',
-                    backdropFilter: 'blur(14px)',
-                    borderBottom: '1px solid rgba(244, 114, 182, 0.25)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0 1rem',
-                    zIndex: 100,
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
                     transform: (isTheaterFullscreen && !isTopBarHovered) ? 'translateY(-100%)' : 'translateY(0)',
                     opacity: (isTheaterFullscreen && !isTopBarHovered) ? 0 : 1,
-                    transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
                     pointerEvents: (isTheaterFullscreen && !isTopBarHovered) ? 'none' : 'auto'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--gold-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Globe size={14} color="var(--gold-primary)" />
-                      <span>Virtual Shared Browser (Neko)</span>
-                    </span>
-                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                      Active • Synchronized
-                    </span>
-                    {isTheaterFullscreen && (
-                      <span style={{ fontSize: '10px', background: 'rgba(244, 114, 182, 0.2)', color: '#f472b6', border: '1px solid rgba(244, 114, 182, 0.4)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                        True Cinema Fullscreen
-                      </span>
-                    )}
+                  <div className="neko-mode-switch" role="group" aria-label="Shared browser streaming mode" aria-busy={nekoModeBusy}>
+                    <button type="button" aria-pressed={nekoMode === 'interact'} disabled={!isNekoReady || nekoModeBusy} onClick={() => changeNekoMode('interact')} title="720p at 30 fps. Low delay. Click again to reconnect the stream.">
+                      <Zap size={13} aria-hidden="true" /><span>Interact</span>
+                    </button>
+                    <button type="button" aria-pressed={nekoMode === 'watch'} disabled={!isNekoReady || nekoModeBusy} onClick={() => changeNekoMode('watch')} title="1080p at 60 fps. Higher quality encoding.">
+                      <Film size={13} aria-hidden="true" /><span>Watch</span>
+                    </button>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={handleReloadNeko}
-                      className="pink-btn-icon"
-                      style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
-                      title="Reload browser frame"
-                    >
-                      <RotateCcw size={12} />
-                      <span>Reload</span>
+                  <span className="neko-toolbar-progress" role="status">{nekoModeBusy ? 'Switching…' : ''}</span>
+                  <div className="neko-toolbar-actions">
+                    <button type="button" className="neko-toolbar-button" onClick={handleReloadNeko} title="Reconnect the viewer without closing browser tabs" aria-label="Reload browser frame">
+                      <RotateCcw size={14} aria-hidden="true" /><span>Reload</span>
                     </button>
-                    <button
-                      onClick={handleResetNeko}
-                      className="pink-btn-icon"
-                      style={{ fontSize: '11px', padding: '3px 8px', height: '28px', gap: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
-                      title="Clear heavy runaway tabs and reset Chromium to blank page"
-                    >
-                      <span>Reset Tabs</span>
+                    <button type="button" className="neko-toolbar-button" onClick={handleResetNeko} title="Close all browser tabs" aria-label="Reset browser tabs">
+                      <X size={14} aria-hidden="true" /><span>Reset tabs</span>
                     </button>
-                    <button
-                      onClick={toggleVideoFullscreen}
-                      className="pink-btn-icon"
-                      style={{
-                        fontSize: '11px',
-                        padding: '3px 8px',
-                        height: '28px',
-                        gap: '4px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        color: isTheaterFullscreen ? '#f472b6' : 'var(--text-muted)',
-                        border: isTheaterFullscreen ? '1px solid rgba(244, 114, 182, 0.35)' : 'none'
-                      }}
-                      title={isTheaterFullscreen ? "Exit Fullscreen (Esc or F)" : "True Cinema Fullscreen (F)"}
-                    >
-                      {isTheaterFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
-                      <span>{isTheaterFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                    <button type="button" className="neko-toolbar-button" onClick={toggleVideoFullscreen} title={isTheaterFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isTheaterFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-pressed={isTheaterFullscreen}>
+                      {isTheaterFullscreen ? <Minimize size={14} aria-hidden="true" /> : <Maximize size={14} aria-hidden="true" />}<span>{isTheaterFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</span>
                     </button>
-                    <button
-                      onClick={handleStopNeko}
-                      style={{
-                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '3px 10px',
-                        fontSize: '11px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        boxShadow: '0 0 10px rgba(239, 68, 68, 0.4)'
-                      }}
-                      title="Close browser and immediately stop background CPU & audio usage"
-                    >
-                      <Power size={12} />
-                      <span>Exit & Stop Browser</span>
+                    <span className="neko-toolbar-divider" aria-hidden="true" />
+                    <button type="button" className="neko-toolbar-button neko-toolbar-stop" onClick={handleStopNeko} title="Exit and stop the shared browser for everyone" aria-label="Exit and stop shared browser">
+                      <Power size={14} aria-hidden="true" /><span>Stop browser</span>
                     </button>
                   </div>
                 </div>
+                {nekoModeError && <div role="alert" style={{ padding: '4px 12px', fontSize: '12px', color: '#fda4af' }}>{nekoModeError}</div>}
                 {!isNekoReady ? (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', background: '#0e0813', padding: '1rem', overflow: 'hidden' }}>
                     <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '3px solid rgba(244, 114, 182, 0.2)', borderTopColor: '#ec4899', animation: 'spin 0.8s linear infinite' }} />
@@ -6965,6 +7001,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 ) : (
                   <iframe
                     ref={nekoIframeRef}
+                    data-stream-mode={nekoMode || ''}
                     onLoad={handleNekoIframeLoad}
                     key={nekoIframeKey}
                     src={`/neko/?usr=${encodeURIComponent(currentProfile?.username || currentProfile?.name || 'Viewer')}&pwd=admin&embed=1`}
@@ -6972,7 +7009,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     allow="autoplay; camera; microphone; fullscreen; clipboard-read; clipboard-write; display-capture;"
                     style={{
                       width: '100%',
-                      height: isTheaterFullscreen ? '100%' : 'calc(100% - 42px)',
+                      height: isTheaterFullscreen ? '100%' : undefined,
+                      flex: 1,
+                      minHeight: 0,
                       border: 'none',
                       display: 'block'
                     }}
@@ -6987,8 +7026,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             <div id="react-yt-player" style={{ width: '100%', height: '100%' }}></div>
           </div>
 
-          {/* PoufPlayer Container (MKV, MP4, HLS, WebM) - Mounted only for direct media */}
-          {activePlayerType !== 'youtube' && activePlayerType !== 'neko' && (
+          {!currentUrl && activePlayerType !== 'neko' && (
+            <TheaterWelcome onChooseMedia={() => setCreateModalOpen(true)} onOpenLibrary={openLibrary}
+              browserEnabled={appConfig?.modules?.neko !== false} connected={Boolean(socket?.connected)}
+              onLaunchBrowser={() => socket?.emit('media:change', { type: 'neko', url: '/neko/', title: 'Shared Browser' })} />
+          )}
+          {/* PoufPlayer Container (MKV, MP4, HLS, WebM) - Mounted only for loaded direct media */}
+          {Boolean(currentUrl) && activePlayerType !== 'youtube' && activePlayerType !== 'neko' && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2 }}>
               <PoufPlayer
                 socket={socket}
@@ -7048,6 +7092,9 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                     socket.emit('player:pause', { currentTime: curTime });
                   }
                 }}
+                onEnded={({ url, duration, currentTime }) => {
+                  socket?.emit('player:ended', { url, duration, currentTime });
+                }}
                 onSeek={(t) => {
                   isRemoteActionRef.current = false;
                   if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);
@@ -7068,16 +7115,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 onToggleCamera={toggleCamera}
                 onToggleChat={handleToggleSideChat}
                 onToggleFullscreen={toggleVideoFullscreen}
-                onEnterChat={() => {
-                  const isSidebarActive = (isChitChatMode && !isChatCollapsed) || isChatSidebarOpen;
-                  if (!isSidebarActive) {
-                    setChatOpen(true);
-                    resetChatInactivityTimer();
-                    setTimeout(() => {
-                      if (chatInputRef.current) chatInputRef.current.focus();
-                    }, 40);
-                  }
-                }}
+                onEnterChat={openInstantChat}
               >
                 {renderChatOverlay()}
               </PoufPlayer>
@@ -7087,84 +7125,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
           {/* Floating Chat Overlay for YouTube / Neko (Rendered outside when PoufPlayer is not mounted) */}
           {(activePlayerType === 'youtube' || activePlayerType === 'neko') && renderChatOverlay()}
 
-          {/* Floating Quick Chat Pill for Neko (visible when chatOpen is false) */}
-          {activePlayerType === 'neko' && !isChitChatMode && !chatOpen && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setChatOpen(true);
-                resetChatInactivityTimer();
-                setTimeout(() => {
-                  chatInputRef.current?.focus();
-                }, 40);
-              }}
-              className="pouf-btn-tactile"
-              style={{
-                position: 'absolute',
-                bottom: isTheaterFullscreen ? '20px' : '16px',
-                left: '20px',
-                zIndex: 999,
-                background: 'rgba(23, 15, 32, 0.88)',
-                backdropFilter: 'blur(16px)',
-                border: '1px solid rgba(244, 114, 182, 0.45)',
-                borderRadius: '9999px',
-                padding: '6px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                color: '#fff',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 12px rgba(244, 114, 182, 0.25)',
-                transition: 'all 0.2s ease',
-                pointerEvents: 'auto'
-              }}
-              title="Open In-Video Chat (or press Enter)"
-            >
-              <MessageSquare size={13} color="#f472b6" />
-              <span>Chat (Enter)</span>
-              {unreadChatCount > 0 && (
-                <span style={{
-                  background: '#f472b6',
-                  color: '#fff',
-                  fontSize: '10px',
-                  borderRadius: '999px',
-                  padding: '1px 6px',
-                  fontWeight: 800
-                }}>
-                  {unreadChatCount}
-                </span>
-              )}
-            </button>
-          )}
-
           {/* Floating Subtitle & Audio Popovers */}
           {renderTrackPopovers()}
 
           {/* Floating Party Webcam Dock (Direct, YouTube, and Neko) */}
           {renderPartyWebcamGrid()}
 
-          {/* Glassmorphic Push-to-Talk Voice Emitting HUD */}
-          {isPushToTalking && (
-            <div className="wt-ptt-glass-pill" title="Push-to-Talk (Mic Live)">
-              <div className="wt-ptt-mic-emitter">
-                <span className="wt-ptt-wave wave-1" />
-                <span className="wt-ptt-wave wave-2" />
-                <span className="wt-ptt-wave wave-3" />
-                <div className="wt-ptt-mic-core">
-                  <Mic size={17} color="#ff5ea5" />
-                </div>
-              </div>
-              <div className="wt-ptt-sound-arcs">
-                <span className="wt-ptt-sound-bar" />
-                <span className="wt-ptt-sound-bar" />
-                <span className="wt-ptt-sound-bar" />
-                <span className="wt-ptt-sound-bar" />
-                <span className="wt-ptt-sound-bar" />
-              </div>
-            </div>
-          )}
+          {isPushToTalking && <VoiceActivityPill analyserRef={micAnalyserRef}
+            audioNodesRef={audioNodesRef} mutedRef={isMutedRef} />}
 
           {/* Minimal Docked Arrow Button when Chat is Closed */}
           {!isChatSidebarOpen && (
@@ -7503,51 +7471,14 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
 
 
 
-      {/* Library Selection Modal */}
-      {libraryModalOpen && (
-        <div className="pink-modal-backdrop" onClick={() => setLibraryModalOpen(false)}>
-          <div className="pink-modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Folder size={18} color="var(--pink-primary)" />
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Select from Server Storage</h3>
-              </div>
-              <button onClick={() => setLibraryModalOpen(false)} className="pink-btn-icon"><X size={16} /></button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '360px', overflowY: 'auto' }}>
-              {libraryFiles.length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.85rem' }}>
-                  No media files in server storage. Admins can download MKVs or episodes via Server Downloader!
-                </div>
-              ) : (
-                libraryFiles.map((f) => (
-                  <div
-                    key={f.filename}
-                    onClick={() => {
-                      socket?.emit('media:change', {
-                        url: f.streamUrl,
-                        title: f.filename,
-                        type: f.mediaType || (f.streamUrl?.includes('.m3u8') ? 'hls' : 'direct')
-                      });
-                      setLibraryModalOpen(false);
-                    }}
-                    className="holographic-card"
-                    style={{ padding: '0.75rem 1rem', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.86rem' }}>{f.filename}</div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        {f.sizeFormatted} • {f.subtitles?.length ? `${f.subtitles.length} Subs` : 'Native'}
-                      </div>
-                    </div>
-                    <Play size={14} fill="currentColor" color="var(--gold-primary)" />
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {libraryModalOpen && <LoungeLibraryModal currentUser={currentProfile} onClose={() => setLibraryModalOpen(false)}
+        onPlayMedia={file => {
+          socketRef.current?.emit('media:change', {
+            url: file.streamUrl, title: file.filename,
+            type: file.mediaType || (file.streamUrl?.includes('.m3u8') ? 'hls' : 'direct')
+          });
+          setLibraryModalOpen(false);
+        }} />}
 
       {/* Choose / Change Media Modal */}
       <CreateRoomModal

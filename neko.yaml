@@ -12,7 +12,7 @@ member:
   provider: "noauth"
 
 desktop:
-  screen: "1280x720@60"
+  screen: "1280x720@30"
 
 capture:
   video:
@@ -26,15 +26,19 @@ capture:
         gst_prefix: "! video/x-raw,format=I420"
         gst_encoder: "x264enc"
         gst_params:
-          threads: "0"
-          bitrate: "4500"
-          key-int-max: "fps > 60 ? 60 : fps"
+          threads: "2"
+          sliced-threads: "true"
+          bitrate: "height >= 1080 ? 14000 : 1800"
+          key-int-max: "height >= 1080 ? 60 : fps * 2"
+          # Keep full recovery frames, but avoid an I/P quality jump in Interact.
+          ip-factor: "height >= 1080 ? 1.4 : 1.0"
           byte-stream: "true"
           tune: "zerolatency"
           speed-preset: "ultrafast"
           bframes: "0"
           rc-lookahead: "0"
-          vbv-buf-capacity: "300"
+          # Rate-control headroom, not a fixed playback delay. 40ms starved keyframes.
+          vbv-buf-capacity: "height >= 1080 ? 600 : 120"
         gst_suffix: "! video/x-h264,profile=baseline,stream-format=byte-stream"
         show_pointer: false
 

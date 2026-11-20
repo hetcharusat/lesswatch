@@ -72,7 +72,7 @@ services:
       - ./neko-policies.json:/etc/opt/chrome/policies/managed/policies.json:ro
     environment:
       - NEKO_CONFIG=/etc/neko/neko.yaml
-      - NEKO_DESKTOP_SCREEN=${NEKO_DESKTOP_SCREEN:-${NEKO_SCREEN:-1280x720@60}}
+      - NEKO_DESKTOP_SCREEN=${NEKO_DESKTOP_SCREEN:-${NEKO_SCREEN:-1280x720@30}}
       # Codec, bitrate and FPS follow the v3 capture pipeline in neko.yaml.
       - NEKO_PASSWORD=${NEKO_PASSWORD:-admin}
       - NEKO_PASSWORD_ADMIN=${NEKO_ADMIN_PASSWORD:-admin}

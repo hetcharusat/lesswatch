@@ -86,6 +86,9 @@ if [ -z "$NODE_BIN" ]; then
   done
 fi
 
+# Bootstrap before ANY image pulls or handoff to the Node installer.
+bash "$SCRIPT_DIR/scripts/ensure-docker.sh"
+
 # Pre-pull cloudflared, node base image, and livekit in the background so build & tunnel launch are instantaneous
 ( docker pull cloudflare/cloudflared:latest >/dev/null 2>&1 & ) 2>/dev/null || true
 ( docker pull node:20-bookworm-slim >/dev/null 2>&1 & ) 2>/dev/null || true
@@ -542,13 +545,7 @@ else
   echo -e "  ${GREEN}✔${RESET} Memory capacity verified (${TOTAL_RAM_MB}MB RAM, ${CURRENT_SWAP_MB}MB Swap)"
 fi
 
-# Ensure Docker Engine
-if ! command -v docker >/dev/null 2>&1; then
-  spin_cmd "Installing modern Docker Engine" \
-    "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh && usermod -aG docker $ACTUAL_USER && systemctl enable docker && systemctl start docker"
-else
-  echo -e "  ${GREEN}✔${RESET} Docker Engine is operational"
-fi
+# Docker Engine and Compose were verified before selecting an installer UI.
 
 # Open Firewall Ports
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then

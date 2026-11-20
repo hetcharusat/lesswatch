@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test tests/neko-upstream.test.cjs tests/neko-modes.test.cjs tests/neko-receiver.test.cjs tests/neko-lifecycle.test.cjs",
     "dev": "node --watch server.js"
   },
   "dependencies": {

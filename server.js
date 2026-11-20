@@ -9,6 +9,9 @@ const cors = require('cors');
 const multer = require('multer');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { Server } = require('socket.io');
+const { discoverNekoUpstream } = require('./scripts/neko-upstream.cjs');
+const { createNekoModes } = require('./scripts/neko-modes.cjs');
+const { createNekoLifecycle } = require('./scripts/neko-lifecycle.cjs');
 
 // LiveKit Server SDK - Token generation for voice SFU
 let AccessToken;
@@ -109,32 +112,13 @@ async function resolveNekoUrl() {
     'http://localhost:8080'
   ].filter(Boolean);
 
-  for (const candidate of candidates) {
-    try {
-      // 1. Check if Neko has /neko prefix configured (standard production)
-      const resPrefixed = await fetch(`${candidate}/neko/health`, { signal: AbortSignal.timeout(600) }).catch(() => null);
-      if (resPrefixed && resPrefixed.status < 500) {
-        if (activeNekoUrl !== candidate || nekoPrefix !== '/neko') {
-          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate} (prefix: /neko)`);
-        }
-        activeNekoUrl = candidate;
-        nekoPrefix = '/neko';
-        return candidate;
-      }
-      // 2. Check if Neko is running at root without prefix
-      const resRoot = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(600) })
-        .catch(() => fetch(`${candidate}/`, { signal: AbortSignal.timeout(600) }))
-        .catch(() => null);
-      if (resRoot && resRoot.status < 500) {
-        if (activeNekoUrl !== candidate || nekoPrefix !== '') {
-          console.log(`🎯 [Neko Proxy] Target resolved to: ${candidate} (prefix: none)`);
-        }
-        activeNekoUrl = candidate;
-        nekoPrefix = '';
-        return candidate;
-      }
-    } catch {}
+  const upstream = await discoverNekoUpstream(candidates);
+  if (!upstream) return null;
+  if (activeNekoUrl !== upstream.url || nekoPrefix !== upstream.prefix) {
+    console.log(`🎯 [Neko Proxy] Target resolved to: ${upstream.url} (prefix: ${upstream.prefix || 'none'})`);
   }
+  activeNekoUrl = upstream.url;
+  nekoPrefix = upstream.prefix;
   return activeNekoUrl;
 }
 
@@ -183,22 +167,12 @@ function callDockerAPI(apiPath, method = 'POST', postData = null) {
 
 async function checkNekoStatus() {
   if (!hasDockerSocket()) {
-    try {
-      await resolveNekoUrl();
-      const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
-        .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
-      if (probe && probe.status < 500) return 'running';
-    } catch {}
+    if (await resolveNekoUrl()) return 'running';
     return 'unavailable';
   }
   const res = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/json`, 'GET');
   if (res.status === 404) {
-    try {
-      await resolveNekoUrl();
-      const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
-        .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
-      if (probe && probe.status < 500) return 'running';
-    } catch {}
+    if (await resolveNekoUrl()) return 'running';
     return 'not_found';
   }
   if (res.body?.State?.Status) {
@@ -259,6 +233,7 @@ async function resetNekoChromium() {
   } catch (err) {
     console.warn('resetNekoChromium exec error:', err.message);
   }
+  if (!anyActiveNekoUsers()) return { success: false, error: 'Shared browser has been stopped.' };
   await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/restart?t=1`, 'POST');
   return { success: true };
 }
@@ -376,84 +351,76 @@ const livekitProxy = createProxyMiddleware({
   }
 });
 
-let nekoStartupPromise = null;
-let nekoIdleTimer = null;
-async function ensureNekoRunning() {
-  if (nekoIdleTimer) {
-    clearTimeout(nekoIdleTimer);
-    nekoIdleTimer = null;
-  }
-  if (!appConfig?.modules?.neko) return 'disabled';
-  if (nekoStartupPromise) return await nekoStartupPromise;
-
-  nekoStartupPromise = (async () => {
-    try {
-      await resolveNekoUrl();
-      // First probe activeNekoUrl directly: if Neko is already running, return 'running'
-      // so WebSocket upgrades and HTTP requests are never blocked when the Docker socket is unmounted or restricted.
-      try {
-        const directProbe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
-          .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
-        if (directProbe && directProbe.status < 500) {
-          return 'running';
-        }
-      } catch {}
-
-      const status = await checkNekoStatus();
-      if (status === 'not_found' || status === 'unavailable') {
-        // Probe activeNekoUrl before failing with 'unavailable' or 'not_found'
-        try {
-          const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
-            .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
-          if (probe && probe.status < 500) {
-            return 'running';
-          }
-        } catch {}
-        return status;
-      }
-      if (status !== 'running') {
-        console.log(`🚀 [Neko] Starting virtual browser container (${NEKO_CONTAINER_NAME}) on-demand...`);
-        const startRes = await startNeko();
-        if (!startRes.success) {
-          try {
-            const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
-              .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
-            if (probe && probe.status < 500) return 'running';
-          } catch {}
-          return 'failed';
-        }
-      }
-
-      // Wait until Neko HTTP endpoint is actively accepting connections
-      for (let i = 0; i < 24; i++) {
-        try {
-          await resolveNekoUrl();
-          const res = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(800) })
-            .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(800) }));
-          if (res && res.status < 500) {
-            console.log(`✅ [Neko] Virtual browser HTTP service is fully ready at ${activeNekoUrl}!`);
-            return 'running';
-          }
-        } catch {}
-        await new Promise(r => setTimeout(r, 500));
-      }
-      return 'running';
-    } catch (err) {
-      console.error('Neko startup error:', err);
-      try {
-        const probe = await fetch(`${activeNekoUrl}/neko/health`, { signal: AbortSignal.timeout(1000) })
-          .catch(() => fetch(`${activeNekoUrl}/`, { signal: AbortSignal.timeout(1000) }));
-        if (probe && probe.status < 500) return 'running';
-      } catch {}
-      return 'error';
-    } finally {
-      setTimeout(() => { nekoStartupPromise = null; }, 2000);
+const nekoLifecycle = createNekoLifecycle({
+  hasUsers: () => anyActiveNekoUsers(),
+  stop: () => stopNeko(),
+  onStop: reason => {
+    // Clear every room using this single shared container before closing it.
+    for (const [roomId, room] of rooms) {
+      if (room.media?.type !== 'neko') continue;
+      room.media = { type: 'direct', url: '', title: '', videoId: null };
+      room.playback = { isPlaying: false, currentTime: 0, updatedAt: Date.now(), playbackRate: 1 };
+      saveRoomToDisk(roomId, room);
+      io.to(roomId).emit('media:changed', { media: room.media, playback: room.playback, changedBy: 'Shared browser' });
     }
-  })();
-
-  return await nekoStartupPromise;
+    broadcastLiveStatus();
+  },
+  start: async ({ fresh, signal }) => {
+    if (!appConfig?.modules?.neko) return 'disabled';
+    if (!await resolveNekoUrl()) {
+      if (signal.aborted) return 'stopped';
+      const status = await checkNekoStatus();
+      if (status === 'not_found' || status === 'unavailable') return status;
+      if (status !== 'running') {
+        const result = await startNeko();
+        if (!result.success) return 'failed';
+      }
+      let ready = false;
+      for (let i = 0; i < 40; i++) {
+        if (signal.aborted) return 'stopped';
+        if (await resolveNekoUrl()) { ready = true; break; }
+        if (i === 10) await repairNekoDisplay();
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (!ready) return 'failed';
+    }
+    if (signal.aborted) return 'stopped';
+    // A new launch always begins in Interact. Joining an existing session preserves Watch.
+    const mode = await nekoModes.read();
+    if (fresh || !mode.mode) await nekoModes.set('interact');
+    return 'running';
+  }
+});
+async function ensureNekoRunning(options) {
+  try { return await nekoLifecycle.ensure(options); }
+  catch (error) { console.warn('[Neko] Startup failed:', error.message); return 'failed'; }
 }
 
+async function repairNekoDisplay() {
+  // A forced Docker stop can leave X99's lock after Xorg has exited.
+  const result = await callDockerAPI(`/containers/${encodeURIComponent(NEKO_CONTAINER_NAME)}/exec`, 'POST', {
+    Cmd: ['sh', '-c', 'if ! pgrep -x Xorg >/dev/null; then rm -f /tmp/.X99-lock /tmp/.X11-unix/X99; supervisorctl restart x-server neko openbox chromium; fi'],
+    AttachStdout: false, AttachStderr: false
+  });
+  if (result.body?.Id) await callDockerAPI(`/exec/${result.body.Id}/start`, 'POST', { Detach: true, Tty: false });
+}
+
+// Load receiver tuning before Neko creates its peer, while retaining the stock image.
+app.get('/neko/lesswatch-receiver.js', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'scripts', 'neko-receiver.js'));
+});
+app.get('/neko/', async (req, res, next) => {
+  if (!req.query.pwd || !req.originalUrl.split('?')[0].endsWith('/')) return next();
+  try {
+    if (await ensureNekoRunning() !== 'running') return next();
+    const upstream = await fetch(`${activeNekoUrl}${nekoPrefix}/`, { signal: AbortSignal.timeout(5000) });
+    if (!upstream.ok || !upstream.headers.get('content-type')?.includes('text/html')) return next();
+    const html = await upstream.text();
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(html.replace(/<head([^>]*)>/i, '<head$1><script src="/neko/lesswatch-receiver.js"></script>'));
+  } catch { next(); }
+});
 app.use('/neko', async (req, res, next) => {
   if (!appConfig?.modules?.neko) {
     return res.status(403).json({ error: 'Shared Browser (Neko) is disabled on this server.' });
@@ -602,6 +569,27 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 app.use('/api/avatars', express.static(AVATARS_DIR, { maxAge: '1h' }));
 
+// The mode is read from the shared desktop, so all viewers see the same selection.
+const nekoModes = createNekoModes({
+  password: process.env.NEKO_ADMIN_PASSWORD || process.env.NEKO_PASSWORD || 'admin',
+  getUpstream: async () => {
+    if (!appConfig?.modules?.neko || await checkNekoStatus() !== 'running' || !await resolveNekoUrl()) throw new Error('Shared browser is not ready.');
+    return { url: activeNekoUrl, prefix: nekoPrefix };
+  }
+});
+app.get('/api/neko/mode', async (req, res) => {
+  if (!getAuthUser(req)) return res.status(401).json({ error: 'Sign in to use browser modes.' });
+  try { res.json(await nekoModes.read()); }
+  catch (error) { res.status(503).json({ error: error.message }); }
+});
+app.post('/api/neko/mode', async (req, res) => {
+  if (!getAuthUser(req)) return res.status(401).json({ error: 'Sign in to use browser modes.' });
+  if (!anyActiveNekoUsers()) return res.status(409).json({ error: 'Shared browser has been stopped.' });
+  if (!['interact', 'watch'].includes(req.body?.mode)) return res.status(400).json({ error: 'Choose Interact or Watch.' });
+  try { res.json(await nekoModes.set(req.body.mode)); }
+  catch (error) { res.status(503).json({ error: error.message }); }
+});
+
 // Control API for Neko Virtual Browser
 app.post('/api/neko/control', async (req, res) => {
   if (!appConfig?.modules?.neko) {
@@ -616,12 +604,16 @@ app.post('/api/neko/control', async (req, res) => {
 
   console.log(`🎮 [Neko API] Received action: ${action}`);
   if (action === 'stop' || action === 'cleanup') {
-    const result = await stopNeko();
+    const result = await nekoLifecycle.stop('manual');
     return res.json({ success: !!result.success, action: 'stopped', ...result });
   } else if (action === 'start') {
-    const result = await startNeko();
-    return res.json({ success: !!result.success, action: 'started', ...result });
+    // Stale requests from an unmounted frame must not revive a stopped session.
+    if (!anyActiveNekoUsers()) return res.status(409).json({ error: 'Select Shared Browser in the room to launch it.' });
+    const status = await ensureNekoRunning({ explicit: true });
+    if (status !== 'running') return res.status(503).json({ error: 'Browser is still starting. Try again.', status });
+    return res.json({ success: true, status, ...await nekoModes.read() });
   } else if (action === 'reset') {
+    if (!anyActiveNekoUsers()) return res.status(409).json({ error: 'Shared browser has been stopped.' });
     const result = await resetNekoChromium();
     return res.json({ success: !!result.success, action: 'reset', ...result });
   } else {
@@ -1096,13 +1088,10 @@ function saveRoomToDisk(roomId, room) {
 
 function createRoom(roomId) {
   const saved = savedRoomsData[roomId];
-  const defaultMedia = {
-    type: 'youtube',
-    url: 'https://www.youtube.com/watch?v=5qap5aO4i9A',
-    videoId: '5qap5aO4i9A',
-    title: 'Lofi Hip Hop Radio 🎧'
-  };
-  let roomMedia = saved?.media || defaultMedia;
+  const defaultMedia = { type: 'direct', url: '', title: '', videoId: null };
+  // A saved paused selection is history, not an active room session.
+  let roomMedia = saved?.playback?.isPlaying || saved?.media?.type === 'neko'
+    ? (saved?.media || defaultMedia) : defaultMedia;
   if (roomMedia.url && roomMedia.url.startsWith('/api/media/stream/')) {
     const rawRel = decodeURIComponent(roomMedia.url.replace('/api/media/stream/', '').split('?')[0]);
     const targetFile = resolveExistingMediaFile(rawRel);
@@ -1121,7 +1110,7 @@ function createRoom(roomId) {
       allowDanmaku: true
     },
     media: roomMedia,
-    playback: saved?.playback || {
+    playback: (roomMedia.url ? saved?.playback : null) || {
       isPlaying: false,
       currentTime: 0,
       updatedAt: Date.now(),
@@ -4352,45 +4341,12 @@ function anyActiveNekoUsers() {
 }
 
 async function stopNekoIfIdle(immediate = false) {
-  try {
-    if (anyActiveNekoUsers()) {
-      if (nekoIdleTimer) {
-        clearTimeout(nekoIdleTimer);
-        nekoIdleTimer = null;
-      }
-      return { skipped: true, reason: 'active_users' };
-    }
-
-    if (immediate) {
-      if (nekoIdleTimer) {
-        clearTimeout(nekoIdleTimer);
-        nekoIdleTimer = null;
-      }
-      const status = await checkNekoStatus();
-      if (status === 'running') {
-        return await stopNeko();
-      }
-      return { success: true, status, alreadyStopped: true };
-    }
-
-    // Grace period: Wait 90s before stopping Neko to protect against page refreshes or quick reconnects
-    if (!nekoIdleTimer) {
-      nekoIdleTimer = setTimeout(async () => {
-        nekoIdleTimer = null;
-        if (!anyActiveNekoUsers()) {
-          const status = await checkNekoStatus();
-          if (status === 'running') {
-            console.log('🛑 [Neko] Idle grace period elapsed (90s). Stopping container to release CPU/RAM...');
-            await stopNeko();
-          }
-        }
-      }, 90000);
-    }
-    return { scheduled: true, delayMs: 90000 };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+  if (immediate && !anyActiveNekoUsers()) return nekoLifecycle.stop('idle');
+  return nekoLifecycle.reconcile();
 }
+
+// Requests do not reset the empty-room clock. Also catches containers started outside the app.
+setInterval(() => { stopNekoIfIdle().catch(console.error); }, 15000).unref();
 
 io.on('connection', (socket) => {
   let currentRoomId = null;
@@ -4407,18 +4363,19 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(cleanRoomId);
 
+    if (room.users.size === 0 && !room.playback.isPlaying && room.media?.type !== 'neko') {
+      room.media = { type: 'direct', url: '', title: '', videoId: null };
+      room.playback = { isPlaying: false, currentTime: 0, updatedAt: Date.now(), playbackRate: 1 };
+      saveRoomToDisk(cleanRoomId, room);
+    }
+
     // Verify room media still exists before admitting user
     if (room.media?.url && room.media.url.startsWith('/api/media/stream/')) {
       const rawRel = decodeURIComponent(room.media.url.replace('/api/media/stream/', '').split('?')[0]);
       const targetFile = resolveExistingMediaFile(rawRel);
       if (!fs.existsSync(targetFile)) {
         console.log(`⚠️ Room "${cleanRoomId}" active media missing on disk (${rawRel}). Falling back to idle.`);
-        room.media = {
-          type: 'youtube',
-          url: 'https://www.youtube.com/watch?v=5qap5aO4i9A',
-          videoId: '5qap5aO4i9A',
-          title: 'Lofi Hip Hop Radio 🎧'
-        };
+        room.media = { type: 'direct', url: '', title: '', videoId: null };
         room.playback = {
           isPlaying: false,
           currentTime: 0,
@@ -4430,7 +4387,7 @@ io.on('connection', (socket) => {
     }
 
     if (room.media?.type === 'neko') {
-      ensureNekoRunning();
+      ensureNekoRunning({ explicit: true });
     }
 
     const isFirstUser = room.users.size === 0;
@@ -4455,6 +4412,7 @@ io.on('connection', (socket) => {
 
     room.users.set(socket.id, currentUser);
     socket.join(cleanRoomId);
+    nekoLifecycle.reconcile();
 
     // Clean any legacy system messages from room history
     const sanitizedMessages = room.messages.slice(-60).map((m) => {
@@ -4524,7 +4482,7 @@ io.on('connection', (socket) => {
   socket.on('player:play', ({ currentTime }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
-    if (!canControl(room)) return;
+    if (!canControl(room) || !room.media?.url) return;
 
     room.playback.isPlaying = true;
     if (typeof currentTime === 'number' && !isNaN(currentTime)) {
@@ -4544,7 +4502,7 @@ io.on('connection', (socket) => {
   socket.on('player:pause', ({ currentTime }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
-    if (!canControl(room)) return;
+    if (!canControl(room) || !room.media?.url) return;
 
     room.playback.isPlaying = false;
     if (typeof currentTime === 'number' && !isNaN(currentTime)) {
@@ -4557,6 +4515,18 @@ io.on('connection', (socket) => {
       currentTime: room.playback.currentTime,
       sender: currentUser?.username || 'Someone'
     });
+    broadcastLiveStatus();
+  });
+
+  socket.on('player:ended', ({ url, duration, currentTime } = {}) => {
+    if (!currentRoomId || !rooms.has(currentRoomId)) return;
+    const room = rooms.get(currentRoomId);
+    if (!canControl(room) || room.media?.url !== url || room.media?.type === 'neko') return;
+    if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(currentTime) || currentTime < duration - 0.25) return;
+    room.media = { type: 'direct', url: '', title: '', videoId: null };
+    room.playback = { isPlaying: false, currentTime: 0, updatedAt: Date.now(), playbackRate: 1 };
+    saveRoomToDisk(currentRoomId, room);
+    io.to(currentRoomId).emit('media:changed', { media: room.media, playback: room.playback, changedBy: 'Playback finished' });
     broadcastLiveStatus();
   });
 
@@ -4712,13 +4682,6 @@ io.on('connection', (socket) => {
     const detected = detectMediaType(url);
     const resolvedType = type || (url?.includes('.m3u8') ? 'hls' : detected.type);
 
-    // If switching away from Neko, stop container if no other Neko rooms are active to free CPU/RAM
-    if (oldMedia?.type === 'neko' && resolvedType !== 'neko') {
-      stopNekoIfIdle();
-    } else if (resolvedType === 'neko') {
-      ensureNekoRunning();
-    }
-
     room.media = {
       type: resolvedType,
       url: detected.cleanUrl || url,
@@ -4726,6 +4689,9 @@ io.on('connection', (socket) => {
       title: title || (detected.type === 'youtube' ? 'YouTube Stream' : 'Video Item'),
       audioTrack: typeof audioTrack === 'number' ? audioTrack : 0
     };
+
+    if (resolvedType === 'neko') ensureNekoRunning({ explicit: true });
+    else if (oldMedia?.type === 'neko') stopNekoIfIdle();
 
     room.playback.isPlaying = true;
     room.playback.currentTime = 0;
