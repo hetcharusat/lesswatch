@@ -31,7 +31,7 @@ Direct playback depends on browser codec support and source-server access rules.
 
 Docker Compose provides the most complete setup. The app image includes FFmpeg, aria2, and yt-dlp. LiveKit runs separately; Neko and Caddy are optional profiles.
 
-The Docker Hub image is **`h4het/lesswatch`**. Publishing is handled by the repository's **Docker image** GitHub Actions workflow. The first image must be published successfully before using these commands:
+The public Docker Hub image is **[h4het/lesswatch](https://hub.docker.com/r/h4het/lesswatch)**, available for AMD64 and ARM64. Publishing is handled by the repository's **Docker image** GitHub Actions workflow:
 
 ```bash
 docker pull h4het/lesswatch:latest
@@ -41,7 +41,7 @@ LESSWATCH_IMAGE=h4het/lesswatch:latest docker compose up -d --no-build watch-tog
 
 Add `LESSWATCH_IMAGE=h4het/lesswatch:latest` to `.env` to keep using the image on subsequent Compose commands. Version and commit tags allow pinning a release. The image contains the frontend, backend, FFmpeg, aria2, and yt-dlp; LiveKit and optional Neko still run as separate containers.
 
-The installer supports registry images through `LESSWATCH_IMAGE`. Its default stays on source builds until the first Docker Hub release is verified (`scripts/image-release.json`). To explicitly use a published image with the production launcher:
+New installer deployments default to the verified Docker Hub release (`scripts/image-release.json`). Existing installations with an explicitly configured image keep that choice. To switch an existing source installation to the prebuilt image, or choose it explicitly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hetcharusat/lesswatch/main/install.sh | LESSWATCH_IMAGE=h4het/lesswatch:latest bash
