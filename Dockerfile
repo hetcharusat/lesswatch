@@ -1,5 +1,16 @@
-# Production runtime with Node 20 + ffmpeg + aria2 + yt-dlp + gosu
-FROM node:20-bookworm-slim
+# syntax=docker/dockerfile:1
+# Compile browser assets on the builder's native architecture. The generated
+# JavaScript/WASM is shared by the amd64 and arm64 runtime images.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend
+WORKDIR /build
+COPY client/package*.json ./client/
+RUN cd client && npm ci --no-audit --no-fund
+COPY client ./client
+COPY public ./public
+RUN rm -rf /build/public/assets && cd client && npm run build
+
+# Production runtime: no frontend source, compiler, or dev dependencies.
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 
@@ -24,14 +35,14 @@ RUN curl -fsSL --retry 3 --retry-delay 2 https://github.com/yt-dlp/yt-dlp/releas
     && chmod a+rx /usr/local/bin/yt-dlp
 
 COPY package*.json ./
-RUN npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY server.js ./
 COPY scripts/neko-upstream.cjs ./scripts/neko-upstream.cjs
 COPY scripts/neko-modes.cjs ./scripts/neko-modes.cjs
 COPY scripts/neko-lifecycle.cjs ./scripts/neko-lifecycle.cjs
 COPY scripts/neko-receiver.js ./scripts/neko-receiver.js
-COPY public ./public
+COPY --from=frontend /build/public ./public
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 

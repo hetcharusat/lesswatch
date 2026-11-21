@@ -1,0 +1,105 @@
+name: Docker image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - '.github/workflows/docker-publish.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'client/**'
+      - 'public/**'
+      - 'server.js'
+      - 'package*.json'
+      - 'docker-entrypoint.sh'
+      - 'scripts/neko-*'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: h4het/lesswatch
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Test source
+        run: npm ci --no-audit --no-fund && npm test
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: lesswatch:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify runtime tools and application health
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh lesswatch:smoke -c 'node --version && ffmpeg -version && aria2c --version && yt-dlp --version'
+          docker run -d --name lesswatch-smoke -e PUID=1000 -e PGID=1000 lesswatch:smoke
+          trap 'docker logs lesswatch-smoke; docker rm -f lesswatch-smoke' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec lesswatch-smoke curl -fsS --max-time 3 http://localhost:3000/api/health; then
+              docker exec lesswatch-smoke sh -c 'curl -fsS http://localhost:3000/ | grep -q "assets/index-"'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo '::error::The image did not pass its health check.'
+          exit 1
+      - name: Check publication credentials
+        if: github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Add repository Actions secret DOCKERHUB_TOKEN with Read & Write access for h4het, then rerun this workflow.'
+            exit 1
+          fi
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          username: h4het
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        if: github.event_name != 'pull_request'
+        id: metadata
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+      - name: Publish amd64 and arm64 images
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=min
+          sbom: true

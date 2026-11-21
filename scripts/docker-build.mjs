@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 
 // Progress advances only when a phase completes. Registry downloads and long
 // Dockerfile steps must not masquerade as a nearly finished installation.
-export async function buildAndStartServices({ services, build, log, stage, onProcess = () => {}, spawnProcess = spawn,
+export async function buildAndStartServices({ services, build, pullApp = false, log, stage, onProcess = () => {}, spawnProcess = spawn,
   idleTimeoutMs = 300000, commandTimeoutMs = 1800000, heartbeatMs = 15000,
   healthTimeoutMs = 90000, healthRetryMs = 2000 }) {
   const run = (args, { quiet = false, timeout = commandTimeoutMs } = {}) => new Promise((resolve, reject) => {
@@ -39,7 +39,8 @@ export async function buildAndStartServices({ services, build, log, stage, onPro
   });
 
   stage.progress = 5;
-  const images = services.filter(service => service !== 'watch-together');
+  if (build && pullApp) throw new Error('Choose either a prebuilt app image or a source build.');
+  const images = services.filter(service => pullApp || service !== 'watch-together');
   if (images.length) {
     log(`Downloading service images: ${images.join(', ')}. First downloads depend on registry/network speed.`);
     await run(['compose', '--progress', 'plain', 'pull', ...images]);

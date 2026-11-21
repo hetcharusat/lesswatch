@@ -16,3 +16,8 @@ data-test/**
 *.tar.gz
 *.apk
 .env
+**/.env
+**/.env.*
+install.log
+client/player-local-test
+tests

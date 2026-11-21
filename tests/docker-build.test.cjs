@@ -46,6 +46,14 @@ test('cached app with LiveKit disabled skips pulls/build and does not start depe
   assert.ok(docker.calls[0].args.includes('--no-deps'));
   assert.ok(!docker.calls[0].args.includes('livekit'));
 });
+test('prebuilt installation pulls the app and never runs an app build', async () => {
+  const { buildAndStartServices } = await modulePromise;
+  const docker = fakeDocker();
+  await buildAndStartServices({ services: ['watch-together'], build: false, pullApp: true, stage: {}, log() {}, ...docker });
+  assert.deepEqual(docker.calls[0].args, ['compose', '--progress', 'plain', 'pull', 'watch-together']);
+  assert.ok(!docker.calls.some(call => call.args.includes('build')));
+  assert.ok(docker.calls[1].args.includes('--no-build'));
+});
 test('quiet hung download does not invent progress and is terminated at the idle deadline', async () => {
   const { buildAndStartServices } = await modulePromise;
   const docker = fakeDocker(['hang']), stage = { progress: 0 };

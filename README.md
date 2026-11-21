@@ -31,6 +31,26 @@ Direct playback depends on browser codec support and source-server access rules.
 
 Docker Compose provides the most complete setup. The app image includes FFmpeg, aria2, and yt-dlp. LiveKit runs separately; Neko and Caddy are optional profiles.
 
+The Docker Hub image is **`h4het/lesswatch`**. Publishing is handled by the repository's **Docker image** GitHub Actions workflow. The first image must be published successfully before using these commands:
+
+```bash
+docker pull h4het/lesswatch:latest
+LESSWATCH_IMAGE=h4het/lesswatch:latest docker compose pull watch-together livekit
+LESSWATCH_IMAGE=h4het/lesswatch:latest docker compose up -d --no-build watch-together livekit
+```
+
+Add `LESSWATCH_IMAGE=h4het/lesswatch:latest` to `.env` to keep using the image on subsequent Compose commands. Version and commit tags allow pinning a release. The image contains the frontend, backend, FFmpeg, aria2, and yt-dlp; LiveKit and optional Neko still run as separate containers.
+
+The installer supports registry images through `LESSWATCH_IMAGE`. Its default stays on source builds until the first Docker Hub release is verified (`scripts/image-release.json`). To explicitly use a published image with the production launcher:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hetcharusat/lesswatch/main/install.sh | LESSWATCH_IMAGE=h4het/lesswatch:latest bash
+```
+
+Use `bash install.sh --build-from-source` to explicitly build your local checkout instead. Rebuild flags also select source mode.
+
+Maintainers: create a Docker Hub token for **h4het** with Read & Write permission and save it as the repository Actions secret **`DOCKERHUB_TOKEN`**. The workflow tests the source, builds and smoke-tests the image, then publishes `latest` on main, `sha-…` for commits, and version tags for `v…` releases. It builds both `linux/amd64` and `linux/arm64`. Credentials, downloads, and local data are excluded from the image.
+
 ### 1. Clone and configure
 
 ```bash
@@ -206,7 +226,7 @@ Set `LIVEKIT_URL=ws://127.0.0.1:7880` for the local backend and use matching Liv
 npm --prefix client run build
 ```
 
-Vite writes the frontend into `public/`, which Express serves. **The Dockerfile copies this directory; it does not build the frontend.** Rebuild it after UI changes before rebuilding the app image.
+Vite writes the frontend into `public/`, which Express serves. The multi-stage Dockerfile builds the frontend itself and copies the result into the production image. For a local Node deployment, run the frontend build after UI changes.
 
 ## Configuration reference
 

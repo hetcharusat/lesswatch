@@ -25,6 +25,7 @@ import { spawn, exec, execSync } from 'node:child_process';
 import { ensureDocker } from './docker-bootstrap.mjs';
 import { buildAndStartServices } from './docker-build.mjs';
 import { ensureInstallerCredentials } from './installer-env.mjs';
+import { selectInstallerImage } from './installer-image.mjs';
 
 const REAL = process.argv.includes('--real');
 const out = process.stdout;
@@ -163,6 +164,14 @@ async function generateEnvironment(log, s) {
 
   const isCloud = TARGETS[state.target]?.id === 'cloud';
   const targetPort = defaultPort();
+  const release = JSON.parse(fs.readFileSync(new URL('./image-release.json', import.meta.url), 'utf8'));
+  const choice = selectInstallerImage({
+    environmentImage: process.env.LESSWATCH_IMAGE, envContent, release,
+    fromSource: ['--build-from-source', '--force-build', '--rebuild'].some(flag => process.argv.includes(flag))
+  });
+  process.env.LESSWATCH_IMAGE = choice.image;
+  setEnvVar('LESSWATCH_IMAGE', choice.image);
+  log(choice.prebuilt ? `Using prebuilt image ${choice.image}; no local app build.` : 'Using a local source build.');
 
   setEnvVar('PORT', targetPort);
   envContent = ensureInstallerCredentials(envContent);
@@ -206,9 +215,10 @@ async function buildServices(log, s) {
   try { currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim(); } catch {}
   try { cachedCommit = fs.readFileSync('./data/.build-commit', 'utf8').trim(); } catch {}
   const codeUpdated = currentCommit && currentCommit !== cachedCommit;
-  const build = !hasImage || codeUpdated || process.argv.includes('--force-build') || process.argv.includes('--rebuild');
-  log(build ? 'Preparing container build; progress follows completed phases.' : 'Using the cached LESSWATCH image.');
-  await buildAndStartServices({ services, build, log, stage: s, onProcess: child => { activeChild = child; } });
+  const choice = selectInstallerImage({ environmentImage: process.env.LESSWATCH_IMAGE });
+  const build = !choice.prebuilt && (!hasImage || codeUpdated || process.argv.includes('--force-build') || process.argv.includes('--rebuild'));
+  log(choice.prebuilt ? `Pulling ${choice.image} from the registry.` : build ? 'Preparing container build; progress follows completed phases.' : 'Using the cached LESSWATCH image.');
+  await buildAndStartServices({ services, build, pullApp: choice.prebuilt, log, stage: s, onProcess: child => { activeChild = child; } });
   // Save the revision only after Compose succeeds and this deployment is healthy.
   if (currentCommit) {
     fs.mkdirSync('./data', { recursive: true });
