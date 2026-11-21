@@ -50,7 +50,9 @@ REPO_BRANCH="${LESSWATCH_BRANCH:-main}"
 if [ -f "deploy.sh" ] && [ -f "docker-compose.yml" ]; then
   TARGET_DIR="$(pwd)"
 elif [ -e "$TARGET_DIR/.git" ]; then
-  local_changes=$(git -C "$TARGET_DIR" status --porcelain)
+  # Installer logs and other untracked runtime files must not block updates.
+  # Git still refuses a pull if an untracked file would be overwritten.
+  local_changes=$(git -C "$TARGET_DIR" status --porcelain --untracked-files=no)
   current_branch=$(git -C "$TARGET_DIR" symbolic-ref --short HEAD 2>/dev/null || true)
   if [ -n "$local_changes" ] || [ "$current_branch" != "$REPO_BRANCH" ]; then
     echo -e "${CYAN}Using the existing checkout without updating it (local changes or a different branch).${RESET}"

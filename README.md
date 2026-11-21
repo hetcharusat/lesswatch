@@ -88,6 +88,8 @@ LESSWATCH_INSTALL_DIR="$HOME/lesswatch-server" bash install.sh
 
 Run `bash install.sh` from an existing project directory to deploy that local checkout. Clean checkouts at the default installation path update with `git pull --ff-only`; local modifications or a different branch are kept without an automatic update. An update failure stops deployment and displays the Git error. Root users do not need `sudo` installed; other users need sudo privileges. Docker installation and daemon startup are handled by the deployment script before containers are launched.
 
+To update an existing installation with the one-line launcher, run the curl command from your home directory (`cd ~`) instead of from inside the project. Installer logs do not block updates; tracked local edits are preserved, and Git refuses to overwrite conflicting untracked files.
+
 The installer preserves existing service credentials on reruns. Image pulls, app builds, service startup, and app health verification run as separate phases with plain Docker output in `install.log` (press **L** in the installer to expand logs). Progress advances when phases complete; a command with no output for five minutes fails with a retryable error instead of leaving a misleading progress bar running indefinitely. First-time image downloads can still take several minutes.
 
 ## HTTPS and networking

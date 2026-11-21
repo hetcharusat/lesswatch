@@ -11,6 +11,7 @@ media/
 data/
 *-local-test/
 .env
+install.log
 *.apk
 .impeccable/
 *.patch
