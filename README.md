@@ -65,12 +65,30 @@ Use HTTPS for remote microphone and camera access. `localhost` works for develop
 
 ### Interactive Linux installer
 
+Run the production launcher directly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hetcharusat/lesswatch/main/install.sh | bash
+```
+
+Or download it before running:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hetcharusat/lesswatch/main/install.sh -o install.sh
 bash install.sh
 ```
 
 The installer launches `deploy.sh` to configure Docker, ports, modules, and domain or tunnel setup. It performs privileged system configuration and may create a **4 GB swap file** on low-memory hosts. Review the scripts before running them on an existing server.
+
+By default, installation uses `~/lesswatch`. Existing non-Git folders are preserved and the launcher stops instead of replacing them. To choose another location:
+
+```bash
+LESSWATCH_INSTALL_DIR="$HOME/lesswatch-server" bash install.sh
+```
+
+Run `bash install.sh` from an existing project directory to deploy that local checkout. Clean checkouts at the default installation path update with `git pull --ff-only`; local modifications or a different branch are kept without an automatic update. An update failure stops deployment and displays the Git error. Root users do not need `sudo` installed; other users need sudo privileges. Docker installation and daemon startup are handled by the deployment script before containers are launched.
+
+The installer preserves existing service credentials on reruns. Image pulls, app builds, service startup, and app health verification run as separate phases with plain Docker output in `install.log` (press **L** in the installer to expand logs). Progress advances when phases complete; a command with no output for five minutes fails with a retryable error instead of leaving a misleading progress bar running indefinitely. First-time image downloads can still take several minutes.
 
 ## HTTPS and networking
 

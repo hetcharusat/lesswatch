@@ -89,10 +89,7 @@ fi
 # Bootstrap before ANY image pulls or handoff to the Node installer.
 bash "$SCRIPT_DIR/scripts/ensure-docker.sh"
 
-# Pre-pull cloudflared, node base image, and livekit in the background so build & tunnel launch are instantaneous
-( docker pull cloudflare/cloudflared:latest >/dev/null 2>&1 & ) 2>/dev/null || true
-( docker pull node:20-bookworm-slim >/dev/null 2>&1 & ) 2>/dev/null || true
-( docker pull livekit/livekit-server:latest >/dev/null 2>&1 & ) 2>/dev/null || true
+# Images are pulled by their selected installer stage with visible progress.
 
 # If Node.js is available, hand off directly to next-gen Animated TUI CLI
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then

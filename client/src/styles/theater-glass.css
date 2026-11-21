@@ -383,3 +383,54 @@
   .seek-progress { background: Highlight; }
   .seek-input { appearance: auto; }
 }
+
+/* Chat-bubble glass for the video player. Only the deck and the open menu
+   sample the backdrop; the video, timeline, and individual buttons stay clear. */
+.player-liquid-glass,
+.player-liquid-glass .cinema-glass-surface {
+  --cinema-glass-tint: rgba(29,20,34,.48);
+  --cinema-glass-panel: rgba(29,20,34,.76);
+  --cinema-glass-edge: rgba(255,222,241,.26);
+  --cinema-glass-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(255,255,255,.04), 0 8px 28px rgba(0,0,0,.22);
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-deck {
+  background: linear-gradient(135deg,rgba(255,237,249,.12),rgba(243,170,211,.025) 48%,rgba(255,255,255,.065)),var(--cinema-glass-tint);
+  border-color: var(--cinema-glass-edge);
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  backdrop-filter: blur(14px) saturate(135%);
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-pill {
+  background: rgba(255,240,249,.07);
+  border-color: rgba(255,235,247,.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1);
+}
+.player-liquid-glass .pouf-hud-overlay.a4-hud .a4-pill.active {
+  background: rgba(238,120,182,.22);
+  border-color: rgba(255,180,220,.48);
+}
+.pouf-player-container.player-liquid-glass .player-menu,
+.player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel {
+  background: linear-gradient(145deg,rgba(255,234,249,.1),rgba(248,157,207,.025) 50%),var(--cinema-glass-panel);
+  border: 1px solid rgba(255,216,239,.25);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.15),0 16px 44px rgba(0,0,0,.3);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+.pouf-player-container.player-liquid-glass .player-menu-head {
+  background: rgba(255,255,255,.025);
+  border-bottom-color: rgba(255,225,243,.13);
+}
+@container cinema-player (max-width:760px) {
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-deck { border-radius:24px; }
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  .player-liquid-glass,.player-liquid-glass .cinema-glass-surface { --cinema-glass-tint:#28202f; --cinema-glass-panel:#28202f; }
+}
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more) {
+  .player-liquid-glass,.player-liquid-glass .cinema-glass-surface { --cinema-glass-tint:#201d29; --cinema-glass-panel:#201d29; --cinema-glass-edge:#c5a2bb; }
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .a4-deck,
+  .pouf-player-container.player-liquid-glass .player-menu,
+  .player-liquid-glass .pouf-hud-overlay.a4-hud .cinema-glass-panel { -webkit-backdrop-filter:none; backdrop-filter:none; }
+}

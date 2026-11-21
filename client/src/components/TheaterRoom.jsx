@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import ReactDOM from 'react-dom';
 import { io } from 'socket.io-client';
 import Hls from 'hls.js';
+import { createPeerNegotiation } from '../utils/peerNegotiation.mjs';
 import {
   Room as LiveKitRoom,
   RoomEvent,
@@ -689,7 +690,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
   const localVideoTrackRef = useRef(null);         // LocalVideoTrack (livekit-client)
 
   // Native WebRTC P2P Fallback Mesh Refs (Seamless zero-config fallback when LiveKit is down/Docker-less)
-  const p2pConnectionsRef = useRef(new Map());     // peerId -> { pc, targetPeerId, makingOffer, ignoreOffer }
+  const p2pConnectionsRef = useRef(new Map());     // peerId -> { pc, targetPeerId, negotiation, audioTransceiver, videoTransceiver }
   const remoteP2pVideoTracksRef = useRef(new Map()); // peerId -> MediaStreamTrack (cached P2P video track)
   const isP2pFallbackActiveRef = useRef(false);
   const [isP2pFallbackActive, setIsP2pFallbackActive] = useState(false);
@@ -1774,59 +1775,32 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       // Sync latest local tracks to existing transceivers
       const audioTrack = localStreamRef.current?.getAudioTracks()[0] || null;
       const videoTrack = localStreamRef.current?.getVideoTracks()[0] || null;
-      let needsOffer = false;
+      // replaceTrack preserves the negotiated audio/video m-lines. It does not
+      // need an offer for every mic/camera toggle.
       if (connObj.audioTransceiver?.sender && connObj.audioTransceiver.sender.track !== audioTrack) {
-        connObj.audioTransceiver.sender.replaceTrack(audioTrack).catch(() => {});
+        connObj.audioTransceiver.sender.replaceTrack(audioTrack).catch(error => console.warn('P2P audio track replacement:', error));
       }
       if (connObj.videoTransceiver?.sender && connObj.videoTransceiver.sender.track !== videoTrack) {
-        connObj.videoTransceiver.sender.replaceTrack(videoTrack).catch(() => {});
-        needsOffer = true;
-      }
-      if (isInitiator && needsOffer && connObj.pc.signalingState === 'stable') {
-        (async () => {
-          try {
-            connObj.makingOffer = true;
-            const offer = await connObj.pc.createOffer();
-            if (connObj.pc.signalingState !== 'stable') return;
-            await connObj.pc.setLocalDescription(offer);
-            socketRef.current?.emit('voice:signal', {
-              targetPeerId,
-              signalData: { desc: connObj.pc.localDescription }
-            });
-          } catch (e) {
-            console.warn('P2P renegotiation offer error:', e);
-          } finally {
-            connObj.makingOffer = false;
-          }
-        })();
+        connObj.videoTransceiver.sender.replaceTrack(videoTrack).catch(error => console.warn('P2P video track replacement:', error));
       }
       return connObj;
     }
 
     const pc = new RTCPeerConnection({ iceServers: P2P_ICE_SERVERS });
 
-    // Deterministic m-line ordering: m=0 Audio, m=1 Video.
-    // This strictly prevents Chromium "The order of m-lines in subsequent offer doesn't match order from previous offer/answer" error!
-    const audioTrack = localStreamRef.current?.getAudioTracks()[0] || null;
-    const videoTrack = localStreamRef.current?.getVideoTracks()[0] || null;
-
-    const audioTransceiver = pc.addTransceiver(audioTrack || 'audio', {
-      direction: 'sendrecv',
-      streams: [localStreamRef.current]
-    });
-    const videoTransceiver = pc.addTransceiver(videoTrack || 'video', {
-      direction: 'sendrecv',
-      streams: [localStreamRef.current]
-    });
-
+    // Only the elected caller reserves slots initially. Pre-creating slots on
+    // the answering peer can leave unassociated transceivers after rollback,
+    // which later creates duplicate/reordered m-lines in Chromium.
+    const startsCall = (socketRef.current?.id || '') > targetPeerId;
+    const stream = localStreamRef.current;
+    const audioTrack = stream?.getAudioTracks()[0] || null;
+    const videoTrack = stream?.getVideoTracks()[0] || null;
+    const options = { direction: 'sendrecv', streams: stream ? [stream] : [] };
     connObj = {
       pc,
       targetPeerId,
-      makingOffer: false,
-      ignoreOffer: false,
-      candidateQueue: [],
-      audioTransceiver,
-      videoTransceiver
+      audioTransceiver: startsCall ? pc.addTransceiver(audioTrack || 'audio', options) : null,
+      videoTransceiver: startsCall ? pc.addTransceiver(videoTrack || 'video', options) : null
     };
     p2pConnectionsRef.current.set(targetPeerId, connObj);
 
@@ -1908,23 +1882,23 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
     };
 
-    // 3. Perfect Negotiation Pattern onnegotiationneeded
-    pc.onnegotiationneeded = async () => {
-      try {
-        connObj.makingOffer = true;
-        const offer = await pc.createOffer();
-        if (pc.signalingState !== 'stable') return;
-        await pc.setLocalDescription(offer);
-        socketRef.current?.emit('voice:signal', {
-          targetPeerId,
-          signalData: { desc: pc.localDescription }
-        });
-      } catch (err) {
-        console.warn('P2P negotiationneeded error:', err);
-      } finally {
-        connObj.makingOffer = false;
+    connObj.negotiation = createPeerNegotiation(pc, {
+      polite: () => (socketRef.current?.id || '') < targetPeerId,
+      send: signalData => socketRef.current?.emit('voice:signal', { targetPeerId, signalData }),
+      onError: error => console.warn('P2P negotiation failed:', error),
+      prepareAnswer: async () => {
+        for (const kind of ['audio', 'video']) {
+          const transceiver = pc.getTransceivers().find(item => item.receiver.track.kind === kind && !item.stopped);
+          if (!transceiver) continue;
+          connObj[`${kind}Transceiver`] = transceiver;
+          transceiver.direction = 'sendrecv';
+          const stream = localStreamRef.current;
+          const track = stream?.getTracks().find(item => item.kind === kind) || null;
+          await transceiver.sender.replaceTrack(track);
+          if (stream) transceiver.sender.setStreams(stream);
+        }
       }
-    };
+    });
 
     pc.onconnectionstatechange = () => {
       console.log(`[P2P WebRTC] Connection to ${targetPeerId}: ${pc.connectionState}`);
@@ -1933,25 +1907,13 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       }
     };
 
-    if (isInitiator) {
-      (async () => {
-        try {
-          connObj.makingOffer = true;
-          const offer = await pc.createOffer();
-          if (pc.signalingState !== 'stable') return;
-          await pc.setLocalDescription(offer);
-          socketRef.current?.emit('voice:signal', {
-            targetPeerId,
-            signalData: { desc: pc.localDescription }
-          });
-        } catch (err) {
-          console.warn('Initial P2P offer error:', err);
-        } finally {
-          connObj.makingOffer = false;
-        }
-      })();
+    // The elected caller starts via negotiationneeded. Both peers use the
+    // same controller for later renegotiation and ICE restarts.
+    // If only this peer needs fallback, wake the elected caller without
+    // creating competing audio/video slots on the answering side.
+    if (isInitiator && !startsCall) {
+      socketRef.current?.emit('voice:signal', { targetPeerId, signalData: { requestOffer: true } });
     }
-
     return connObj;
   }
 
@@ -2975,6 +2937,17 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       return;
     }
 
+    const directVideo = document.querySelector('.pouf-player-container video');
+    if (activePlayerType !== 'youtube' && directVideo) {
+      if (directVideo.error) { setSyncStatus('Playback error'); return; }
+      if (directVideo.readyState < 2 || directVideo.seeking) { setSyncStatus('Buffering...'); return; }
+      if (directVideo.paused && !directVideo.ended) {
+        UnifiedPlayer.play();
+        setSyncStatus('Catching Up');
+        return;
+      }
+    }
+
     const drift = Math.abs(clientTime - authTime);
 
     // Relaxed 4.0s natural co-watching window: within 4 seconds, let both players play smoothly at 1.0x with zero frame chops
@@ -3701,90 +3674,10 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
       getP2pPeerConnection(peerId, true);
     });
 
-    s.on('voice:signal', async ({ senderPeerId, signalData }) => {
-      if (!senderPeerId || !signalData) return;
+    s.on('voice:signal', ({ senderPeerId, signalData }) => {
+      if (!senderPeerId || !signalData || senderPeerId === s.id) return;
       const connObj = getP2pPeerConnection(senderPeerId, false);
-      if (!connObj) return;
-      const pc = connObj.pc;
-
-      try {
-        if (signalData.desc) {
-          const desc = new RTCSessionDescription(signalData.desc);
-
-          if (desc.type === 'offer') {
-            const isPolite = socketRef.current && (socketRef.current.id < senderPeerId);
-            const offerCollision = connObj.makingOffer || pc.signalingState !== 'stable';
-            connObj.ignoreOffer = !isPolite && offerCollision;
-
-            if (connObj.ignoreOffer) {
-              console.log(`[P2P WebRTC] Impolite peer ignoring offer collision from ${senderPeerId}`);
-              return;
-            }
-
-            if (offerCollision) {
-              try {
-                await pc.setLocalDescription({ type: 'rollback' });
-              } catch (e) {
-                console.warn('[P2P WebRTC] Rollback warning:', e);
-              }
-            }
-
-            await pc.setRemoteDescription(desc);
-
-            // Flush queued ICE candidates
-            if (connObj.candidateQueue && connObj.candidateQueue.length > 0) {
-              for (const cand of connObj.candidateQueue) {
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(cand));
-                } catch (e) { }
-              }
-              connObj.candidateQueue = [];
-            }
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            s.emit('voice:signal', {
-              targetPeerId: senderPeerId,
-              signalData: { desc: pc.localDescription }
-            });
-
-          } else if (desc.type === 'answer') {
-            // CRITICAL: Only set remote description for answer if we are expecting one
-            // This completely eliminates: "Failed to set remote answer sdp: Called in wrong state: stable"
-            if (pc.signalingState === 'have-local-offer') {
-              await pc.setRemoteDescription(desc);
-
-              // Flush queued ICE candidates
-              if (connObj.candidateQueue && connObj.candidateQueue.length > 0) {
-                for (const cand of connObj.candidateQueue) {
-                  try {
-                    await pc.addIceCandidate(new RTCIceCandidate(cand));
-                  } catch (e) { }
-                }
-                connObj.candidateQueue = [];
-              }
-            } else {
-              console.log(`[P2P WebRTC] Safely ignored stale answer in state: ${pc.signalingState}`);
-            }
-          }
-
-        } else if (signalData.candidate) {
-          try {
-            if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
-            } else {
-              connObj.candidateQueue = connObj.candidateQueue || [];
-              connObj.candidateQueue.push(signalData.candidate);
-            }
-          } catch (err) {
-            if (!connObj.ignoreOffer) {
-              console.warn('[P2P WebRTC] Error adding ICE candidate:', err);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('P2P signaling error:', err);
-      }
+      connObj?.negotiation.receive(signalData);
     });
 
     s.on('voice:peer_left', ({ peerId, username }) => {
@@ -3907,6 +3800,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
         setSyncStatus('Buffering...');
 
         const syncDirect = () => {
+          if (serverSyncStateRef.current?.isPlaying !== shouldPlay) return;
           const v = document.querySelector('.pouf-player-container video');
           const a = document.querySelector('.pouf-player-container audio');
           const currentAuth = getAuthoritativeTime() || targetTime;
@@ -3940,7 +3834,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
             }
           }
           isBufferingRef.current = false;
-          setSyncStatus('In Sync');
+          setSyncStatus(v && v.readyState >= 2 && !v.seeking ? 'In Sync' : 'Buffering...');
         };
 
         // Attempt immediate sync and check at intervals as the media element buffers
@@ -7056,6 +6950,7 @@ export function TheaterRoom({ roomId = 'lounge', currentProfile, appConfig = nul
                 onSubtitlePosChange={(pos) => handleChangeSubtitlePos(pos)}
                 isPlaying={roomPlaybackState.isPlaying}
                 currentTime={roomPlaybackState.currentTime}
+                getPlaybackState={() => ({ currentTime: getAuthoritativeTime(), isPlaying: serverSyncStateRef.current.isPlaying })}
                 onPlay={(t) => {
                   isRemoteActionRef.current = false;
                   if (remoteActionTimeoutRef.current) clearTimeout(remoteActionTimeoutRef.current);

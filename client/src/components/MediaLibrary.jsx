@@ -714,7 +714,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%', maxWidth: '1280px', margin: '0 auto' }}>
+    <div className="media-library" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%', maxWidth: '1280px', margin: '0 auto' }}>
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -842,6 +842,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
 
       {/* 1. HERO HUB CARD: Title, Live Storage Stats, Search & Actions */}
       <div
+        className="ml-toolbar"
         style={{
           background: 'linear-gradient(180deg, #ffffff 0%, #fff0f6 100%)',
           borderRadius: '26px',
@@ -854,7 +855,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         }}
       >
         {/* Top Hub Row: Title + Storage Info + Action Buttons */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div className="ml-toolbar-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="ml-icon-badge">
               <FolderOpen />
@@ -895,7 +896,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
           </div>
 
           {/* Primary Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+          <div className="ml-toolbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
             {isAdmin && (
               <button
                 onClick={() => setNewFolderModalOpen(true)}
@@ -965,9 +966,10 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
         </div>
 
         {/* Second Hub Row: Search Bar + Filter Tabs + View Mode */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '6px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
+        <div className="ml-toolbar-search" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '6px', borderTop: '1px solid rgba(244, 114, 182, 0.2)' }}>
           {/* Search Box */}
           <div
+            className="ml-search"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -1009,9 +1011,10 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
 
           {/* Filters & View Switcher */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', background: 'rgba(244, 114, 182, 0.14)', padding: '3px', borderRadius: '9999px', gap: '2px' }}>
+            <div className="ml-segments" style={{ display: 'flex', background: 'rgba(244, 114, 182, 0.14)', padding: '3px', borderRadius: '9999px', gap: '2px' }}>
               <button
                 onClick={() => setFilterType('all')}
+                aria-pressed={filterType === 'all'}
                 style={{
                   border: 'none',
                   padding: '4px 12px',
@@ -1029,6 +1032,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
               </button>
               <button
                 onClick={() => setFilterType('video')}
+                aria-pressed={filterType === 'video'}
                 style={{
                   border: 'none',
                   padding: '4px 12px',
@@ -1046,6 +1050,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
               </button>
               <button
                 onClick={() => setFilterType('subtitle')}
+                aria-pressed={filterType === 'subtitle'}
                 style={{
                   border: 'none',
                   padding: '4px 12px',
@@ -1064,9 +1069,10 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
             </div>
 
             {/* Grid vs List View Toggle */}
-            <div style={{ display: 'flex', background: 'rgba(244, 114, 182, 0.14)', padding: '3px', borderRadius: '9999px', gap: '2px' }}>
+            <div className="ml-segments" style={{ display: 'flex', background: 'rgba(244, 114, 182, 0.14)', padding: '3px', borderRadius: '9999px', gap: '2px' }}>
               <button
                 onClick={() => setViewMode('grid')}
+                aria-pressed={viewMode === 'grid'}
                 style={{
                   border: 'none',
                   width: '28px',
@@ -1086,6 +1092,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
               </button>
               <button
                 onClick={() => setViewMode('list')}
+                aria-pressed={viewMode === 'list'}
                 style={{
                   border: 'none',
                   width: '28px',
@@ -1110,6 +1117,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
 
       {/* 2. BREADCRUMBS ROW */}
       <div
+        className="ml-breadcrumbs"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1199,21 +1207,21 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
 
       {/* 3. FOLDERS SECTION */}
       {filteredFolders.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+        <div className="ml-folders" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '0.76rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#b45309', background: '#fef3c7', padding: '3px 10px', borderRadius: '9999px', border: '1px solid #fde68a' }}>
               Folders ({filteredFolders.length})
             </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.9rem' }}>
+          <div className="ml-folder-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.9rem' }}>
             {filteredFolders.map((f) => {
               const isEditing = editingFolderRelPath === f.relativePath;
 
               return (
                 <div
                   key={f.relativePath}
-                  className="pouf-btn-tactile"
+                  className="pouf-btn-tactile ml-folder-card"
                   style={{
                     background: 'linear-gradient(180deg, #ffffff 0%, #fffbeb 100%)',
                     borderRadius: '20px',
@@ -1229,7 +1237,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                   onClick={() => !isEditing && handleOpenFolder(f.relativePath)}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                    <div
+                    <div className="ml-folder-icon"
                       style={{
                         width: '42px',
                         height: '42px',
@@ -1256,7 +1264,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                         />
                       ) : (
                         <>
-                          <div
+                          <div className="ml-folder-name"
                             style={{
                               fontWeight: 800,
                               color: '#451a03',
@@ -1269,7 +1277,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                           >
                             {f.name}
                           </div>
-                          <div style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
+                          <div className="ml-folder-count" style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 600, marginTop: '2px' }}>
                             {f.itemCount} {f.itemCount === 1 ? 'item' : 'items'}
                           </div>
                         </>
@@ -1338,7 +1346,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                 <div style={{ marginTop: '0.8rem', fontSize: '0.94rem' }}>Loading media files...</div>
               </div>
             ) : filteredFiles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', background: '#ffffff', borderRadius: '24px', border: '1.5px dashed rgba(244, 114, 182, 0.4)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.03)' }}>
+              <div className="ml-empty" style={{ textAlign: 'center', padding: '3.5rem 1rem', background: '#ffffff', borderRadius: '24px', border: '1.5px dashed rgba(244, 114, 182, 0.4)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.03)' }}>
                 <ClayFilm size={44} />
                 <h4 style={{ margin: '0.8rem 0 0.3rem 0', color: '#831843', fontWeight: 800 }}>No media files in this folder</h4>
                 <p style={{ margin: 0, fontSize: '0.84rem', color: '#9d174d', fontWeight: 500 }}>Upload files above or download torrents/magnet links in the Downloads page</p>
@@ -1366,7 +1374,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                           <h4 className="ml1-title" title={file.filename}>{cleanTitle}</h4>
                         )}
 
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <div className="ml-file-tracks" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {file.audioTracks && file.audioTracks.length > 0 && (
                             file.audioTracks.length > 1 ? (
                               <button
@@ -1447,7 +1455,7 @@ export function MediaLibrary({ onStartWatch, onPlayMedia, currentUser }) {
                   const isSub = ['SRT', 'VTT', 'ASS'].includes(ext);
                   const cleanTitle = (file.filename || '').replace(/^\d{10,14}_/, '');
                   return (
-                    <div key={file.relativePath} style={{ background: '#ffffff', borderRadius: '14px', padding: '10px 14px', border: '1px solid rgba(244, 114, 182, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div key={file.relativePath} className="ml-file-row" style={{ background: '#ffffff', borderRadius: '14px', padding: '10px 14px', border: '1px solid rgba(244, 114, 182, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px', minWidth: 0 }}>
                         <span className={`ml1-ext ${isSub ? 'is-sub' : ext === 'MKV' ? 'is-mkv' : 'is-vid'}`}>{ext}</span>
                         {isEditing ? (

@@ -1,658 +1,192 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Shield, Users, Settings, Activity, KeyRound, Eye, EyeOff, Copy, Check,
-  UserPlus, Trash2, LogOut, Edit3, Save, X, ArrowLeft, AlertCircle
-} from 'lucide-react';
+import { Shield, Users, Settings, Activity, Eye, EyeOff, Copy, Check, UserPlus, Trash2, LogOut, Pencil, Save, X, ArrowLeft, AlertCircle, Search, RefreshCw, KeyRound, Monitor, Download, Film, Mic } from 'lucide-react';
 import DiagnosticsPanel from './DiagnosticsPanel';
 import { JojoAvatar } from './JojoAvatar';
+import './AdminPanel.css';
+
+const EMPTY_USER = { name: '', email: '', password: '', role: 'member', color: '#f472b6', avatar: '🌸', quickLoginVisible: true };
+const MODULES = [
+  ['neko', 'Shared browser', 'Browse together with Neko.', Monitor],
+  ['downloader', 'Downloads', 'Direct links, torrents and magnets.', Download],
+  ['mediaStudio', 'Media Studio', 'Prepare videos, audio and subtitles.', Film],
+  ['livekit', 'Voice & camera', 'LiveKit voice and video rooms.', Mic]
+];
+const normalizeSettings = config => ({ instanceName: config?.instanceName || 'Watch Together', allowPublicSignup: !!config?.allowPublicSignup, quickLoginEnabled: config?.quickLoginEnabled !== false, quickLoginMode: config?.quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill', modules: Object.fromEntries(MODULES.map(([key]) => [key, config?.modules?.[key] !== false])) });
+
+function Switch({ label, description, checked, onChange, disabled }) {
+  return <label className="adm-switch-row"><span><strong>{label}</strong>{description && <small>{description}</small>}</span><input type="checkbox" role="switch" checked={checked} onChange={onChange} disabled={disabled} /><i aria-hidden="true" /></label>;
+}
+function AccountFields({ value, setValue, editing = false, self = false }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const field = key => event => setValue(previous => ({ ...previous, [key]: event.target.value }));
+  return <div className="adm-fields">
+    <label>Display name<input required autoComplete="name" value={value.name} onChange={field('name')} placeholder="Your friend's name" /></label>
+    <label>Email or username<input required autoComplete="off" value={value.email} onChange={field('email')} placeholder="friend@example.com" /></label>
+    <label>{editing ? 'New password' : 'Password'}<span className="adm-password-input"><input required={!editing} minLength={4} type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={value.password} onChange={field('password')} placeholder={editing ? 'Leave blank to keep current' : 'At least 4 characters'} /><button type="button" aria-label={showPassword ? 'Hide entered password' : 'Show entered password'} onClick={() => setShowPassword(v => !v)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></span></label>
+    <label>Role<select disabled={self} value={value.role} onChange={field('role')}><option value="member">Member</option><option value="admin">Admin</option>{value.role === 'partner' && <option value="partner">Partner</option>}</select></label>
+    <label>Profile color<input type="color" value={value.color || '#f472b6'} onChange={field('color')} /></label>
+    <Switch label="Show on quick login" checked={value.quickLoginVisible !== false} onChange={e => setValue(v => ({ ...v, quickLoginVisible: e.target.checked }))} />
+  </div>;
+}
+function ConfirmAction({ action, onClose, onConfirm, busy, error }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    ref.current.querySelector('button')?.focus();
+    const keydown = event => {
+      if (event.key === 'Escape' && !busy) { event.preventDefault(); onClose(); }
+      if (event.key === 'Tab') {
+        const buttons = [...ref.current.querySelectorAll('button:not(:disabled)')];
+        if (!buttons.length) { event.preventDefault(); return; }
+        if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1).focus(); }
+        else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0].focus(); }
+      }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => { document.removeEventListener('keydown', keydown); previous?.isConnected && previous.focus(); };
+  }, [busy, onClose]);
+  return <div className="adm-confirm-backdrop" onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}><section className="adm-confirm" ref={ref} role="alertdialog" aria-modal="true" aria-labelledby="adm-confirm-title" aria-describedby="adm-confirm-description"><h2 id="adm-confirm-title">{action.kind === 'delete' ? 'Delete account?' : 'Sign out all sessions?'}</h2><p id="adm-confirm-description">{action.kind === 'delete' ? `Remove ${action.user.name} and sign them out on every device. This cannot be undone.` : `Sign ${action.user.name} out on every device. They can sign in again with their password.`}</p>{error && <p className="adm-confirm-error" role="alert">{error}</p>}<div className="adm-actions"><button disabled={busy} onClick={onClose}>Cancel</button><button className="adm-danger" disabled={busy} onClick={onConfirm}>{busy ? 'Working…' : action.kind === 'delete' ? 'Delete account' : 'Sign out sessions'}</button></div></section></div>;
+}
 
 export default function AdminPanel({ authToken, currentUser, appConfig, onConfigUpdated, onNavigate }) {
   const [tab, setTab] = useState('users');
+  const tabRef = useRef(tab); tabRef.current = tab;
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [banner, setBanner] = useState({ type: '', text: '' });
-
-  // Settings state
-  const [settings, setSettings] = useState({
-    instanceName: appConfig?.instanceName || 'Watch Together',
-    allowPublicSignup: !!appConfig?.allowPublicSignup,
-    quickLoginEnabled: appConfig?.quickLoginEnabled !== false,
-    quickLoginMode: appConfig?.quickLoginMode === 'passwordless' ? 'passwordless' : 'autofill',
-    modules: {
-      neko: appConfig?.modules?.neko !== false,
-      downloader: appConfig?.modules?.downloader !== false,
-      mediaStudio: appConfig?.modules?.mediaStudio !== false,
-      livekit: appConfig?.modules?.livekit !== false
-    }
-  });
-  const [savingSettings, setSavingSettings] = useState(false);
-
-  // Create user state
+  const [settings, setSettings] = useState(() => normalizeSettings(appConfig));
+  const [savedSettings, setSavedSettings] = useState(() => normalizeSettings(appConfig));
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newUser, setNewUser] = useState({
-    name: '',
-    email: '',
-    password: '',
-    role: 'member',
-    color: '#f472b6',
-    avatar: '🌸',
-    quickLoginVisible: true
-  });
-
-  // Revealed encrypted credentials map: userId -> { available, password, email, reason }
+  const [newUser, setNewUser] = useState(EMPTY_USER);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_USER);
   const [revealedCreds, setRevealedCreds] = useState({});
   const [copiedId, setCopiedId] = useState('');
-
-  // Edit user state
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', role: 'member', password: '', quickLoginVisible: true, color: '#f472b6' });
-
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [confirmation, setConfirmation] = useState(null);
+  const [pending, setPending] = useState({});
+  const pendingRef = useRef(new Set());
+  const mounted = useRef(true);
+  const noticeTimer = useRef(null), copyTimer = useRef(null), overviewController = useRef(null);
   const onConfigUpdatedRef = useRef(onConfigUpdated);
-  useEffect(() => {
-    onConfigUpdatedRef.current = onConfigUpdated;
-  }, [onConfigUpdated]);
+  onConfigUpdatedRef.current = onConfigUpdated;
+  const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+  const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  const savingSettings = !!pending.settings;
 
+  const request = useCallback(async (url, options = {}) => {
+    const response = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}`, ...options.headers } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status}). Try again.`);
+    return data;
+  }, [authToken]);
+  const showNotice = (type, text) => {
+    clearTimeout(noticeTimer.current);
+    setBanner({ type, text });
+    if (type === 'success') noticeTimer.current = setTimeout(() => setBanner({ type: '', text: '' }), 5000);
+  };
+  const runAction = async (key, work) => {
+    if (pendingRef.current.has(key)) return;
+    pendingRef.current.add(key); setPending(p => ({ ...p, [key]: true }));
+    try { return await work(); }
+    catch (error) { if (mounted.current) showNotice('error', error.name === 'TimeoutError' ? 'The server took too long to respond. Try again.' : error.message); }
+    finally { pendingRef.current.delete(key); if (mounted.current) setPending(p => ({ ...p, [key]: false })); }
+  };
   const fetchOverview = useCallback(async () => {
-    setLoading(true);
+    overviewController.current?.abort();
+    const controller = new AbortController(); overviewController.current = controller;
+    setLoading(true); setLoadError('');
     try {
-      const res = await fetch('/api/admin/overview', {
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load admin overview');
-      setUsers(data.users || []);
-      if (data.config) {
-        setSettings(data.config);
+      const data = await request('/api/admin/overview', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
+      if (controller.signal.aborted) return;
+      setUsers([...new Map((data.users || []).map(user => [user.id, user])).values()]);
+      if (data.config && !dirtyRef.current) {
+        const next = normalizeSettings(data.config); setSettings(next); setSavedSettings(next);
         onConfigUpdatedRef.current?.(data.config);
       }
-    } catch (err) {
-      setBanner({ type: 'error', text: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }, [authToken]);
-
+    } catch (error) { if (!controller.signal.aborted) setLoadError(error.message); }
+    finally { if (!controller.signal.aborted) setLoading(false); }
+  }, [request]);
+  useEffect(() => { mounted.current = true; fetchOverview(); return () => { mounted.current = false; overviewController.current?.abort(); clearTimeout(noticeTimer.current); clearTimeout(copyTimer.current); }; }, [fetchOverview]);
   useEffect(() => {
-    fetchOverview();
-  }, [fetchOverview]);
-
-  const showNotice = (type, text) => {
-    setBanner({ type, text });
-    setTimeout(() => setBanner(prev => (prev.text === text ? { type: '', text: '' } : prev)), 4000);
-  };
-
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify(newUser)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create user');
-      setNewUser({ name: '', email: '', password: '', role: 'member', color: '#f472b6', avatar: '🌸', quickLoginVisible: true });
-      setShowCreateForm(false);
-      showNotice('success', `Created user "${data.user.name}" and stored encrypted credentials.`);
-      fetchOverview();
-    } catch (err) {
-      showNotice('error', err.message);
-    }
-  };
-
-  const handleRevealPassword = async (userId) => {
-    if (revealedCreds[userId]) {
-      setRevealedCreds(prev => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-      return;
-    }
-    try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/reveal`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to decrypt credential');
-      setRevealedCreds(prev => ({ ...prev, [userId]: data }));
-    } catch (err) {
-      showNotice('error', err.message);
-    }
-  };
-
-  const handleCopy = (id, text) => {
-    navigator.clipboard?.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(''), 1600);
-  };
-
-  const handleToggleQuickLoginVisibility = async (u) => {
-    try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ quickLoginVisible: !u.quickLoginVisible })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Update failed');
-      fetchOverview();
-    } catch (err) {
-      showNotice('error', err.message);
-    }
-  };
-
-  const startEdit = (u) => {
-    setEditingId(u.id);
-    setEditForm({
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      password: '',
-      quickLoginVisible: u.quickLoginVisible !== false,
-      color: u.color || '#f472b6'
+    if (!Object.keys(revealedCreds).length) return;
+    const hide = () => { if (document.hidden) setRevealedCreds({}); };
+    document.addEventListener('visibilitychange', hide);
+    const timer = setTimeout(() => setRevealedCreds({}), 60000);
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', hide); };
+  }, [revealedCreds]);
+  const updateUser = user => setUsers(previous => previous.map(item => item.id === user.id ? { ...item, ...user } : item));
+  const handleCreateUser = event => {
+    event.preventDefault();
+    runAction('create', async () => {
+      const data = await request('/api/admin/users', { method: 'POST', body: JSON.stringify(newUser) });
+      setUsers(previous => [...previous.filter(user => user.id !== data.user.id), data.user]);
+      setNewUser(EMPTY_USER); setShowCreateForm(false); showNotice('success', `Created ${data.user.name}.`);
     });
   };
-
-  const handleSaveUserEdit = async (userId) => {
-    try {
-      const payload = {
-        name: editForm.name,
-        email: editForm.email,
-        role: editForm.role,
-        quickLoginVisible: editForm.quickLoginVisible,
-        color: editForm.color
-      };
-      if (editForm.password.trim()) {
-        payload.password = editForm.password;
-      }
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update user');
-      setEditingId(null);
-      setRevealedCreds(prev => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-      showNotice('success', `Updated user "${data.user.name}".`);
-      fetchOverview();
-    } catch (err) {
-      showNotice('error', err.message);
-    }
+  const handleRevealPassword = userId => {
+    if (revealedCreds[userId]) { setRevealedCreds(previous => { const next = { ...previous }; delete next[userId]; return next; }); return; }
+    runAction(userId, async () => {
+      const data = await request(`/api/admin/users/${encodeURIComponent(userId)}/reveal`, { method: 'POST' });
+      if (mounted.current && tabRef.current === 'users' && document.visibilityState !== 'hidden') setRevealedCreds(previous => ({ ...previous, [userId]: data }));
+    });
   };
-
-  const handleRevokeSessions = async (u) => {
-    try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/revoke-sessions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to revoke sessions');
-      showNotice('success', `Revoked ${data.revokedSessions} active session(s) for ${u.name}.`);
-      fetchOverview();
-    } catch (err) {
-      showNotice('error', err.message);
-    }
+  const handleCopy = async (id, text) => {
+    try { await navigator.clipboard.writeText(text); setCopiedId(id); clearTimeout(copyTimer.current); copyTimer.current = setTimeout(() => setCopiedId(''), 1800); }
+    catch { showNotice('error', 'Clipboard access was blocked. Select and copy the text instead.'); }
   };
+  const handleToggleQuickLoginVisibility = user => runAction(user.id, async () => {
+    const data = await request(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: 'PUT', body: JSON.stringify({ quickLoginVisible: user.quickLoginVisible === false }) }); updateUser(data.user);
+  });
+  const startEdit = user => { setEditingId(user.id); setEditForm({ ...user, password: '' }); };
+  const handleSaveUserEdit = userId => runAction(userId, async () => {
+    const { name, email, role, color, quickLoginVisible, password } = editForm;
+    const data = await request(`/api/admin/users/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify({ name, email, role, color, quickLoginVisible, ...(password.trim() ? { password } : {}) }) });
+    updateUser(data.user); setEditingId(null); setRevealedCreds({}); showNotice('success', `Updated ${data.user.name}.`);
+  });
+  const handleRevokeSessions = user => runAction(user.id, async () => {
+    const data = await request(`/api/admin/users/${encodeURIComponent(user.id)}/revoke-sessions`, { method: 'POST' });
+    updateUser({ id: user.id, activeSessionCount: 0 }); setConfirmation(null); showNotice('success', `Signed out ${data.revokedSessions} session(s) for ${user.name}.`);
+  });
+  const handleDeleteUser = user => runAction(user.id, async () => {
+    await request(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' });
+    setUsers(previous => previous.filter(item => item.id !== user.id)); setRevealedCreds({}); setConfirmation(null); showNotice('success', `Deleted ${user.name}.`);
+  });
+  const saveSettingsObject = nextSettings => runAction('settings', async () => {
+    const data = await request('/api/admin/settings', { method: 'PUT', body: JSON.stringify(nextSettings) });
+    const next = normalizeSettings(data.config); setSettings(next); setSavedSettings(next); onConfigUpdatedRef.current?.(data.config); showNotice('success', 'Settings saved.');
+  });
+  const handleSaveSettings = event => { event.preventDefault(); saveSettingsObject(settings); };
+  const handleToggleNekoFromDiag = enabled => saveSettingsObject({ ...savedSettings, modules: { ...savedSettings.modules, neko: enabled } });
+  const changeTab = next => { setTab(next); setRevealedCreds({}); };
+  const filteredUsers = users.filter(user => (roleFilter === 'all' || user.role === roleFilter) && `${user.name} ${user.email}`.toLowerCase().includes(search.toLowerCase()));
+  const sessions = users.reduce((total, user) => total + (user.activeSessionCount || 0), 0);
+  const sections = [['users', 'People', Users], ['settings', 'Settings', Settings], ['diagnostics', 'System health', Activity]];
 
-  const handleDeleteUser = async (u) => {
-    if (!window.confirm(`Delete user "${u.name}" (${u.email}) and revoke all their sessions?`)) return;
-    try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete user');
-      showNotice('success', `Deleted "${u.name}" and revoked ${data.revokedSessions} session(s).`);
-      fetchOverview();
-    } catch (err) {
-      showNotice('error', err.message);
-    }
-  };
-
-  const saveSettingsObject = async (nextSettings) => {
-    setSavingSettings(true);
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify(nextSettings)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
-      setSettings(data.config);
-      onConfigUpdated?.(data.config);
-      showNotice('success', 'Server configuration saved.');
-    } catch (err) {
-      showNotice('error', err.message);
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleSaveSettings = (e) => {
-    e.preventDefault();
-    saveSettingsObject(settings);
-  };
-
-  const handleToggleNekoFromDiag = async (enabled) => {
-    const next = { ...settings, modules: { ...settings.modules, neko: enabled } };
-    setSettings(next);
-    await saveSettingsObject(next);
-  };
-
-  return (
-    <div className="admin-studio-layout">
-      <aside className="admin-studio-sidebar">
-        <div className="admin-studio-utility-row">
-          <button type="button" className="btn-pink-chip" onClick={() => onNavigate?.('home')}>
-            <ArrowLeft size={14} /> Home
-          </button>
-          <div className="admin-studio-medallion" title="Admin Control Center" aria-hidden="true">
-            <Shield size={18} />
-          </div>
-        </div>
-
-        <div>
-          <h1 className="admin-studio-title">Admin Control Center</h1>
-          <div className="admin-studio-subtitle">
-            Credential vault, login policies, modules, and host diagnostics
-          </div>
-        </div>
-
-        <nav className="admin-studio-drawer" aria-label="Admin sections">
-          {[
-            { id: 'users', label: 'Users & Vault', count: users.length, icon: Users },
-            { id: 'settings', label: 'Auth & Modules', count: Object.values(settings.modules || {}).filter(Boolean).length, icon: Settings },
-            { id: 'diagnostics', label: 'Diagnostics', count: 'Live', icon: Activity }
-          ].map(({ id, label, count, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={`admin-studio-drawer-tab ${tab === id ? 'active' : ''}`}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <Icon size={15} /> {label}
-              </span>
-              <span className="admin-studio-nav-pill">{count}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      <section className="admin-studio-content">
-        {banner.text && (
-          <div
-            className="admin-clay-card"
-            style={{
-              padding: '12px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 13,
-              fontWeight: 700,
-              background: banner.type === 'error'
-                ? 'linear-gradient(160deg, #fff1f2, #ffe4e6)'
-                : 'linear-gradient(160deg, #ecfdf5, #d1fae5)',
-              borderColor: banner.type === 'error' ? 'rgba(244,63,94,0.45)' : 'rgba(16,185,129,0.45)',
-              color: banner.type === 'error' ? '#be123c' : '#047857'
-            }}
-          >
-            <AlertCircle size={16} /> {banner.text}
-          </div>
-        )}
-
-        {/* TAB 1: USERS & ENCRYPTED CREDENTIAL VAULT */}
-        {tab === 'users' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="admin-clay-card admin-vault-hero">
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-main)' }}>
-                  Accounts &amp; AES-256-GCM Credential Vault
-                </div>
-                <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                  Salted login hashes paired with AES-256-GCM encrypted recovery for invited companions.
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span className="btn-pink-chip active">{users.length} Account{users.length === 1 ? '' : 's'}</span>
-                <button
-                  type="button"
-                  className="btn-pink-primary"
-                  onClick={() => setShowCreateForm(s => !s)}
-                >
-                  {showCreateForm ? <X size={15} /> : <UserPlus size={15} />}
-                  {showCreateForm ? 'Close Form' : 'Create Member'}
-                </button>
-              </div>
-            </div>
-
-            {showCreateForm && (
-              <form onSubmit={handleCreateUser} className="admin-clay-card">
-                <div style={{ fontWeight: 800, fontSize: '1rem', color: '#be185d', marginBottom: 14 }}>
-                  Create New Member Account
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Display Name</label>
-                    <input required value={newUser.name} onChange={e => setNewUser(u => ({ ...u, name: e.target.value }))} placeholder="Friend's name" className="admin-input" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Email or Username</label>
-                    <input required value={newUser.email} onChange={e => setNewUser(u => ({ ...u, email: e.target.value }))} placeholder="friend@example.com" className="admin-input" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Password</label>
-                    <input required minLength={4} value={newUser.password} onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))} placeholder="Min 4 characters" className="admin-input" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
-                    <select value={newUser.role} onChange={e => setNewUser(u => ({ ...u, role: e.target.value }))} className="admin-input">
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-main)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={newUser.quickLoginVisible} onChange={e => setNewUser(u => ({ ...u, quickLoginVisible: e.target.checked }))} />
-                    Show on Quick-Login screen
-                  </label>
-                  <button type="submit" className="btn-pink-primary">
-                    <UserPlus size={15} /> Create User &amp; Save Credential
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {loading ? (
-              <div className="admin-clay-card" style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Loading users...</div>
-            ) : (
-              <div className="admin-member-grid">
-                {users.map(u => {
-                  const isSelf = currentUser?.id === u.id;
-                  const revealed = revealedCreds[u.id];
-                  const isEditing = editingId === u.id;
-
-                  return (
-                    <div key={u.id} className="admin-member-card">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
-                        <JojoAvatar name={u.name} avatar={u.avatar} size={52} />
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 800, fontSize: '1.02rem', color: 'var(--text-main)' }}>{u.name}</span>
-                            <span className={`admin-role-badge ${u.role === 'admin' ? 'admin' : 'member'}`}>{u.role}</span>
-                            {isSelf && <span style={{ fontSize: 11.5, color: '#059669', fontWeight: 800 }}>(You)</span>}
-                          </div>
-                          <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2, fontWeight: 500, wordBreak: 'break-word' }}>
-                            {u.email} &middot; {u.activeSessionCount || 0} active session(s)
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="admin-chip-grid">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleQuickLoginVisibility(u)}
-                          className={u.quickLoginVisible ? 'admin-pill-mint' : 'btn-pink-chip'}
-                        >
-                          Quick-Login: {u.quickLoginVisible ? 'Shown' : 'Hidden'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRevealPassword(u.id)}
-                          className={`btn-pink-chip ${revealed ? 'active' : ''}`}
-                        >
-                          {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-                          {revealed ? 'Hide Password' : 'Reveal Password'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => isEditing ? setEditingId(null) : startEdit(u)}
-                          className="btn-pink-secondary"
-                          style={{ padding: '0.32rem 0.8rem', fontSize: '0.76rem', borderRadius: 999 }}
-                        >
-                          {isEditing ? <X size={13} /> : <Edit3 size={13} />} {isEditing ? 'Cancel' : 'Edit / Reset'}
-                        </button>
-
-                        {!isSelf && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleRevokeSessions(u)}
-                              title="Revoke active sessions"
-                              className="admin-pill-amber"
-                            >
-                              <LogOut size={13} /> Revoke
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteUser(u)}
-                              title="Delete user"
-                              className="admin-pill-danger"
-                            >
-                              <Trash2 size={13} /> Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      {revealed && (
-                        <div className="admin-reveal-box">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                            <KeyRound size={15} color="#ec4899" />
-                            {revealed.available ? (
-                              <>
-                                <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Password:</span>
-                                <code style={{
-                                  padding: '2px 9px', borderRadius: 8, background: '#fff',
-                                  border: '1px solid rgba(236,72,153,0.3)', color: '#9d174d', fontWeight: 700, fontSize: 13
-                                }}>
-                                  {revealed.password}
-                                </code>
-                              </>
-                            ) : (
-                              <span style={{ color: '#b45309', fontWeight: 600 }}>{revealed.reason}</span>
-                            )}
-                          </div>
-                          {revealed.available && (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(`${u.id}-pw`, revealed.password)}
-                                className="admin-pill-mint"
-                              >
-                                {copiedId === `${u.id}-pw` ? <Check size={12} /> : <Copy size={12} />}
-                                {copiedId === `${u.id}-pw` ? 'Copied' : 'Copy Password'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(`${u.id}-all`, `Login: ${revealed.email}\nPassword: ${revealed.password}`)}
-                                className="btn-pink-chip"
-                              >
-                                {copiedId === `${u.id}-all` ? <Check size={12} /> : <Copy size={12} />}
-                                {copiedId === `${u.id}-all` ? 'Copied' : 'Copy Login'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {isEditing && (
-                        <div style={{
-                          paddingTop: 12,
-                          borderTop: '1.5px dashed rgba(244,114,182,0.3)',
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                          gap: 10,
-                          alignItems: 'end'
-                        }}>
-                          <div>
-                            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Name</label>
-                            <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="admin-input" />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Email / Username</label>
-                            <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="admin-input" />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>New Password (optional)</label>
-                            <input value={editForm.password} onChange={e => setEditForm(f => ({ ...f, password: e.target.value }))} placeholder="Leave blank to keep" className="admin-input" />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Role</label>
-                            <select disabled={isSelf} value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))} className="admin-input">
-                              <option value="member">Member</option>
-                              <option value="admin">Admin</option>
-                            </select>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveUserEdit(u.id)}
-                            className="btn-pink-primary"
-                            style={{ justifyContent: 'center' }}
-                          >
-                            <Save size={14} /> Save
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 2: INSTANCE & AUTH SETTINGS */}
-        {tab === 'settings' && (
-          <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="admin-clay-card">
-              <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-main)', marginBottom: 14 }}>
-                Instance &amp; Authentication Policy
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div>
-                  <label style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Instance Name</label>
-                  <input
-                    value={settings.instanceName}
-                    onChange={e => setSettings(s => ({ ...s, instanceName: e.target.value }))}
-                    className="admin-input"
-                    style={{ maxWidth: 420 }}
-                  />
-                </div>
-
-                <label className="admin-subpanel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, cursor: 'pointer' }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-main)' }}>Allow Public User Sign-Ups</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      Show the &ldquo;Sign Up&rdquo; tab on login and allow visitors to create Member accounts.
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.allowPublicSignup}
-                    onChange={e => setSettings(s => ({ ...s, allowPublicSignup: e.target.checked }))}
-                    style={{ width: 18, height: 18, accentColor: '#ec4899' }}
-                  />
-                </label>
-
-                <label className="admin-subpanel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, cursor: 'pointer' }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text-main)' }}>Enable Quick-Login Profile Cards</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      Display opted-in user avatars on the login gate.
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.quickLoginEnabled}
-                    onChange={e => setSettings(s => ({ ...s, quickLoginEnabled: e.target.checked }))}
-                    style={{ width: 18, height: 18, accentColor: '#ec4899' }}
-                  />
-                </label>
-
-                {settings.quickLoginEnabled && (
-                  <div style={{ paddingLeft: 14, borderLeft: '3px solid rgba(236,72,153,0.45)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 800, color: '#be185d' }}>Quick-Login Mode</div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-main)', fontWeight: 600, cursor: 'pointer' }}>
-                      <input type="radio" name="adminQlMode" checked={settings.quickLoginMode === 'autofill'} onChange={() => setSettings(s => ({ ...s, quickLoginMode: 'autofill' }))} style={{ accentColor: '#ec4899' }} />
-                      <span>Autofill + Password Required (safer for public/WAN instances)</span>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-main)', fontWeight: 600, cursor: 'pointer' }}>
-                      <input type="radio" name="adminQlMode" checked={settings.quickLoginMode === 'passwordless'} onChange={() => setSettings(s => ({ ...s, quickLoginMode: 'passwordless' }))} style={{ accentColor: '#ec4899' }} />
-                      <span>1-Click Passwordless (trusted LAN / household only)</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="admin-clay-card">
-              <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-main)', marginBottom: 12 }}>Feature Modules</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-                {[
-                  { key: 'neko', label: 'Shared Browser (Neko)', desc: 'Docker Chromium container (auto-stops when idle).' },
-                  { key: 'downloader', label: 'Downloader', desc: 'Torrent magnet & yt-dlp downloader.' },
-                  { key: 'mediaStudio', label: 'Media Studio', desc: 'Library transcoding & subtitle tools.' },
-                  { key: 'livekit', label: 'LiveKit Voice & Camera', desc: 'SFU voice and video rooms.' }
-                ].map(({ key, label, desc }) => (
-                  <label key={key} className="admin-subpanel" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, cursor: 'pointer' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-main)' }}>{label}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>{desc}</div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={!!settings.modules?.[key]}
-                      onChange={e => setSettings(s => ({ ...s, modules: { ...s.modules, [key]: e.target.checked } }))}
-                      style={{ width: 18, height: 18, marginTop: 2, accentColor: '#ec4899' }}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="submit" disabled={savingSettings} className="btn-pink-primary">
-                <Save size={16} /> {savingSettings ? 'Saving...' : 'Save Configuration'}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* TAB 3: DIAGNOSTICS */}
-        {tab === 'diagnostics' && (
-          <DiagnosticsPanel
-            authToken={authToken}
-            nekoEnabled={settings.modules?.neko !== false}
-            onToggleNeko={handleToggleNekoFromDiag}
-          />
-        )}
-      </section>
-    </div>
-  );
+  return <div className="admin-workspace">
+    <aside className="adm-sidebar"><button className="adm-back" onClick={() => onNavigate?.('home')}><ArrowLeft size={15} />Back home</button><div className="adm-brand"><Shield size={24} /><h1>Control room</h1><p>Keep your watch space in order.</p></div><nav aria-label="Admin sections">{sections.map(([id, label, Icon]) => <button key={id} aria-pressed={tab === id} onClick={() => changeTab(id)}><Icon size={17} /><span>{label}</span>{id === 'users' && <small>{users.length}</small>}{id === 'settings' && dirty && <i aria-label="Unsaved changes" />}</button>)}</nav><div className="adm-instance"><span className="adm-status-dot" /><span>{savedSettings.instanceName}<small>Administrator workspace</small></span></div></aside>
+    <main className="adm-main">
+      <header className="adm-heading"><div><p className="adm-context">Administration / {sections.find(([id]) => id === tab)[1]}</p><h2>{tab === 'users' ? 'A place for your people.' : tab === 'settings' ? 'Make it your space.' : 'Everything behind the screen.'}</h2><p>{tab === 'users' ? 'Accounts, access and quick login, all in one place.' : tab === 'settings' ? 'Manage sign-in and the features available to everyone.' : 'Check the host, streaming tools and room connections.'}</p></div>{tab === 'users' && <button className="adm-primary" disabled={loading || !!loadError} onClick={() => { setShowCreateForm(v => !v); setEditingId(null); }} aria-expanded={showCreateForm}>{showCreateForm ? <X size={16} /> : <UserPlus size={16} />}{showCreateForm ? 'Close form' : 'Add person'}</button>}</header>
+      {banner.text && <div className={`adm-notice ${banner.type}`} role={banner.type === 'error' ? 'alert' : 'status'}><AlertCircle size={16} /><span>{banner.text}</span><button aria-label="Dismiss notice" onClick={() => setBanner({ type: '', text: '' })}><X size={15} /></button></div>}
+      {loadError && <div className="adm-notice error" role="alert"><AlertCircle size={16} /><span>{loadError}</span><button disabled={loading} onClick={fetchOverview}>Retry loading</button></div>}
+      {tab === 'users' && <>
+        <div className="adm-summary"><span><strong>{users.length}</strong>People</span><span><strong>{sessions}</strong>Signed-in sessions</span><span><strong>{users.filter(user => user.role === 'admin').length}</strong>Administrators</span></div>
+        {showCreateForm && <form className="adm-panel" onSubmit={handleCreateUser}><h3>Invite someone in</h3><p className="adm-muted">Create their account and choose how they sign in.</p><fieldset disabled={pending.create}><AccountFields value={newUser} setValue={setNewUser} /><div className="adm-actions"><button type="button" onClick={() => { setShowCreateForm(false); setNewUser(EMPTY_USER); }}>Cancel</button><button className="adm-primary" type="submit">{pending.create ? 'Creating…' : 'Create account'}</button></div></fieldset></form>}
+        <div className="adm-list-toolbar"><label className="adm-search"><Search size={16} /><input aria-label="Search people" placeholder="Find a name or username…" value={search} onChange={e => setSearch(e.target.value)} /></label><select aria-label="Filter by role" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}><option value="all">All roles</option><option value="admin">Administrators</option><option value="member">Members</option>{users.some(user => user.role === 'partner') && <option value="partner">Partners</option>}</select><button disabled={loading} onClick={fetchOverview} aria-label="Refresh accounts"><RefreshCw size={16} className={loading ? 'spin' : ''} /></button></div>
+        <div className="adm-user-list" aria-busy={loading}>{loading && !users.length ? <p className="adm-empty" role="status">Loading accounts…</p> : !filteredUsers.length ? <div className="adm-empty"><Users size={26} /><h3>{search || roleFilter !== 'all' ? 'No matching people' : 'No accounts yet'}</h3><p>{search || roleFilter !== 'all' ? 'Try another name or role.' : 'Add someone to share your space.'}</p>{(search || roleFilter !== 'all') && <button onClick={() => { setSearch(''); setRoleFilter('all'); }}>Clear filters</button>}</div> : filteredUsers.map(user => {
+          const self = user.id === currentUser?.id, revealed = revealedCreds[user.id], editing = editingId === user.id, busy = !!pending[user.id];
+          return <article className="adm-user" key={user.id}><div className="adm-user-row"><JojoAvatar name={user.name} avatar={user.avatar} size={42} /><div className="adm-user-identity"><h3>{user.name}{self && <small>You</small>}</h3><p>{user.email}</p></div><span className={`adm-role ${user.role}`}>{user.role}</span><span className="adm-session-count">{user.activeSessionCount || 0} sessions</span><button disabled={busy} aria-expanded={editing} onClick={() => editing ? setEditingId(null) : startEdit(user)}><Pencil size={14} />{editing ? 'Close edit' : 'Edit'}</button></div>
+            <div className="adm-user-tools"><button disabled={busy} aria-pressed={user.quickLoginVisible !== false} onClick={() => handleToggleQuickLoginVisibility(user)}><span className={`adm-status-dot ${user.quickLoginVisible === false ? 'off' : ''}`} />Quick login {user.quickLoginVisible === false ? 'hidden' : 'visible'}</button><button disabled={busy} onClick={() => handleRevealPassword(user.id)}>{revealed ? <EyeOff size={14} /> : <KeyRound size={14} />}{revealed ? 'Hide password' : 'Password'}</button>{!self && <><button disabled={busy} onClick={() => { setBanner({ type: '', text: '' }); setConfirmation({ kind: 'revoke', user }); }}><LogOut size={14} />Sign out sessions</button><button className="adm-delete" disabled={busy} onClick={() => { setBanner({ type: '', text: '' }); setConfirmation({ kind: 'delete', user }); }} aria-label={`Delete ${user.name}`}><Trash2 size={14} /></button></>}{busy && <small role="status">Working…</small>}</div>
+            {revealed && <div className="adm-vault"><span>{revealed.available ? <><small>Password</small><code>{revealed.password}</code></> : revealed.reason || 'No recoverable password. Set a new one using Edit.'}</span>{revealed.available && <><button onClick={() => handleCopy(`${user.id}-password`, revealed.password)}>{copiedId === `${user.id}-password` ? <Check size={14} /> : <Copy size={14} />}{copiedId === `${user.id}-password` ? 'Copied' : 'Copy password'}</button><button onClick={() => handleCopy(`${user.id}-login`, `Login: ${revealed.email}\nPassword: ${revealed.password}`)}>{copiedId === `${user.id}-login` ? 'Copied' : 'Copy login'}</button></>}<small>Hidden after 60 seconds or when you leave this tab.</small></div>}
+            {editing && <form className="adm-edit" onSubmit={e => { e.preventDefault(); handleSaveUserEdit(user.id); }}><fieldset disabled={busy}><AccountFields value={editForm} setValue={setEditForm} editing self={self} /><div className="adm-actions"><button type="button" onClick={() => setEditingId(null)}>Cancel</button><button className="adm-primary" type="submit"><Save size={14} />{busy ? 'Saving…' : 'Save account'}</button></div></fieldset></form>}
+          </article>;
+        })}</div>
+      </>}
+      {tab === 'settings' && <form className="adm-settings" onSubmit={handleSaveSettings}><fieldset disabled={savingSettings || loading || !!loadError}><section className="adm-panel"><h3>Your instance</h3><p className="adm-muted">The name everyone sees when they arrive.</p><label className="adm-name-field">Instance name<input required maxLength={80} value={settings.instanceName} onChange={e => setSettings(s => ({ ...s, instanceName: e.target.value }))} /></label></section><section className="adm-panel"><h3>Who gets in</h3><Switch label="Public sign-up" description="Let visitors create their own member accounts." checked={settings.allowPublicSignup} onChange={e => setSettings(s => ({ ...s, allowPublicSignup: e.target.checked }))} /><Switch label="Quick-login profiles" description="Show selected profiles on the sign-in screen." checked={settings.quickLoginEnabled} onChange={e => setSettings(s => ({ ...s, quickLoginEnabled: e.target.checked }))} />{settings.quickLoginEnabled && <label className="adm-mode">Quick-login behavior<select value={settings.quickLoginMode} onChange={e => setSettings(s => ({ ...s, quickLoginMode: e.target.value }))}><option value="autofill">Select profile, then enter password</option><option value="passwordless">Sign in with one click</option></select><small>{settings.quickLoginMode === 'passwordless' ? 'Anyone who can reach this site can enter a visible profile without its password.' : 'Profiles fill in the username. A password is still required.'}</small></label>}</section><section className="adm-panel"><h3>Available features</h3><p className="adm-muted">Choose what appears across your watch space.</p><div className="adm-modules">{MODULES.map(([key, label, description, Icon]) => <div key={key}><Icon size={20} /><Switch label={label} description={description} checked={!!settings.modules[key]} onChange={e => setSettings(s => ({ ...s, modules: { ...s.modules, [key]: e.target.checked } }))} /></div>)}</div></section><div className="adm-savebar"><span role="status">{savingSettings ? 'Saving changes…' : dirty ? 'You have unsaved changes.' : 'All changes saved.'}</span><div className="adm-actions"><button type="button" disabled={!dirty} onClick={() => setSettings(savedSettings)}>Discard</button><button type="submit" className="adm-primary" disabled={!dirty}><Save size={15} />{savingSettings ? 'Saving…' : 'Save settings'}</button></div></div></fieldset></form>}
+      {tab === 'diagnostics' && <div className="adm-diagnostics"><DiagnosticsPanel authToken={authToken} nekoEnabled={savedSettings.modules.neko} onToggleNeko={savingSettings || dirty ? null : handleToggleNekoFromDiag} />{dirty && <p className="adm-muted">Save or discard your settings draft before changing modules here.</p>}</div>}
+    </main>
+    {confirmation && <ConfirmAction error={banner.type === 'error' ? banner.text : ''} action={confirmation} busy={!!pending[confirmation.user.id]} onClose={() => setConfirmation(null)} onConfirm={() => confirmation.kind === 'delete' ? handleDeleteUser(confirmation.user) : handleRevokeSessions(confirmation.user)} />}
+  </div>;
 }

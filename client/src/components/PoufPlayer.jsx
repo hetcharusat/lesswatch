@@ -83,6 +83,7 @@ export function PoufPlayer({
   onSubtitlePosChange,
   isPlaying = false,
   currentTime = 0,
+  getPlaybackState,
   onPlay,
   onPause,
   onEnded,
@@ -105,6 +106,12 @@ export function PoufPlayer({
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const audioRef = useRef(null);
+  const latestPlaybackRef = useRef(null);
+  latestPlaybackRef.current = { isPlaying, currentTime, getPlaybackState };
+  const sourceVersionRef = useRef(0);
+  const decoderRetryRef = useRef(false);
+  const recoveryTimerRef = useRef(null);
+  const [playbackError, setPlaybackError] = useState('');
   const fileInputRef = useRef(null);
   const lastActiveSubRef = useRef(0);
 
@@ -421,27 +428,59 @@ export function PoufPlayer({
     return `${pMins}:${pSecs}`;
   }
 
-  // Robust Safe Play with Muted Autoplay Fallback (Zero Black Screen Guarantee)
+  // Only autoplay policy failures benefit from muting. Aborted loads and codec
+  // errors must not turn into competing play attempts on a replacement source.
   const safePlayVideo = useCallback(async () => {
     const video = videoRef.current;
-    if (!video) return;
+    const version = sourceVersionRef.current;
+    if (!video || !latestPlaybackRef.current?.isPlaying || video.error) return;
     try {
       await video.play();
+      if (version !== sourceVersionRef.current) return;
       setNeedsUnmutePrompt(false);
       setIsPlaybackStalled(false);
     } catch (err) {
-      console.warn('[PoufPlayer] Direct play blocked by browser autoplay policy:', err?.message || err);
-      // Auto-fallback: Mute video immediately so browser decodes and paints frames without black screen!
+      if (version !== sourceVersionRef.current || !latestPlaybackRef.current?.isPlaying || err?.name === 'AbortError') return;
+      if (err?.name !== 'NotAllowedError') {
+        setPlaybackError(err?.name === 'NotSupportedError' ? 'This browser cannot decode this video. HEVC support also depends on your device and the video’s profile.' : 'Playback could not start. Retry the video to reconnect to the current room position.');
+        return;
+      }
       try {
         video.muted = true;
         await video.play();
+        if (version !== sourceVersionRef.current) return;
         setNeedsUnmutePrompt(true);
         setIsPlaybackStalled(false);
       } catch (e2) {
-        console.warn('[PoufPlayer] Muted play also failed:', e2?.message || e2);
+        if (version === sourceVersionRef.current && e2?.name !== 'AbortError') setPlaybackError('Your browser paused playback. Tap Retry video to continue.');
       }
     }
   }, []);
+
+  const reloadMedia = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    sourceVersionRef.current += 1;
+    const state = latestPlaybackRef.current;
+    const target = state?.getPlaybackState?.()?.currentTime ?? state?.currentTime ?? video.currentTime;
+    pendingSeekRef.current = Number.isFinite(target) ? target : 0;
+    setPlaybackError('');
+    setIsBuffering(true);
+    video.load();
+  }, []);
+
+  const handleMediaError = useCallback(() => {
+    const error = videoRef.current?.error;
+    if (!error || error.code === 1) return;
+    if ((error.code === 2 || error.code === 3) && !decoderRetryRef.current) {
+      decoderRetryRef.current = true;
+      recoveryTimerRef.current = setTimeout(reloadMedia, 250);
+      return;
+    }
+    setIsBuffering(false);
+    setIsPlaybackStalled(true);
+    setPlaybackError(error.code === 4 ? 'This browser cannot decode this video format. HEVC needs compatible device decoding as well as the installed codec.' : error.code === 3 ? 'The video decoder stopped. Retry video to reopen it at the room’s current position.' : 'The video connection was interrupted. Retry video to rejoin playback.');
+  }, [reloadMedia]);
 
   const handleUnmuteAudio = useCallback(() => {
     const video = videoRef.current;
@@ -494,6 +533,11 @@ export function PoufPlayer({
     const video = videoRef.current;
     if (!video || !directStreamUrl) return;
 
+    sourceVersionRef.current += 1;
+    decoderRetryRef.current = false;
+    setPlaybackError('');
+    setNeedsUnmutePrompt(false);
+
     if (video.src !== directStreamUrl && !video.src.endsWith(directStreamUrl)) {
       video.src = directStreamUrl;
       if (currentTime > 0) {
@@ -509,6 +553,10 @@ export function PoufPlayer({
         }
       }
     }
+    return () => {
+      sourceVersionRef.current += 1;
+      clearTimeout(recoveryTimerRef.current);
+    };
   }, [directStreamUrl, safePlayVideo]);
 
   // Apply playback speed
@@ -606,7 +654,7 @@ export function PoufPlayer({
     if (!video) return;
 
     if (isPlaying) {
-      if (video.paused) video.play().catch(() => { });
+      if (video.paused) safePlayVideo();
       if (shouldUseAudioElement && audio && audio.paused) {
         if (Math.abs(audio.currentTime - video.currentTime) > 0.4) {
           audio.currentTime = video.currentTime;
@@ -617,7 +665,7 @@ export function PoufPlayer({
       if (!video.paused) video.pause();
       if (audio && !audio.paused) audio.pause();
     }
-  }, [isPlaying, shouldUseAudioElement]);
+  }, [isPlaying, shouldUseAudioElement, safePlayVideo]);
 
   // Sync external currentTime (when paused: threshold 0.4s; when playing: threshold 2.0s so joining users and scrubs instantly sync without frame drops during playback)
   useEffect(() => {
@@ -906,7 +954,8 @@ export function PoufPlayer({
     setDuration(video.duration || 0);
 
     // Initial seek to target currentTime once video metadata is ready
-    const seekTarget = pendingSeekRef.current !== null ? pendingSeekRef.current : currentTime;
+    const liveState = latestPlaybackRef.current?.getPlaybackState?.();
+    const seekTarget = liveState?.currentTime ?? (pendingSeekRef.current !== null ? pendingSeekRef.current : latestPlaybackRef.current?.currentTime);
     if (typeof seekTarget === 'number' && seekTarget > 0 && Math.abs(video.currentTime - seekTarget) > 0.4) {
       video.currentTime = seekTarget;
       if (shouldUseAudioElement && audioRef.current) {
@@ -915,7 +964,7 @@ export function PoufPlayer({
     }
     pendingSeekRef.current = null;
 
-    if (isPlaying && video.paused) {
+    if ((liveState?.isPlaying ?? latestPlaybackRef.current?.isPlaying) && video.paused) {
       safePlayVideo();
     }
   }
@@ -1538,13 +1587,10 @@ export function PoufPlayer({
         onPause={handlePauseEvent}
         onEnded={() => onEnded?.({ url, duration: videoRef.current?.duration, currentTime: videoRef.current?.currentTime })}
         onWaiting={() => setIsBuffering(true)}
-        onCanPlay={() => setIsBuffering(false)}
+        onCanPlay={() => { setIsBuffering(false); if (videoRef.current?.paused) safePlayVideo(); }}
         onSeeking={() => setIsBuffering(true)}
         onSeeked={() => setIsBuffering(false)}
-        onError={() => {
-          setIsBuffering(false);
-          setIsPlaybackStalled(true);
-        }}
+        onError={handleMediaError}
         style={{
           width: '100%',
           height: '100%',
@@ -1556,6 +1602,12 @@ export function PoufPlayer({
           cursor: isLocked ? 'default' : 'pointer'
         }}
       />
+
+      {playbackError && <div className="player-playback-error" role="alert">
+        <p>{playbackError}</p>
+        <button type="button" onClick={reloadMedia}>Retry video</button>
+        <span>Your room stays connected.</span>
+      </div>}
 
       {filmGrainEnabled && filmGrainIntensity > 0 && <FilmGrain intensity={filmGrainIntensity}
         size={filmGrainSize} blend={filmGrainBlend}

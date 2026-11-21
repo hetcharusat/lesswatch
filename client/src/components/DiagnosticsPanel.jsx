@@ -95,6 +95,7 @@ export default function DiagnosticsPanel({
   const [proxyTab, setProxyTab] = useState('nginx');
   const [showProxyHelp, setShowProxyHelp] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const checksRunningRef = useRef(false);
 
   const onDiagnosticsLoadedRef = useRef(onDiagnosticsLoaded);
   useEffect(() => {
@@ -141,6 +142,8 @@ export default function DiagnosticsPanel({
   }, []);
 
   const runAllChecks = useCallback(async () => {
+    if (checksRunningRef.current) return;
+    checksRunningRef.current = true;
     setLoading(true);
     setServerError('');
 
@@ -150,7 +153,7 @@ export default function DiagnosticsPanel({
     // 1. Server hardware, storage, binary, Docker & LiveKit check
     let diagData = null;
     try {
-      const res = await fetch('/api/system/diagnostics', { headers });
+      const res = await fetch('/api/system/diagnostics', { headers, signal: AbortSignal.timeout(15000) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       diagData = data;
@@ -158,8 +161,6 @@ export default function DiagnosticsPanel({
       if (onDiagnosticsLoadedRef.current) onDiagnosticsLoadedRef.current(data);
     } catch (err) {
       setServerError(err.message || 'Failed to fetch server diagnostics');
-    } finally {
-      setLoading(false);
     }
 
     // 2. Real browser HTTPS / Secure Context & getUserMedia availability
@@ -188,7 +189,7 @@ export default function DiagnosticsPanel({
       lkStatus = { status: 'warn', detail: 'Skipped (LiveKit Voice SFU module is disabled in settings).' };
     } else if (diagData?.livekit?.configured && diagData?.livekit?.reachable) {
       try {
-        const tokRes = await fetch('/api/system/diagnostics/livekit-token', { headers });
+        const tokRes = await fetch('/api/system/diagnostics/livekit-token', { headers, signal: AbortSignal.timeout(10000) });
         const tokData = await tokRes.json();
         if (!tokRes.ok || !tokData.token) {
           lkStatus = { status: 'error', detail: tokData.error || 'Could not obtain LiveKit test token.' };
@@ -219,6 +220,8 @@ export default function DiagnosticsPanel({
     if (secureStatus.status !== 'ok' || syncStatus.status !== 'ok' || lkStatus.status === 'error') {
       setShowProxyHelp(true);
     }
+    checksRunningRef.current = false;
+    setLoading(false);
   }, [authToken, probeWebSocket]);
 
   useEffect(() => {

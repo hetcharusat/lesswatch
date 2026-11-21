@@ -21,9 +21,10 @@
 import readline from 'node:readline';
 import os from 'node:os';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import { spawn, exec, execSync } from 'node:child_process';
 import { ensureDocker } from './docker-bootstrap.mjs';
+import { buildAndStartServices } from './docker-build.mjs';
+import { ensureInstallerCredentials } from './installer-env.mjs';
 
 const REAL = process.argv.includes('--real');
 const out = process.stdout;
@@ -140,9 +141,7 @@ async function checkDocker(log, s) {
 }
 
 async function generateEnvironment(log, s) {
-  log('Deriving cryptographic session secrets & AES vault keys...');
-  const livekitSecret = crypto.randomBytes(24).toString('hex');
-  const vaultSecret = crypto.randomBytes(32).toString('hex');
+  log('Preserving existing credentials and generating missing session/vault keys...');
 
   if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
   if (!fs.existsSync('./downloads')) fs.mkdirSync('./downloads', { recursive: true });
@@ -166,11 +165,7 @@ async function generateEnvironment(log, s) {
   const targetPort = defaultPort();
 
   setEnvVar('PORT', targetPort);
-  setEnvVar('LIVEKIT_API_KEY', 'watchtogether');
-  setEnvVar('LIVEKIT_API_SECRET', livekitSecret);
-  setEnvVar('VAULT_SECRET', vaultSecret);
-  setEnvVar('NEKO_PASSWORD', 'admin');
-  setEnvVar('NEKO_ADMIN_PASSWORD', 'admin');
+  envContent = ensureInstallerCredentials(envContent);
 
   if (isCloud) {
     setEnvVar('NEKO_SCREEN', '960x540@20');
@@ -202,183 +197,23 @@ async function generateEnvironment(log, s) {
   log(`Written .env with port ${targetPort} and optimized WebRTC parameters.`);
 }
 
-function buildServices(log, s) {
-  return new Promise((resolve, reject) => {
-    const livekitOn = state.modules[3] ?? true;
-    const services = ['watch-together'];
-    if (livekitOn) services.push('livekit');
-    s.progress = Math.max(s.progress, 6);
-
-    // Fast-start check: If image already exists locally and code has not changed, start immediately (~2s)
-    let hasImage = false;
-    try {
-      execSync('docker image inspect watch-together:latest', { stdio: 'ignore' });
-      hasImage = true;
-    } catch { }
-
-    let currentCommit = '';
-    try {
-      currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
-    } catch { }
-
-    let cachedCommit = '';
-    try {
-      if (fs.existsSync('./data/.build-commit')) {
-        cachedCommit = fs.readFileSync('./data/.build-commit', 'utf-8').trim();
-      }
-    } catch { }
-
-    const isCodeUpdated = currentCommit && (!cachedCommit || currentCommit !== cachedCommit);
-    const forceRebuild = process.argv.includes('--force-build') || process.argv.includes('--rebuild');
-    const needsBuild = !hasImage || forceRebuild || isCodeUpdated;
-
-    const composeArgs = ['compose', 'up', '-d'];
-    if (needsBuild) {
-      composeArgs.push('--build');
-      log(isCodeUpdated ? `New code detected (${currentCommit.slice(0, 7)}). Building updated container with BuildKit...` : 'Building LESSWATCH core services with Docker BuildKit...');
-    } else {
-      log('Cached watch-together image found. Starting services (~2s)...');
-    }
-    composeArgs.push(...services);
-
-    const child = spawn('docker', composeArgs, {
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    activeChild = child;
-    let finished = false;
-    let pollerTimer = null;
-    let settleTimer = null;
-    let ticker = null;
-
-    const cleanupAndResolve = () => {
-      if (finished) return;
-      finished = true;
-      if (pollerTimer) clearInterval(pollerTimer);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (ticker) clearInterval(ticker);
-      activeChild = null;
-      if (currentCommit) {
-        try {
-          if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
-          fs.writeFileSync('./data/.build-commit', currentCommit);
-        } catch { }
-      }
-      s.progress = 100;
-      log('LESSWATCH core services & LiveKit server online.');
-      resolve();
-    };
-
-    const cleanupAndReject = (err) => {
-      if (finished) return;
-      finished = true;
-      if (pollerTimer) clearInterval(pollerTimer);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (ticker) clearInterval(ticker);
-      activeChild = null;
-      reject(err);
-    };
-
-    // Smooth progress ticker: during long apt-get or layer downloads, keep the bar feeling alive
-    ticker = setInterval(() => {
-      if (finished) { clearInterval(ticker); return; }
-      if (s.progress < 90) {
-        s.progress = Math.min(90, +(s.progress + 0.35).toFixed(1));
-      }
-    }, 1000);
-
-    // Non-blocking async poller: checks if container is running without freezing event loop
-    pollerTimer = setInterval(() => {
-      if (finished) return;
-      exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', { timeout: 6000 }, (err, stdout) => {
-        if (!err && stdout && (stdout.includes('Up') || stdout.includes('running') || stdout.includes('healthy'))) {
-          log('Verified watch-together container is Up and operational.');
-          cleanupAndResolve();
-        }
-      });
-    }, 2000);
-
-    const feed = (d) => {
-      const lines = String(d).split(/\r?\n|\r/);
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        log(line);
-
-        // Check for Docker BuildKit fractional steps: [X/Y]
-        const stepMatch = line.match(/\[\s*(\d+)\s*\/\s*(\d+)\s*\]/);
-        const mbMatch = line.match(/(\d+(?:\.\d+)?)\s*MB\s*\/\s*(\d+(?:\.\d+)?)\s*MB/i);
-        if (stepMatch) {
-          const stepCur = parseInt(stepMatch[1], 10);
-          const stepTotal = parseInt(stepMatch[2], 10);
-          if (stepTotal > 0) {
-            const calculated = Math.min(92, Math.round((stepCur / (stepTotal + 1)) * 90) + 10);
-            s.progress = Math.max(s.progress, calculated);
-          }
-        } else if (mbMatch) {
-          const curMb = parseFloat(mbMatch[1]);
-          const totMb = parseFloat(mbMatch[2]);
-          if (totMb > 0) {
-            const layerPct = Math.min(1, curMb / totMb);
-            s.progress = Math.max(s.progress, Math.round(15 + layerPct * 30));
-          }
-        } else if (line.includes('sha256:') || /downloading|extracting/i.test(line)) {
-          s.progress = Math.max(s.progress, 15);
-        } else if (line.includes('Step 1/') || /load metadata|load build definition/i.test(line)) {
-          s.progress = Math.max(s.progress, 15);
-        } else if (line.includes('Step 2/') || /apt-get/i.test(line)) {
-          s.progress = Math.max(s.progress, 35);
-        } else if (line.includes('Step 3/') || /yt-dlp|curl/i.test(line)) {
-          s.progress = Math.max(s.progress, 55);
-        } else if (line.includes('Step 4/') || /COPY package/i.test(line)) {
-          s.progress = Math.max(s.progress, 65);
-        } else if (line.includes('Step 5/') || /npm ci|npm install/i.test(line)) {
-          s.progress = Math.max(s.progress, 80);
-        } else if (line.includes('Step 6/') || /exporting to image|naming to/i.test(line)) {
-          s.progress = Math.max(s.progress, 90);
-        } else if (line.includes('Started') || line.includes('Running') || line.includes('healthy')) {
-          s.progress = 96;
-          // Once Docker Compose logs "Started" for watch-together, the container is up!
-          if (!settleTimer && (line.includes('watch-together') || line.includes('Started') || line.includes('livekit'))) {
-            settleTimer = setTimeout(() => {
-              cleanupAndResolve();
-            }, 2000);
-          }
-        }
-      }
-    };
-
-    child.stdout.on('data', feed);
-    child.stderr.on('data', feed);
-
-    child.on('error', cleanupAndReject);
-    child.on('exit', (code) => {
-      if (code === 0) cleanupAndResolve();
-      else {
-        // Compose CLI might return non-zero on pipe disconnect even if container started
-        exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', (err, stdout) => {
-          if (!err && stdout && (stdout.includes('Up') || stdout.includes('running'))) {
-            cleanupAndResolve();
-          } else {
-            cleanupAndReject(new Error(`Docker build failed with exit code ${code}`));
-          }
-        });
-      }
-    });
-    child.on('close', (code) => {
-      if (code === 0) cleanupAndResolve();
-    });
-
-    // Safety watchdog: after 30s, verify container status
-    setTimeout(() => {
-      if (!finished) {
-        exec('docker ps --filter "name=watch-together" --format "{{.Status}}"', (err, stdout) => {
-          if (!err && stdout && (stdout.includes('Up') || stdout.includes('running'))) {
-            log('Container watch-together verified via safety watchdog.');
-            cleanupAndResolve();
-          }
-        });
-      }
-    }, 30000);
-  });
+async function buildServices(log, s) {
+  const services = ['watch-together'];
+  if (state.modules[3] ?? true) services.push('livekit');
+  let hasImage = false;
+  try { execSync('docker image inspect watch-together:latest', { stdio: 'ignore' }); hasImage = true; } catch {}
+  let currentCommit = '', cachedCommit = '';
+  try { currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim(); } catch {}
+  try { cachedCommit = fs.readFileSync('./data/.build-commit', 'utf8').trim(); } catch {}
+  const codeUpdated = currentCommit && currentCommit !== cachedCommit;
+  const build = !hasImage || codeUpdated || process.argv.includes('--force-build') || process.argv.includes('--rebuild');
+  log(build ? 'Preparing container build; progress follows completed phases.' : 'Using the cached LESSWATCH image.');
+  await buildAndStartServices({ services, build, log, stage: s, onProcess: child => { activeChild = child; } });
+  // Save the revision only after Compose succeeds and this deployment is healthy.
+  if (currentCommit) {
+    fs.mkdirSync('./data', { recursive: true });
+    fs.writeFileSync('./data/.build-commit', currentCommit);
+  }
 }
 
 async function provisionNeko(log, s) {
